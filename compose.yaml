@@ -1,0 +1,32 @@
+# Base de datos de La Liga ACP (MySQL 8.4 LTS).
+# Credenciales en .env (copiar desde .env.example). Esquema: EsquemaBD.md.
+services:
+  db:
+    image: mysql:8.4
+    container_name: la-liga-acp-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?definir MYSQL_DATABASE en .env}
+      MYSQL_USER: ${MYSQL_USER:?definir MYSQL_USER en .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?definir MYSQL_PASSWORD en .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?definir MYSQL_ROOT_PASSWORD en .env}
+      TZ: UTC
+    command:
+      - --default-storage-engine=InnoDB
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  db-data:

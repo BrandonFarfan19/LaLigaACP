@@ -1,0 +1,200 @@
+---
+import { Image } from 'astro:assets';
+import leagueLogo from '../assets/logo-la-liga-acp-copa-dorada.png';
+import Carousel from './Carousel.astro';
+import { getTeams } from '../lib/teams';
+import type { CarouselSlide } from '../types';
+
+// Read through the data layer, never from `src/data` directly.
+const teams = await getTeams();
+
+// Map the domain entity onto the carousel's own contract, so the carousel
+// stays reusable for anything else we need to feature later.
+const slides: CarouselSlide[] = teams.map((team) => ({
+	id: team.id,
+	image: team.crest,
+	alt: `Escudo de ${team.name}`,
+	eyebrow: team.country,
+	title: team.shortName,
+	accent: team.accent,
+	href: `/plantilla/${team.id}`,
+	hrefLabel: `Ver plantilla de ${team.name}`,
+}));
+---
+
+<section class="hero" id="inicio">
+	<div class="content">
+		<header class="intro">
+			<Image
+			class="league-logo pixelated"
+			src={leagueLogo}
+			alt="La Liga ACP"
+			width={96}
+			height={96}
+			densities={[2]}
+			loading="eager"
+			fetchpriority="high"
+			/>
+			<h1 class="title">Conoce a los <span class="accent">equipos</span></h1>
+			<p class="lead">Los {teams.length} clubes que disputan el torneo.</p>
+		</header>
+
+		<Carousel slides={slides} label="Equipos participantes" />
+	</div>
+</section>
+
+<style>
+	.hero {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		/* Exactly one screen, never more. Everything inside is capped in
+		   `svh` too, so the content shrinks to fit instead of pushing the
+		   section past the fold on short windows. */
+		width: 100%;
+		height: 100vh;
+		height: 100svh;
+		/* The stadium backdrop lives in the layout and shows through. */
+		overflow: hidden;
+		/* Top padding clears the fixed navbar, so the crest centers in the
+		   space actually visible rather than behind the bar. */
+		padding-block: calc(var(--navbar-height) + var(--space-4)) var(--space-4);
+	}
+
+	/* Stepped edge instead of the old diagonal slice: the boundary is cut in
+	   whole pixel blocks, the way a tilemap ends. */
+	.hero::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: calc(var(--px) * 4);
+		background: repeating-linear-gradient(
+			to right,
+			var(--color-border) 0 calc(var(--px) * 2),
+			transparent calc(var(--px) * 2) calc(var(--px) * 4)
+		);
+		opacity: 0.5;
+		pointer-events: none;
+	}
+
+	/* Above the stepped edge. `min-height: 0` lets it actually shrink — without
+	   it a flex child refuses to go below its content size and overflows. */
+	.content {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		flex: 1;
+		min-height: 0;
+	}
+
+	.intro {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-3);
+		padding-inline: var(--space-4);
+		margin-bottom: var(--space-4);
+		text-align: center;
+	}
+
+	.league-logo {
+		display: block;
+		/* Capped against viewport height so a short window shrinks it. */
+		width: min(115.2px, 14svh);
+		height: auto;
+		margin-bottom: var(--space-2);
+		filter: drop-shadow(0 8px 5px rgb(0 0 0 / 0.5));
+		animation: logo-float 5s ease-in-out infinite;
+	}
+
+	@keyframes logo-float {
+		0%, 100% {
+			transform: translateY(0) rotate(-0.4deg);
+			filter: drop-shadow(0 8px 5px rgb(0 0 0 / 0.5));
+		}
+		50% {
+			transform: translateY(-6px) rotate(0.4deg);
+			filter: drop-shadow(0 14px 9px rgb(0 0 0 / 0.3));
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.league-logo {
+			animation: none;
+		}
+	}
+
+	.title {
+		font-size: var(--text-md);
+		line-height: 1.4;
+		/* Sits outside the stage light, so it stays deliberately quieter
+		   than the crest it introduces. */
+		color: var(--color-text-muted);
+	}
+
+	.title .accent {
+		color: var(--color-accent);
+	}
+
+	.lead {
+		margin: 0;
+		font-size: var(--text-sm);
+		text-transform: uppercase;
+		color: var(--color-text-muted);
+	}
+
+	@media (min-width: 48rem) {
+		.hero {
+			padding-block: calc(var(--navbar-height) + var(--space-6)) var(--space-6);
+		}
+
+		.league-logo {
+			width: min(172.8px, 15svh);
+		}
+
+		.title {
+			font-size: var(--text-lg);
+		}
+
+		.intro {
+			margin-bottom: var(--space-6);
+		}
+	}
+
+	/* Short windows — a small desktop window or a phone in landscape. Keyed
+	   on height, not width, because that is the axis running out. Placed
+	   last so it wins over the min-width block above. */
+	@media (max-height: 46rem) {
+		.league-logo {
+			width: min(115.2px, 12svh);
+		}
+
+		.title {
+			font-size: var(--text-md);
+		}
+
+		.intro {
+			gap: var(--space-2);
+			margin-bottom: var(--space-2);
+		}
+	}
+
+	/* Phone held sideways: roughly 390px of height for everything. The crest
+	   is the point of the section, so the decorative logo and the supporting
+	   line step aside rather than squeezing it to nothing. */
+	@media (max-height: 30rem) {
+		.league-logo,
+		.lead {
+			display: none;
+		}
+
+		.intro {
+			margin-bottom: var(--space-2);
+		}
+	}
+</style>

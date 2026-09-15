@@ -1,0 +1,392 @@
+---
+import { Image } from 'astro:assets';
+import type { CarouselSlide } from '../types';
+
+interface Props {
+	/** Slides to render. The component is data-driven — it knows nothing about teams. */
+	slides: CarouselSlide[];
+	/** Accessible name for the carousel region. */
+	label?: string;
+	autoplay?: boolean;
+	/** Autoplay delay in ms. */
+	interval?: number;
+}
+
+const { slides, label = 'Destacados', autoplay = true, interval = 5000 } = Astro.props;
+---
+
+<section
+	class="carousel"
+	data-carousel
+	data-autoplay={autoplay ? 'true' : 'false'}
+	data-interval={interval}
+	aria-roledescription="carrusel"
+	aria-label={label}
+>
+	{/* Fixed stage light: it never moves, the crests travel through it. */}
+	<div class="spotlight" aria-hidden="true"></div>
+
+	<div class="track" data-carousel-track tabindex="0">
+		{
+			slides.map((slide, index) => (
+				<article
+					class="slide"
+					data-carousel-slide
+					style={`--slide-accent: ${slide.accent ?? 'var(--color-accent)'}`}
+					aria-roledescription="diapositiva"
+					aria-label={`${index + 1} de ${slides.length}`}
+				>
+					{/* An `<a>` when the slide links somewhere, a plain box when
+					    it doesn't — so the carousel stays usable either way. */}
+					<Fragment>
+						{slide.href ? (
+							<a class="stage-link" href={slide.href} aria-label={slide.hrefLabel}>
+								<div class="stage">
+									{/* Width only — forcing a square height would squash
+									    the crests that aren't square. */}
+									<Image
+										class="crest pixelated"
+										src={slide.image}
+										alt={slide.alt}
+										width={96}
+										densities={[2]}
+										loading={index === 0 ? 'eager' : 'lazy'}
+									/>
+								</div>
+							</a>
+						) : (
+							<div class="stage">
+								<Image
+									class="crest pixelated"
+									src={slide.image}
+									alt={slide.alt}
+									width={96}
+									densities={[2]}
+									loading={index === 0 ? 'eager' : 'lazy'}
+								/>
+							</div>
+						)}
+					</Fragment>
+
+					<div class="copy">
+						{slide.eyebrow && <p class="eyebrow">{slide.eyebrow}</p>}
+						{slide.title && <h2 class="title">{slide.title}</h2>}
+						{slide.subtitle && <p class="subtitle">{slide.subtitle}</p>}
+					</div>
+				</article>
+			))
+		}
+	</div>
+
+	<button class="arrow arrow-prev" type="button" data-carousel-prev aria-label="Anterior">
+		<span aria-hidden="true">&lt;</span>
+	</button>
+
+	<button class="arrow arrow-next" type="button" data-carousel-next aria-label="Siguiente">
+		<span aria-hidden="true">&gt;</span>
+	</button>
+</section>
+
+<style>
+	.carousel {
+		position: relative;
+		width: 100%;
+		/* Drives crest size, spotlight center and arrow height in one place. */
+		/* Capped by width AND by viewport height: on a short window the
+		   crest shrinks instead of pushing the hero past one screen. */
+		--stage-size: min(72vw, 288px, 34svh);
+		--slide-pad: var(--space-4);
+		/* Vertical center of the crest — arrows and light both align to it. */
+		--stage-center: calc(var(--slide-pad) + var(--stage-size) / 2);
+	}
+
+	/* Pool of light built from hard concentric bands. A smooth gradient
+	   would be the one un-pixelated thing on the page; stepped rings read
+	   as the dithered lighting a 16-bit sprite scene used instead. */
+	.spotlight {
+		position: absolute;
+		top: var(--stage-center);
+		left: 50%;
+		width: min(165vw, 760px);
+		aspect-ratio: 1;
+		transform: translate(-50%, -50%);
+		background: radial-gradient(
+			circle closest-side,
+			rgb(255 255 255 / 0.2) 0 26%,
+			rgb(255 255 255 / 0.13) 26% 40%,
+			rgb(255 255 255 / 0.08) 40% 54%,
+			rgb(255 255 255 / 0.04) 54% 68%,
+			rgb(255 255 255 / 0.015) 68% 82%,
+			transparent 82%
+		);
+		pointer-events: none;
+		z-index: 0;
+	}
+
+	/* Native horizontal swipe on touch, snapping one slide at a time. */
+	.track {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		overflow-x: auto;
+		scroll-snap-type: x mandatory;
+		scrollbar-width: none;
+		outline: none;
+	}
+
+	.track::-webkit-scrollbar {
+		display: none;
+	}
+
+	.slide {
+		flex: 0 0 100%;
+		scroll-snap-align: center;
+		scroll-snap-stop: always;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		/* 16px between the crest and its name — they read as one unit. */
+		gap: var(--space-4);
+		padding-block: var(--slide-pad);
+		/* Keep copy clear of the arrows sitting on top of the slide. */
+		padding-inline: calc(44px + var(--space-2) * 2);
+		text-align: center;
+	}
+
+	/* The crest as a control: it lifts one fat pixel on hover, the way a
+	   selected item pops in a 16-bit menu. */
+	.stage-link {
+		display: block;
+		text-decoration: none;
+		transition: transform 120ms steps(2, end);
+	}
+
+	.stage-link:hover,
+	.stage-link:focus-visible {
+		transform: translateY(calc(var(--px) * -1));
+	}
+
+	.stage-link:hover .crest,
+	.stage-link:focus-visible .crest {
+		filter: drop-shadow(calc(var(--px) * 2) calc(var(--px) * 2) 0 var(--color-shadow));
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.stage-link {
+			transition: none;
+		}
+	}
+
+	/* Fixed box so every crest lands on the same optical center, whatever
+	   its aspect ratio. */
+	.stage {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: var(--stage-size);
+		height: var(--stage-size);
+	}
+
+	/* Fills the stage box, which is what upscales the small render into
+	   fat pixels. Left at `auto` it would sit at its intrinsic 96px and
+	   float in the middle of the box, reading as a gap. */
+	.crest {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		/* Hard offset shadow on the pixel grid — never a blur. */
+		filter: drop-shadow(var(--px) var(--px) 0 var(--color-shadow));
+	}
+
+	.copy {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+	}
+
+	.eyebrow {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: var(--text-xs);
+		text-transform: uppercase;
+		color: var(--slide-accent);
+	}
+
+	.title {
+		font-size: var(--text-md);
+		line-height: 1.4;
+	}
+
+	.subtitle {
+		margin: 0;
+		font-size: var(--text-sm);
+		text-transform: uppercase;
+		color: var(--color-text-muted);
+	}
+
+	/* Flanking the crest, vertically centered on it. Bare glyph — the 44px
+	   box is an invisible touch target, not a visible button. */
+	.arrow {
+		position: absolute;
+		top: var(--stage-center);
+		z-index: 2;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px;
+		height: 44px;
+		padding: 0;
+		transform: translateY(-50%);
+		border: none;
+		background: none;
+		color: var(--color-text-muted);
+		font-family: var(--font-display);
+		font-size: var(--text-md);
+		line-height: 1;
+		cursor: var(--cursor-pointer);
+		transition: color 120ms steps(2, end);
+	}
+
+	.arrow:hover,
+	.arrow:focus-visible {
+		color: var(--color-accent);
+	}
+
+	.arrow-prev {
+		left: var(--space-2);
+	}
+
+	.arrow-next {
+		right: var(--space-2);
+	}
+
+	@media (min-width: 48rem) {
+		.carousel {
+			--stage-size: min(384px, 32svh);
+			--slide-pad: var(--space-6);
+		}
+
+		.title {
+			font-size: var(--text-lg);
+		}
+
+		.arrow {
+			font-size: var(--text-lg);
+		}
+
+		.arrow-prev {
+			left: var(--space-8);
+		}
+
+		.arrow-next {
+			right: var(--space-8);
+		}
+	}
+
+	/* Short windows: the team name drops back to the small size so the
+	   crest keeps the height it has left. */
+	@media (max-height: 46rem) {
+		.title {
+			font-size: var(--text-md);
+		}
+	}
+
+	/* Phone held sideways: give the crest every pixel the padding was using. */
+	@media (max-height: 30rem) {
+		.carousel {
+			--slide-pad: var(--space-2);
+		}
+	}
+</style>
+
+<script>
+	class Carousel {
+		private root: HTMLElement;
+		private track: HTMLElement;
+		private slides: HTMLElement[];
+		private index = 0;
+		private timer: number | undefined;
+		private readonly interval: number;
+		private readonly autoplay: boolean;
+
+		constructor(root: HTMLElement) {
+			this.root = root;
+			this.track = root.querySelector<HTMLElement>('[data-carousel-track]')!;
+			this.slides = [...root.querySelectorAll<HTMLElement>('[data-carousel-slide]')];
+			this.interval = Number(root.dataset.interval) || 5000;
+
+			const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			this.autoplay =
+				root.dataset.autoplay === 'true' && !reducedMotion && this.slides.length > 1;
+
+			this.bind();
+			this.start();
+		}
+
+		private bind() {
+			this.root
+				.querySelector('[data-carousel-prev]')
+				?.addEventListener('click', () => this.goTo(this.index - 1, true));
+
+			this.root
+				.querySelector('[data-carousel-next]')
+				?.addEventListener('click', () => this.goTo(this.index + 1, true));
+
+			// Scroll position is the source of truth, so touch swipes stay in sync too.
+			const observer = new IntersectionObserver(
+				(entries) => {
+					for (const entry of entries) {
+						if (!entry.isIntersecting) continue;
+						this.index = this.slides.indexOf(entry.target as HTMLElement);
+					}
+				},
+				{ root: this.track, threshold: 0.6 },
+			);
+			this.slides.forEach((slide) => observer.observe(slide));
+
+			this.track.addEventListener('keydown', (event) => {
+				if (event.key === 'ArrowRight') this.goTo(this.index + 1, true);
+				if (event.key === 'ArrowLeft') this.goTo(this.index - 1, true);
+			});
+
+			// Never advance under the reader's hands, or in a hidden tab.
+			this.root.addEventListener('pointerenter', () => this.stop());
+			this.root.addEventListener('pointerleave', () => this.start());
+			this.root.addEventListener('focusin', () => this.stop());
+			this.root.addEventListener('focusout', () => this.start());
+			this.track.addEventListener('pointerdown', () => this.stop());
+			document.addEventListener('visibilitychange', () =>
+				document.hidden ? this.stop() : this.start(),
+			);
+		}
+
+		private goTo(index: number, userInitiated = false) {
+			const target = (index + this.slides.length) % this.slides.length;
+			this.track.scrollTo({
+				left: target * this.track.clientWidth,
+				behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+					? 'auto'
+					: 'smooth',
+			});
+			this.index = target;
+			// Restart the clock so a manual jump gets a full interval.
+			if (userInitiated && this.timer !== undefined) {
+				this.stop();
+				this.start();
+			}
+		}
+
+		private start() {
+			if (!this.autoplay || this.timer !== undefined) return;
+			this.timer = window.setInterval(() => this.goTo(this.index + 1), this.interval);
+		}
+
+		private stop() {
+			if (this.timer === undefined) return;
+			window.clearInterval(this.timer);
+			this.timer = undefined;
+		}
+	}
+
+	document.querySelectorAll<HTMLElement>('[data-carousel]').forEach((root) => new Carousel(root));
+</script>

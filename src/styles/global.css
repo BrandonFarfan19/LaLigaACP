@@ -1,0 +1,204 @@
+/* Self-hosted pixel fonts — no CDN request, no layout shift.
+   Latin subsets only: the default entry point also ships Cyrillic and Greek,
+   which this site has no text for. */
+@import '@fontsource/press-start-2p/latin-400.css';
+@import '@fontsource/silkscreen/latin-400.css';
+@import '@fontsource/silkscreen/latin-700.css';
+
+:root {
+	color-scheme: dark;
+
+	/* ---- Palette -------------------------------------------------------
+	   Deliberately small, like a console with a fixed palette. Adding a new
+	   color is a decision, not a reflex. */
+	--color-bg: #0b0c1a;
+	--color-surface: #161832;
+	--color-surface-raised: #232752;
+	--color-border: #4d53a6;
+	--color-shadow: #05060f;
+
+	--color-text: #f4f4fc;
+	--color-text-muted: #9aa0d8;
+
+	--color-accent: #3cf281;
+	--color-accent-alt: #ffd23f;
+	--color-danger: #ff4d6d;
+
+	/* ---- Type ----------------------------------------------------------
+	   Pixel faces only. Both are bitmap-derived, so sizes must stay whole
+	   multiples of 8px or the glyphs land between pixels and blur. */
+	--font-display: 'Press Start 2P', 'Courier New', monospace;
+	--font-body: 'Silkscreen', 'Press Start 2P', 'Courier New', monospace;
+
+	--text-xs: 8px;
+	--text-sm: 12px;
+	--text-md: 16px;
+	--text-lg: 24px;
+	--text-xl: 32px;
+	--text-2xl: 48px;
+
+	/* ---- Spacing -------------------------------------------------------
+	   Strict 8px grid. Every gap, pad and offset is a multiple of it. */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--space-12: 48px;
+
+	/* ---- Shape ---------------------------------------------------------
+	   `--px` is one "fat pixel": the unit every border, bevel and notch is
+	   built from. Change it and the whole chrome rescales together. */
+	--px: 4px;
+
+	/* ---- Cursor ---------------------------------------------------------
+	   The pointer is part of the sprite work, so it ships as a pre-upscaled
+	   PNG: `image-rendering: pixelated` does not apply to `cursor`. The art
+	   lives in `scripts/generate-cursors.mjs`. The two numbers are the
+	   hotspot — the pixel that actually points at things. */
+	--cursor-default: url('/cursors/arrow.png') 0 0, auto;
+	--cursor-pointer: url('/cursors/hand.png') 9 0, pointer;
+
+	/* ---- Layout --------------------------------------------------------- */
+	--navbar-height: 64px;
+}
+
+@media (min-width: 48rem) {
+	:root {
+		--navbar-height: 80px;
+	}
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	/* Anchor targets stop below the fixed navbar instead of under it. */
+	scroll-padding-top: var(--navbar-height);
+	scroll-behavior: smooth;
+	/* `cursor` inherits, so this one declaration covers every element that
+	   does not carry a cursor of its own. */
+	cursor: var(--cursor-default);
+}
+
+/* Elements the browser gives a cursor of their own, which therefore never
+   inherit the one above. */
+a[href],
+button,
+summary,
+label,
+select,
+[role='button'],
+[role='link'],
+[role='tab'] {
+	cursor: var(--cursor-pointer);
+}
+
+/* Nothing to click means nothing to point at. */
+button:disabled,
+select:disabled,
+[aria-disabled='true'] {
+	cursor: var(--cursor-default);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+}
+
+html,
+body {
+	min-height: 100%;
+	margin: 0;
+	background: var(--color-bg);
+	color: var(--color-text);
+}
+
+body {
+	font-family: var(--font-body);
+	font-size: var(--text-md);
+	line-height: 1.6;
+	/* Pixel fonts must NOT be smoothed — antialiasing is what makes a
+	   bitmap face look like a blurry web font instead of a sprite. */
+	-webkit-font-smoothing: none;
+	-moz-osx-font-smoothing: unset;
+	font-smooth: never;
+}
+
+h1,
+h2,
+h3 {
+	font-family: var(--font-display);
+	/* Press Start 2P ships a single weight. Asking for bold makes the
+	   browser synthesise one, which smears the pixel grid. */
+	font-weight: 400;
+	text-transform: uppercase;
+	line-height: 1.4;
+	margin: 0;
+}
+
+img {
+	max-width: 100%;
+}
+
+/* Artwork is upscaled from a small render, so nearest-neighbour is what
+   turns a smooth logo into actual pixels instead of a blurry enlargement. */
+.pixelated {
+	image-rendering: pixelated;
+}
+
+/* ---- Chrome primitives ---------------------------------------------------
+   Pixel UI has no border-radius and no soft shadow. Panels are built from
+   stacked hard offsets instead. */
+
+/* Notched box: four offset shadows leave the corners empty, the way a
+   sprite-drawn frame does. */
+.pixel-box {
+	position: relative;
+	background: var(--color-surface);
+	box-shadow:
+		0 calc(var(--px) * -1) 0 0 var(--color-border),
+		0 var(--px) 0 0 var(--color-border),
+		calc(var(--px) * -1) 0 0 0 var(--color-border),
+		var(--px) 0 0 0 var(--color-border);
+}
+
+/* Beveled panel: a lit top-left edge and a dark bottom-right one, the
+   classic raised-button look of a 16-bit menu. */
+.pixel-bevel {
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.18),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 var(--color-shadow);
+}
+
+/* Hard drop shadow, offset on the pixel grid — never blurred. */
+.pixel-shadow {
+	box-shadow: var(--px) var(--px) 0 0 var(--color-shadow);
+}
+
+/* ---- CRT scanlines -------------------------------------------------------
+   One dark line every 4px across the whole page. Low opacity so it reads as
+   a screen texture rather than stripes over the content. */
+body::after {
+	content: '';
+	position: fixed;
+	inset: 0;
+	z-index: 200;
+	pointer-events: none;
+	background: repeating-linear-gradient(
+		to bottom,
+		rgb(0 0 0 / 0.22) 0 1px,
+		transparent 1px 4px
+	);
+}
+
+/* Focus ring drawn as a pixel outline, not a rounded glow. */
+:focus-visible {
+	outline: var(--px) solid var(--color-accent);
+	outline-offset: var(--px);
+}
