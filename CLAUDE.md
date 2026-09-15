@@ -51,9 +51,13 @@ Everything is **static hardcoded data for now** — no backend, no database. But
 
 **Player stats are placeholder, random data.** Every other dataset is meant to become real data from the backend. The attribute ratings (`PlayerStats`: shooting, passing, strength, defense, speed, dribbling) are different: they are generated in `src/data/player-stats.ts`, each a random whole number from 70 to 90, so every player's average also falls between 70 and 90. The generator is seeded by the player id, so the numbers stay the same across builds instead of reshuffling on every deploy. They still follow the data rules above: read only through `getPlayerStatsByTeamId()`, keyed by `playerId`, so real ratings can replace them without touching the UI. They are shown as a pixel-art radar (`PlayerStatsDialog.astro`, drawn by `src/utils/pixel-radar.ts`) plus a table, opened by clicking a player's name on `/plantilla/[id]`.
 
-### Database design (planned, not built)
+### Database design (local DB built, app not connected)
 
-This section summarizes the target schema. Full detail (every column, constraint and the ER diagram) lives in [EsquemaBD.md](EsquemaBD.md), in Spanish. It is a **design only**: no database, tables or migrations exist, and **none should be created unless explicitly asked**.
+This section summarizes the target schema. Full detail (every column, constraint and the ER diagram) lives in [EsquemaBD.md](EsquemaBD.md), in Spanish.
+
+- **A local MySQL 8.4 runs in Docker** (`compose.yaml`, credentials in `.env`, see `.env.example`). `db/init/01-schema.sql` creates every table and `db/init/02-catalogos.sql` loads only the catalog rows. Setup, connection and reset steps are in the README.
+- **The app is not connected to it.** `src/lib/` stays static and the site stays SSG. Do not add drivers, seed teams/players/matches or wire queries unless explicitly asked.
+- `EsquemaBD.md` and `db/init/01-schema.sql` must stay in sync: a schema change updates both in the same change.
 
 - Treat it as the source of truth when adding or changing entities in `src/types/` or `src/data/`, so the static layer keeps converging on the future tables.
 - Where the current types differ from the schema (e.g. `Match.homeTeamId`/`awayTeamId` vs. the `partido_equipo` rows), the data layer does the translation. The UI does not change.
@@ -86,7 +90,7 @@ This section summarizes the target schema. Full detail (every column, constraint
 - `partido` (disciplina_id, estado_partido_id, jornada, fecha_hora, sede). States: `programado`, `en_vivo`, `finalizado`, `suspendido`.
 - `partido_equipo` (partido_id, equipo_id, es_visita, marcador) holds **exactly two rows per match**, local (`es_visita = false`) and away. The score is entered by hand by an admin, never derived from stats.
 - `partido_jugador` (partido_equipo_id, plantel_id) records who played. `partido_jugador_estadistica` (partido_jugador_id, estadistica_tipo_id, valor) stores per-match numbers. `estadistica_tipo` is a per-discipline catalog (`goles`, `faltas`, `aces`…).
-- `mercado` (mercado_tipo_id, estado_mercado_id, disciplina_id, partido_id?) is something to bet on. Types: `ganador_partido` (requires partido_id) or `campeon_disciplina`. States: `abierto`, `cerrado`, `liquidado`, `anulado`.
+- `mercado` (mercado_tipo_id, estado_mercado_id, partido_id?, disciplina_id?) is something to bet on, and references **only** that thing: `ganador_partido` sets `partido_id` (its discipline comes from the match via JOIN), `campeon_disciplina` sets `disciplina_id`. `CHECK ((partido_id IS NULL) <> (disciplina_id IS NULL))` enforces exactly one. `UNIQUE(partido_id)` allows one market per match and `UNIQUE(disciplina_id)` one champion market per discipline (NULLs don't collide). Matching the column to the type is backend logic by `codigo`. States: `abierto`, `cerrado`, `liquidado`, `anulado`.
 - `apuesta` (usuario_id, mercado_id, equipo_id?, creada_en, actualizada_en, coins_obtenidos). A null `equipo_id` means a draw. `UNIQUE(usuario_id, mercado_id)` allows one pick per market.
 - Composite FKs over `(id, disciplina_id)` and `(id, equipo_id)` guarantee teams, matches and players share a discipline. See `EsquemaBD.md`.
 
@@ -94,7 +98,7 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - Standings **puntos**: win **3**, draw **1**, loss **0**. Tie-breaking does not matter. The champion is first in the table once every match of the discipline is `finalizado`.
 - The pool is **coins only**; the user with most coins wins the prize, split on a tie.
-- Bets are only on **which team wins**: a match (draw allowed only if `disciplina.permite_empate`) or a discipline champion.
+- Bets are only on **which team wins**: a match (draw allowed only if `permite_empate` is true on the match's discipline, reached via `mercado.partido_id` → `partido.disciplina_id`) or a discipline champion.
 - Match bets close **24 h before** `partido.fecha_hora`. They can be changed until then; each change resets `actualizada_en`.
 - Match bet coins, with anticipation measured as `fecha_hora − actualizada_en`:
 

@@ -1,6 +1,6 @@
 # Esquema BD — La Liga ACP
 
-> **Documento de diseño.** Describe la base de datos planeada; todavía **no existe** ninguna tabla ni migración. Hoy la app usa datos estáticos (ver `CLAUDE.md`).
+> **Documento de diseño.** Es la fuente de verdad del esquema. Hay una implementación local en MySQL con Docker (`compose.yaml` y `db/init/`), pero la app **todavía no se conecta**: sigue usando datos estáticos (ver `CLAUDE.md`). Si cambia este documento, `db/init/01-schema.sql` cambia en el mismo cambio.
 
 ## Módulos
 
@@ -207,11 +207,15 @@ No es un jugador: son entidades distintas.
 | id | PK | |
 | mercado_tipo_id | FK → mercado_tipo | |
 | estado_mercado_id | FK → estado_mercado | |
-| disciplina_id | FK → disciplina | |
 | partido_id | FK → partido, opcional | Obligatorio en `ganador_partido`; vacío en `campeon_disciplina`. |
+| disciplina_id | FK → disciplina, opcional | Obligatorio en `campeon_disciplina`; vacío en `ganador_partido`. |
 
+Un mercado referencia **solo a lo que se apuesta**: el partido o la disciplina, nunca los dos. En `ganador_partido` la disciplina se obtiene del partido (`JOIN partido`), así no hay una copia que pueda contradecirlo.
+
+- `CHECK ((partido_id IS NULL) <> (disciplina_id IS NULL))`: exactamente uno de los dos tiene valor.
 - `UNIQUE(partido_id)`: un mercado por partido. MySQL permite varios `NULL`, así que los mercados de campeón no chocan.
-- **Backend:** un solo mercado `campeon_disciplina` por disciplina (MySQL no tiene índices únicos parciales), y `partido_id` obligatorio o vacío según el tipo.
+- `UNIQUE(disciplina_id)`: un solo mercado `campeon_disciplina` por disciplina. Los mercados de partido tienen `disciplina_id` vacío, y los `NULL` no chocan.
+- **Backend:** que la columna usada corresponda al tipo (`ganador_partido` → `partido_id`, `campeon_disciplina` → `disciplina_id`), comparando por `codigo`.
 - No se guarda la hora de cierre: el backend la calcula desde `partido.fecha_hora` (D12). Si el partido se reprograma, el cierre se mueve solo.
 
 ### apuesta
@@ -226,8 +230,8 @@ No es un jugador: son entidades distintas.
 | coins_obtenidos | DECIMAL(5,1), opcional | Vacío hasta liquidar. |
 
 - `UNIQUE(usuario_id, mercado_id)`: **una sola elección por mercado**. Sin esto, apostar a todas las opciones asegura coins.
-- **Backend:** el equipo es de la disciplina del mercado y, en `ganador_partido`, juega ese partido.
-- **Backend:** empate solo en `ganador_partido` y solo si `disciplina.permite_empate`.
+- **Backend:** en `ganador_partido`, el equipo juega ese partido (tiene fila en `partido_equipo`), lo que ya garantiza la disciplina. En `campeon_disciplina`, el equipo es de `mercado.disciplina_id`.
+- **Backend:** empate solo en `ganador_partido` y solo si la disciplina del partido tiene `permite_empate`.
 
 ### Calculado, no guardado
 - **Ranking de la polla:** `SUM(coins_obtenidos)` por usuario. Si hay empate, el premio se reparte (D10).

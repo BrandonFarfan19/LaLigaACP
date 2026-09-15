@@ -179,24 +179,33 @@ CREATE TABLE estado_mercado (
   CONSTRAINT ck_estado_mercado_codigo CHECK (codigo <> '')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- UNIQUE(partido_id): MySQL admite varios NULL, así que los mercados de campeón no chocan.
--- Backend: un solo campeon_disciplina por disciplina y partido_id obligatorio o vacío según el tipo.
+-- Un mercado referencia solo a lo que se apuesta:
+--   ganador_partido    → partido_id (la disciplina sale del partido), disciplina_id NULL.
+--   campeon_disciplina → disciplina_id, partido_id NULL.
+-- ck_mercado_objetivo obliga a que exactamente uno tenga valor.
+-- UNIQUE(partido_id) y UNIQUE(disciplina_id): MySQL admite varios NULL, así que un mercado por partido
+-- y un solo campeon_disciplina por disciplina, sin que los dos tipos choquen entre sí.
+-- Los UNIQUE también sirven de índice para sus FKs.
+-- Backend: que la columna usada corresponda al tipo (por codigo).
 CREATE TABLE mercado (
   id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   mercado_tipo_id   BIGINT UNSIGNED NOT NULL,
   estado_mercado_id BIGINT UNSIGNED NOT NULL,
-  disciplina_id     BIGINT UNSIGNED NOT NULL,
   partido_id        BIGINT UNSIGNED NULL,
+  disciplina_id     BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
   CONSTRAINT uq_mercado_partido UNIQUE (partido_id),
+  CONSTRAINT uq_mercado_disciplina UNIQUE (disciplina_id),
   CONSTRAINT fk_mercado_tipo FOREIGN KEY (mercado_tipo_id) REFERENCES mercado_tipo (id),
   CONSTRAINT fk_mercado_estado FOREIGN KEY (estado_mercado_id) REFERENCES estado_mercado (id),
+  CONSTRAINT fk_mercado_partido FOREIGN KEY (partido_id) REFERENCES partido (id),
   CONSTRAINT fk_mercado_disciplina FOREIGN KEY (disciplina_id) REFERENCES disciplina (id),
-  CONSTRAINT fk_mercado_partido FOREIGN KEY (partido_id) REFERENCES partido (id)
+  CONSTRAINT ck_mercado_objetivo CHECK ((partido_id IS NULL) <> (disciplina_id IS NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- equipo_id NULL = empate. Backend: el equipo es de la disciplina del mercado,
--- y el empate solo vale en ganador_partido con disciplina.permite_empate.
+-- equipo_id NULL = empate. Backend: en ganador_partido el equipo juega ese partido;
+-- en campeon_disciplina el equipo es de mercado.disciplina_id.
+-- El empate solo vale en ganador_partido si la disciplina del partido permite_empate.
 CREATE TABLE apuesta (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   usuario_id      BIGINT UNSIGNED NOT NULL,
