@@ -1,8 +1,8 @@
 import type { Team } from '../types';
 
-import barcelonaCrest from '../assets/barcelona.webp';
-import bocaCrest from '../assets/boca.avif';
-import universitarioCrest from '../assets/Logo_Universitario.png';
+import barcelonaCrest from '../assets/barcelona.webp?pixel=crest';
+import bocaCrest from '../assets/boca.avif?pixel=crest';
+import universitarioCrest from '../assets/Logo_Universitario.png?pixel=crest';
 
 /**
  * Static seed data. Replaced by a database table later — the shape here is

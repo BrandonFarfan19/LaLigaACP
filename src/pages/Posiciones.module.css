@@ -1,0 +1,171 @@
+.standings {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-8);
+	width: 100%;
+	max-width: 48rem;
+	min-height: 100vh;
+	min-height: 100svh;
+	margin-inline: auto;
+	padding-block: calc(var(--navbar-height) + var(--space-8)) var(--space-12);
+	padding-inline: var(--space-4);
+}
+
+.head {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.kicker {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.title {
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.lead {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.table {
+	width: 100%;
+	border-collapse: collapse;
+	text-align: left;
+}
+
+.table thead th {
+	padding: var(--space-3);
+	background: var(--color-surface-raised);
+	font-family: var(--font-display);
+	font-weight: 400;
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+	box-shadow: inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.12);
+}
+
+/* Scoped to the table: CSS Modules only scope classes, and a bare `abbr`
+   selector would leak to every page. */
+.table abbr {
+	text-decoration: none;
+}
+
+.table tbody td,
+.table tbody th {
+	padding: var(--space-3);
+	font-weight: 400;
+	vertical-align: middle;
+}
+
+/* Banded rows, same as the squad roster. */
+.table tbody tr:nth-child(even) {
+	background: var(--color-surface-raised);
+}
+
+.table tbody tr {
+	transition: background-color 120ms steps(2, end);
+}
+
+@media (hover: hover) {
+	.table tbody tr:hover {
+		background: var(--color-border);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.table tbody tr {
+		transition: none;
+	}
+}
+
+.col-position {
+	width: 1%;
+	font-family: var(--font-display);
+	font-size: var(--text-sm);
+	text-align: center;
+	color: var(--color-text-muted);
+}
+
+.col-points {
+	width: 1%;
+	font-family: var(--font-display);
+	font-size: var(--text-md);
+	text-align: right;
+	white-space: nowrap;
+}
+
+.team {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	/* Room to tap even though the row isn't a link yet. */
+	min-height: 44px;
+}
+
+.crest {
+	flex-shrink: 0;
+	width: 32px;
+	height: 32px;
+	object-fit: contain;
+	filter: drop-shadow(var(--px) var(--px) 0 var(--color-shadow));
+}
+
+.team-name {
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.6;
+	text-transform: uppercase;
+}
+
+/* First place wears the gold. */
+.leader .col-position,
+.leader .col-points {
+	color: var(--color-accent-alt);
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+@media (min-width: 48rem) {
+	.standings {
+		padding-inline: var(--space-8);
+	}
+
+	.title {
+		font-size: var(--text-xl);
+	}
+
+	.table tbody td,
+	.table tbody th {
+		padding: var(--space-4);
+	}
+
+	.crest {
+		width: 48px;
+		height: 48px;
+	}
+
+	.team-name {
+		font-size: var(--text-sm);
+	}
+
+	.col-points {
+		font-size: var(--text-lg);
+	}
+}

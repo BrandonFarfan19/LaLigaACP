@@ -30,7 +30,7 @@ Design and build every screen for phone widths first (~390px), then scale up wit
 
 **Artwork**
 
-- Logos and crests are rendered small through `<Image />` (32–96px) and upscaled by CSS with `image-rendering: pixelated` (the `.pixelated` class). This turns smooth artwork into real pixel art instead of a soft enlargement. Never render them at full size.
+- Logos and crests are rendered small through `<PixelImage />` (32–96px) and upscaled by CSS with `image-rendering: pixelated` (the `.pixelated` class). This turns smooth artwork into real pixel art instead of a soft enlargement. Never render them at full size.
 
 **Motion**
 
@@ -46,17 +46,18 @@ Everything is **static hardcoded data for now** — no backend, no database. But
 - **Typed entities that mirror future tables.** Define `Team`, `Player`, `Match`, `Standing` etc. as TypeScript interfaces in `src/types/`. These are the contract the backend will have to honor.
 - **Relations by id, not by nesting.** A `Match` holds `homeTeamId` / `awayTeamId`, not embedded team objects — the same shape a database returns. Resolve relations in the data layer.
 - **Stable, unique ids** on every entity. Never key off array index or display name.
-- **No hardcoded data inside `.astro` templates.** Static data lives in `src/data/` (or Astro content collections), never inline in markup.
-- Keep the output static (SSG) for now; adding an adapter and switching to SSR later should be a config change, not a refactor.
+- **No hardcoded data inside components or pages.** Static data lives in `src/data/`, never inline in JSX.
+- **Pages read in their route `loader`**, which calls `src/lib/` and hands the result to the page with `useLoaderData()`. Components receive data as props; they never fetch on their own. A route renders complete, so anchors like `/#fixture` exist when scrolling runs.
+- Keep the output a static SPA for now (`vite build` to `dist/`). Pointing `src/lib/` at a real API later changes only those function bodies.
 
-**Player stats are placeholder, random data.** Every other dataset is meant to become real data from the backend. The attribute ratings (`PlayerStats`: shooting, passing, strength, defense, speed, dribbling) are different: they are generated in `src/data/player-stats.ts`, each a random whole number from 70 to 90, so every player's average also falls between 70 and 90. The generator is seeded by the player id, so the numbers stay the same across builds instead of reshuffling on every deploy. They still follow the data rules above: read only through `getPlayerStatsByTeamId()`, keyed by `playerId`, so real ratings can replace them without touching the UI. They are shown as a pixel-art radar (`PlayerStatsDialog.astro`, drawn by `src/utils/pixel-radar.ts`) plus a table, opened by clicking a player's name on `/plantilla/[id]`.
+**Player stats are placeholder, random data.** Every other dataset is meant to become real data from the backend. The attribute ratings (`PlayerStats`: shooting, passing, strength, defense, speed, dribbling) are different: they are generated in `src/data/player-stats.ts`, each a random whole number from 70 to 90, so every player's average also falls between 70 and 90. The generator is seeded by the player id, so the numbers stay the same across builds instead of reshuffling on every deploy. They still follow the data rules above: read only through `getPlayerStatsByTeamId()`, keyed by `playerId`, so real ratings can replace them without touching the UI. They are shown as a pixel-art radar (`PlayerStatsDialog.tsx`, drawn by `src/utils/pixel-radar.ts`) plus a table, opened by clicking a player's name on `/plantilla/:id`.
 
 ### Database design (local DB built, app not connected)
 
 This section summarizes the target schema. Full detail (every column, constraint and the ER diagram) lives in [EsquemaBD.md](EsquemaBD.md), in Spanish.
 
 - **A local MySQL 8.4 runs in Docker** (`compose.yaml`, credentials in `.env`, see `.env.example`). `db/init/01-schema.sql` creates every table and `db/init/02-catalogos.sql` loads only the catalog rows. Setup, connection and reset steps are in the README.
-- **The app is not connected to it.** `src/lib/` stays static and the site stays SSG. Do not add drivers, seed teams/players/matches or wire queries unless explicitly asked.
+- **The app is not connected to it.** `src/lib/` stays static and the site stays a static SPA. Do not add drivers, seed teams/players/matches or wire queries unless explicitly asked.
 - `EsquemaBD.md` and `db/init/01-schema.sql` must stay in sync: a schema change updates both in the same change.
 
 - Treat it as the source of truth when adding or changing entities in `src/types/` or `src/data/`, so the static layer keeps converging on the future tables.
@@ -121,27 +122,38 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 ### Assets
 
-Team crests and logos live in `src/assets/` and are imported through `astro:assets` `<Image />` for optimization — not referenced from `public/`.
+Team crests and logos live in `src/assets/` and are imported with a rendition preset, `?pixel=<preset>` (e.g. `import crest from '../assets/boca.avif?pixel=crest'`), then rendered through `<PixelImage />` — not referenced from `public/`.
+
+- `vite-plugins/pixel-images.ts` builds small webp renditions with sharp, byte-identical to what `astro:assets` produced. Presets live in `vite.config.ts`; each spec is a width (`"96"`), a crop (`"32x32"`) or a density of either (`"96@2"`).
+- `<PixelImage image width height? densities? />` picks the 1x rendition, adds the `srcset`, and sets `width`/`height` from the real file. Asking for a size that isn't in the preset throws: add it to the preset instead of loading the original.
+- Declare every new preset in `src/vite-env.d.ts` so the import is typed.
+
+## Stack
+
+- **Vite + React + TypeScript**, React Router in data mode (`createBrowserRouter` in `src/App.tsx`). Entry: `index.html` → `src/main.tsx`.
+- **Routes:** `/` (`src/pages/Home.tsx`), `/posiciones` (`Posiciones.tsx`), `/plantilla/:id` (`Plantilla.tsx`). An unknown team id throws a 404 from the loader; unknown URLs hit the `*` route. Both render `NotFound.tsx` inside the layout.
+- **Layout:** `src/layouts/Base.tsx` (backdrop, navbar, `<main>`). The `<head>` lives in `index.html`; each page sets its title with `useDocumentTitle()`.
+- **Styles:** `src/styles/global.css` is imported first in `main.tsx`. Each component has a `Component.module.css` next to it. Global primitives (`pixel-box`, `pixel-bevel`, `pixel-shadow`, `pixelated`) are plain class names; everything else goes through the module.
+- **Scrolling:** `useScrollManagement()` (in the layout) keeps multi-page behavior: a new route starts at the top or at its `#anchor` instantly, a same-page anchor scrolls with the CSS behavior, and Back/Forward and reload restore the offset.
+- **Static hosting:** the app's deep routes (`SPA_ROUTES` in `vite.config.ts`: `/posiciones`, `/plantilla/:id`, each with and without a trailing slash, `:id` = one path segment) are rewritten with 200. There is never a `/*` catch-all, so real files keep their response and unknown URLs get 404.
+  - `vite-plugins/spa-rewrites.ts` generates `dist/_redirects` at build time. The target is `/` (Cloudflare Pages rejects `/index.html` as an infinite loop) unless the build runs on Netlify (`NETLIFY=true`), which gets its documented `/index.html`. Don't add a static `public/_redirects`.
+  - `vercel.json` holds the same rewrites for Vercel. The build fails if it doesn't match `SPA_ROUTES`. **Adding a route in `src/App.tsx` means adding it to `SPA_ROUTES` and `vercel.json`.**
+  - `vite build` also writes `dist/404.html` (a copy of `index.html`): the body hosts send for unknown URLs, and the only fallback on hosts without rewrites, where deep links render but return 404.
+  - Verify Cloudflare behavior with `npx wrangler pages dev dist` (no invalid-rule warnings). `vite dev` and `vite preview` serve deep links, with or without a trailing slash, with 200. Details in the README's deployment section.
 
 ## Development
 
-When starting the dev server, use background mode:
-
 ```
-astro dev --background
+npm run dev       # Vite dev server, http://localhost:5173
+npm run build     # tsc -b && vite build → dist/
+npm run preview   # serve dist/ locally
 ```
 
-Manage the background server with `astro dev stop`, `astro dev status`, and `astro dev logs`.
+Start the dev server as a background process so it doesn't block the session, and stop it when done. `npm run build` must finish with no TypeScript errors or warnings.
 
 ## Documentation
 
-Full documentation: https://docs.astro.build
-
-Consult these guides before working on related tasks:
-
-- [Adding pages, dynamic routes, or middleware](https://docs.astro.build/en/guides/routing/)
-- [Working with Astro components](https://docs.astro.build/en/basics/astro-components/)
-- [Using React, Vue, Svelte, or other framework components](https://docs.astro.build/en/guides/framework-components/)
-- [Adding or managing content](https://docs.astro.build/en/guides/content-collections/)
-- [Adding styles or using Tailwind](https://docs.astro.build/en/guides/styling/)
-- [Supporting multiple languages](https://docs.astro.build/en/guides/internationalization/)
+- [Vite](https://vite.dev/guide/): config, static assets, CSS Modules, plugins, building for production.
+- [React](https://react.dev/reference/react): components, hooks, `<dialog>` and form handling.
+- [React Router, data mode](https://reactrouter.com/start/data/routing): routes, loaders, error boundaries, navigation.
+- [sharp](https://sharp.pixelplumbing.com/api-resize): the resize options the pixel-images plugin mirrors.

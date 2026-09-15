@@ -1,0 +1,37 @@
+/* Pinned to the viewport so the stadium stays put while the page
+   scrolls over it, on every route. */
+.backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 0;
+	pointer-events: none;
+}
+
+.backdrop img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+/* Darkens the crowd so content stays readable on top of it. Banded
+   stops, never a continuous gradient. */
+.backdrop::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		to bottom,
+		color-mix(in srgb, var(--color-bg) 92%, transparent) 0 18%,
+		color-mix(in srgb, var(--color-bg) 82%, transparent) 18% 42%,
+		color-mix(in srgb, var(--color-bg) 74%, transparent) 42% 68%,
+		color-mix(in srgb, var(--color-bg) 84%, transparent) 68% 88%,
+		color-mix(in srgb, var(--color-bg) 94%, transparent) 88% 100%
+	);
+}
+
+/* Content paints above the backdrop. */
+.main {
+	position: relative;
+	z-index: 1;
+}

@@ -1,0 +1,99 @@
+.fixture {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-8);
+	padding: var(--space-12) var(--space-4);
+}
+
+.head {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.kicker {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.title {
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	/* Hard offset duplicate of the glyphs — the drop shadow a title
+	   screen drew by stamping the text twice, one pixel block apart. */
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.lead {
+	margin: 0;
+	max-width: 42ch;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.rounds {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-8);
+}
+
+.round {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.round-title {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	font-size: var(--text-xs);
+	color: var(--color-text-muted);
+}
+
+/* The chunky level counter of a stage-select screen. */
+.round-number {
+	padding: var(--space-2);
+	background: var(--color-surface-raised);
+	color: var(--color-accent-alt);
+	font-size: var(--text-sm);
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.16),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 var(--color-shadow);
+}
+
+.round-word {
+	text-transform: uppercase;
+}
+
+.matches {
+	display: grid;
+	/* `--px` of breathing room for the notched borders of each card. */
+	gap: var(--space-6);
+}
+
+@media (min-width: 48rem) {
+	.fixture {
+		gap: var(--space-12);
+		padding: var(--space-12) var(--space-8);
+	}
+
+	.title {
+		font-size: var(--text-xl);
+	}
+
+	.matches {
+		grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+	}
+}
+
+@media (min-width: 64rem) {
+	.fixture {
+		max-width: 72rem;
+		margin-inline: auto;
+		width: 100%;
+	}
+}

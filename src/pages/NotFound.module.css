@@ -1,0 +1,74 @@
+/* Same heading treatment and page frame as Posiciones. */
+.not-found {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-8);
+	width: 100%;
+	max-width: 48rem;
+	min-height: 100vh;
+	min-height: 100svh;
+	margin-inline: auto;
+	padding-block: calc(var(--navbar-height) + var(--space-8)) var(--space-12);
+	padding-inline: var(--space-4);
+}
+
+.head {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.kicker {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.title {
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.lead {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+/* The "< Volver" link of the squad page, with a 44px touch target. */
+.back {
+	align-self: flex-start;
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	text-decoration: none;
+	color: var(--color-text-muted);
+	transition: color 120ms steps(2, end);
+}
+
+.back:hover,
+.back:focus-visible {
+	color: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.back {
+		transition: none;
+	}
+}
+
+@media (min-width: 48rem) {
+	.not-found {
+		padding-inline: var(--space-8);
+	}
+
+	.title {
+		font-size: var(--text-xl);
+	}
+}

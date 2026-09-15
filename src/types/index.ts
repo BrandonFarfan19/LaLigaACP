@@ -12,8 +12,8 @@ export interface Team {
 	name: string;
 	shortName: string;
 	country: string;
-	/** Crest imported from `src/assets/` so Astro can optimize it. */
-	crest: ImageMetadata;
+	/** Crest imported from `src/assets/` with `?pixel=crest`, pre-sized at build time. */
+	crest: PixelImageSet;
 	/** Accent color used for the FIFA-style glow behind the crest. */
 	accent: string;
 }
@@ -123,10 +123,24 @@ export interface ResolvedStanding extends Omit<Standing, 'teamId'> {
 	team: Team;
 }
 
+/** One pre-sized webp of an image. */
+export interface ImageRendition {
+	src: string;
+	width: number;
+	height: number;
+}
+
+/**
+ * Every rendition built for one image, keyed by its spec (`"96"`, `"32x32"`,
+ * `"96@2"`). Produced by `vite-plugins/pixel-images.ts` for `?pixel=<preset>`
+ * imports and rendered through `<PixelImage />`.
+ */
+export type PixelImageSet = Record<string, ImageRendition>;
+
 /** One slide of the generic `<Carousel />` component. */
 export interface CarouselSlide {
 	id: string;
-	image: ImageMetadata;
+	image: PixelImageSet;
 	/** Alt text for the image. Required — slides are meaningful content. */
 	alt: string;
 	eyebrow?: string;

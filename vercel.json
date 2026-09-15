@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/posiciones", "destination": "/index.html" },
+    { "source": "/posiciones/", "destination": "/index.html" },
+    { "source": "/plantilla/:id", "destination": "/index.html" },
+    { "source": "/plantilla/:id/", "destination": "/index.html" }
+  ]
+}
