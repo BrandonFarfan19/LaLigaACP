@@ -120,7 +120,11 @@
 	color: var(--color-text-muted);
 }
 
+/* Phone: the radar already carries the six attributes, and the card fits on
+   one screen without the numbers. Removed from the layout and from the
+   accessibility tree, not just hidden — the table comes back from 48rem up. */
 .values {
+	display: none;
 	width: 100%;
 	border-collapse: collapse;
 }
@@ -259,6 +263,11 @@
 		grid-template-columns: none;
 		grid-auto-flow: column;
 		grid-auto-columns: 1fr;
+	}
+
+	/* Back on the wide layout, beside the portrait and the radar. */
+	.values {
+		display: table;
 	}
 
 	/* 320px over 80 cells: 4px radar pixels, one `--px` each. */

@@ -1,6 +1,6 @@
 # La Liga ACP
 
-Web del torneo (fixture, posiciones, equipos y plantillas) con estética pixel art de videojuego de los 90. SPA estática hecha con **Vite + React + TypeScript + React Router**.
+Web del torneo (fixture, posiciones, equipos y plantillas), más una polla deportiva (autenticación, monedas, apuestas, resultados, ranking). Frontend: SPA estática con **Vite + React + TypeScript + React Router**, estética pixel art de videojuego de los 90. Backend: API REST en **Express + TypeScript** sobre MySQL — ver [server/README.md](server/README.md).
 
 ## 🚀 Estructura
 
@@ -26,8 +26,12 @@ Web del torneo (fixture, posiciones, equipos y plantillas) con estética pixel a
 │   ├── utils/              # radar pixel y captura de imagen para compartir
 │   ├── styles/global.css   # tokens, fuentes y primitivas pixel art
 │   └── assets/             # escudos, logos y fondos (se importan con ?pixel=<preset>)
+├── server/                 # API Express + TypeScript — package.json propio, ver server/README.md
+├── db/init/                # esquema SQL, ver EsquemaBD.md
 └── docs/migracion-react.md # checklist de paridad de la migración desde Astro
 ```
+
+`server/` tiene su propio `package.json` (no es un workspace de npm): corre y se despliega distinto al front, y hoy no comparte código con él. Ver el porqué en [server/README.md](server/README.md#por-qué-un-packagejson-propio-no-workspaces-de-npm).
 
 ## 🧞 Comandos
 
@@ -39,8 +43,13 @@ Desde la raíz del proyecto:
 | `npm run dev`     | Servidor de desarrollo en `localhost:5173`                    |
 | `npm run build`   | Revisa tipos (`tsc -b`) y genera el sitio en `./dist/`        |
 | `npm run preview` | Sirve `./dist/` en local, rutas profundas incluidas           |
+| `npm run server:install` | Instala las dependencias del backend (`server/`)        |
+| `npm run server:dev` | Backend en modo desarrollo (fuera de Docker), `localhost:3001` |
+| `npm run server:test` | Corre las pruebas del backend (necesita `docker compose up -d db`) |
 
 `npm run dev` y `npm run preview` sirven cualquier ruta, con o sin barra final (`/posiciones/`, `/plantilla/boca-juniors/`), con 200.
+
+Los `server:*` son atajos (`npm --prefix server run ...`); ver [server/README.md](server/README.md) para el resto de sus comandos.
 
 ## 🌐 Despliegue
 
@@ -61,36 +70,44 @@ Se publica la carpeta `dist/` en cualquier hosting estático. Como es una SPA, e
 - **Para agregar una ruta:** además de `src/App.tsx`, hay que listarla en `SPA_ROUTES` (`vite.config.ts`) y en `vercel.json`, con y sin barra final. El build falla si `vercel.json` no coincide con `SPA_ROUTES`.
 - **Qué está probado:** Cloudflare Pages con `npx wrangler pages dev dist`. Acepta las 4 reglas sin avisos; las rutas de la app, con y sin barra final, dan 200; `/plantilla/a/b`, `/plantilla` y `/cualquier/cosa` dan 404 con la app; los archivos reales dan 200. Netlify y Vercel no se probaron en un despliegue: su configuración sigue la documentación de cada uno (placeholders de un segmento, prioridad de los archivos reales sobre las reescrituras).
 
-## 🗄️ Base de datos (MySQL en Docker)
+## 🗄️ Base de datos y backend (Docker)
 
-MySQL 8.4 con el esquema de [EsquemaBD.md](EsquemaBD.md). La app **todavía no se conecta**: el sitio sigue leyendo datos estáticos.
+MySQL 8.4 con el esquema de [EsquemaBD.md](EsquemaBD.md), más la API de `server/`. El frontend **todavía no consume la API**: el sitio sigue leyendo datos estáticos (eso llega en T-22 del [plan de la polla](docs/plan-polla.md)).
 
-**Levantar**
+**Levantar todo** (base de datos + backend, con recarga en caliente)
 
 ```sh
 cp .env.example .env   # la primera vez; cambiar los passwords
 docker compose up -d
-docker compose ps      # esperar a que diga (healthy)
+docker compose ps      # esperar a que "db" diga (healthy)
+curl http://localhost:3001/health
 ```
 
-La primera vez, con el volumen vacío, se ejecutan los scripts de `db/init/` en orden: `01-schema.sql` (todas las tablas) y `02-catalogos.sql` (roles, estados y tipos de mercado).
+La primera vez, con el volumen de MySQL vacío, se ejecutan los scripts de `db/init/` en orden: `01-schema.sql` (todas las tablas) y `02-catalogos.sql` (catálogos). El backend espera a que `db` esté `healthy` antes de arrancar.
 
-**Conectarse**
+Para levantar solo la base (por ejemplo, para correr el backend fuera de Docker — ver [server/README.md](server/README.md)):
+
+```sh
+docker compose up -d db
+```
+
+**Conectarse a MySQL**
 
 - Desde el host: `127.0.0.1`, puerto `MYSQL_PORT` (3306 por defecto), base `MYSQL_DATABASE`, usuario `MYSQL_USER` / `MYSQL_PASSWORD`.
 - Desde el contenedor: `docker compose exec db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'`
 
-**Resetear** (borra todos los datos y vuelve a ejecutar los scripts de `db/init/`)
+**Resetear** (borra todos los datos de MySQL y vuelve a ejecutar los scripts de `db/init/`)
 
 ```sh
 docker compose down -v
 docker compose up -d
 ```
 
-Los scripts de `db/init/` solo corren con el volumen vacío: si los cambias, hay que resetear.
+Los scripts de `db/init/` solo corren con el volumen vacío: si los cambias, hay que resetear. `down -v` no toca nada del backend (no tiene volumen de datos propio).
 
 ## 👀 Documentación
 
 - [Vite](https://vite.dev/guide/)
 - [React](https://react.dev/)
 - [React Router (data mode)](https://reactrouter.com/start/data/routing)
+- [Express](https://expressjs.com/en/5x/api.html) — backend, ver [server/README.md](server/README.md)

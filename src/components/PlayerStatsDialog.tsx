@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from 'react';
 // Placeholder portrait shared by every player until real photos exist.
 import portrait from '../assets/jugadoresPixel/futbol/jugador-marron-claro-fifa2002.png?pixel=portrait';
-import { GRID, radarLabels, rasterizeRadar } from '../utils/pixel-radar';
+import { GRID, radarLabels, rasterizeRadar, type RadarPixel } from '../utils/pixel-radar';
 import { captureElement } from '../utils/share-image';
 import PixelImage from './PixelImage';
 import type { Player, PlayerStatKey, PlayerStats } from '../types';
@@ -34,6 +34,9 @@ const ATTRIBUTES: { key: PlayerStatKey; short: string; label: string }[] = [
 
 const labels = radarLabels(ATTRIBUTES.length);
 
+/** Every kind `rasterizeRadar()` produces; matches the CSS Module classes below. */
+const RADAR_KINDS: RadarPixel[] = ['disc', 'ring', 'fill', 'edge'];
+
 /** Desktop: the networks only take a link, so they get the team page's. */
 const WEB_SHARE: Record<string, ((url: string, text: string) => string) | undefined> = {
 	whatsapp: (url, text) => `https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`,
@@ -62,6 +65,7 @@ const NETWORKS = [
 
 export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: Props) {
 	const dialogRef = useRef<HTMLDialogElement>(null);
+	const radarRef = useRef<SVGSVGElement>(null);
 	const image = useRef<Promise<File> | null>(null);
 	const [status, setStatus] = useState('');
 	const withImages = sharesImages();
@@ -98,6 +102,30 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 		return () => observer.disconnect();
 		// `getImage` only reads refs, so the observer is set up once per dialog.
 	}, [withImages]);
+
+	/**
+	 * `html-to-image` (via `captureElement`) clones this `<svg>` with a plain
+	 * `cloneNode(true)` and never inlines computed style onto its descendants,
+	 * nor embeds this stylesheet in the exported document — see the note in
+	 * `share-image.ts`. Every `<rect>` would keep only its CSS Module `class`,
+	 * which resolves to nothing there, and SVG's initial `fill: black` would
+	 * paint the whole radar as one solid black disc: the bug this works around.
+	 *
+	 * A presentation attribute is the lowest-priority source of `fill` in the
+	 * cascade, so copying the resolved color onto `fill="…"` changes nothing on
+	 * screen — the class rule keeps winning here — and becomes the only paint
+	 * source once the class is gone.
+	 */
+	useLayoutEffect(() => {
+		const svg = radarRef.current;
+		if (!svg) return;
+		for (const kind of RADAR_KINDS) {
+			const rects = svg.getElementsByClassName(styles[kind]);
+			if (rects.length === 0) continue;
+			const fill = getComputedStyle(rects[0]).fill;
+			for (const rect of rects) rect.setAttribute('fill', fill);
+		}
+	}, []);
 
 	const shareTo = async (network: string) => {
 		setStatus('');
@@ -178,7 +206,7 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 
 				{/* Decorative: the table below carries every value. */}
 				<div className={styles.radar} aria-hidden="true">
-					<svg viewBox={`0 0 ${GRID} ${GRID}`} shapeRendering="crispEdges">
+					<svg ref={radarRef} viewBox={`0 0 ${GRID} ${GRID}`} shapeRendering="crispEdges">
 						{runs.map((run) => (
 							<rect
 								key={`${run.x}-${run.y}`}

@@ -1,49 +1,63 @@
 # Esquema BD — La Liga ACP
 
-> **Documento de diseño.** Es la fuente de verdad del esquema. Hay una implementación local en MySQL con Docker (`compose.yaml` y `db/init/`), pero la app **todavía no se conecta**: sigue usando datos estáticos (ver `CLAUDE.md`). Si cambia este documento, `db/init/01-schema.sql` cambia en el mismo cambio.
+> **Documento de diseño.** Es la fuente de verdad del esquema. Manda [docs/business-rules.md](docs/business-rules.md): esta versión lo reescribe para modelar la polla deportiva (tarea T-01 de [docs/plan-polla.md](docs/plan-polla.md)). Hay una implementación local en MySQL con Docker (`compose.yaml` y `db/init/`), pero la app **todavía no se conecta**: sigue usando datos estáticos (ver `CLAUDE.md`). Si cambia este documento, `db/init/01-schema.sql` cambia en el mismo cambio.
 
 ## Módulos
 
 | Módulo | Contenido | Depende de |
 |---|---|---|
-| **Acceso** | Usuarios y roles. | — |
-| **Informativo** | Disciplinas, equipos, jugadores, partidos, marcadores y estadísticas. | Acceso (el admin carga resultados) |
-| **Polla** | Apuestas de los usuarios y los coins que ganan. | Acceso, Informativo |
+| **Acceso** | Usuarios, roles, estado de validación y de pago. | — |
+| **Informativo** | Deportes, competiciones, equipos, jugadores, partidos y goles. Es el backbone compartido: lo usa tanto la landing/fixture/posiciones como la polla. | Acceso (el admin carga resultados y goles) |
+| **Polla** | Tickets, selecciones y las monedas que mueven. | Acceso, Informativo |
+| **Auditoría** | Registro de operaciones administrativas relevantes (NFR-006). | Acceso (el admin que actúa); referencia libre, sin FK, a la fila afectada de cualquier módulo |
 
-Regla: **Informativo nunca depende de Polla.** La liga funciona sin la polla.
+Regla: **Informativo nunca depende de Polla ni de Auditoría.** La parte informativa (deportes, fixture, tabla de posiciones) funciona sin la polla.
 
 ## Convenciones
 
 - **Motor: MySQL 8** (≥ 8.0.16, para que los `CHECK` se apliquen), InnoDB, `utf8mb4`.
 - Nombres en `snake_case`, en español: `estado_partido`, `equipo_id`, `es_visita`. En TypeScript se mapean a camelCase.
 - `id`: `BIGINT UNSIGNED AUTO_INCREMENT` como clave primaria.
-- Fechas: `DATETIME` **siempre en UTC**. MySQL no guarda la zona horaria; la conversión se hace en el backend.
+- Fechas: `DATETIME` **siempre en UTC**. MySQL no guarda la zona horaria; la conversión se hace en el backend. No se usa `DEFAULT CURRENT_TIMESTAMP`: el backend fija el valor explícitamente (mismo criterio que ya regía `partido.fecha_hora`).
 - Booleanos: `BOOLEAN` (`TINYINT(1)`).
-- **Vocabulario:** en el torneo se habla de **puntos** (3/1/0 en la tabla de posiciones, informativo). En la polla se habla de **coins** (lo que gana un usuario al acertar). Nunca se mezclan.
-- Coins de la polla: `DECIMAL(5,1)`, porque hay valores como 1.5 y 3.5. Nunca `FLOAT`.
-- Los **catálogos** (`rol`, `estado_partido`, `mercado_tipo`, `estado_mercado`) tienen un `codigo` único y estable. La lógica filtra por `codigo`, nunca por el número de `id`.
-- Lo que se puede calcular **no se guarda**: tabla de posiciones, goleadores, ranking de la polla y cierre de apuestas.
-- Las **reglas de coins y cierre viven en el backend**, no en tablas.
+- **Vocabulario:** el torneo habla de **puntos** (3/1/0 en la tabla de posiciones, informativo). La polla habla de **monedas** (lo que un usuario gasta al apostar y gana al validarse) y de **puntos** también, pero son dos cosas distintas entre sí (BR-039): monedas = capacidad para apostar, puntos = rendimiento en la polla. Nunca se mezclan.
+- Monedas y puntos de la polla: **enteros** (`SMALLINT UNSIGNED`/`SMALLINT`). Ya no hay `DECIMAL`: la anticipación y las bonificaciones fraccionarias del diseño anterior desaparecen.
+- Los **catálogos** tienen un `codigo` único y estable. La lógica filtra por `codigo`, nunca por el número de `id`.
+- Lo que se puede calcular **no se guarda**: tabla de posiciones, goleadores, resultado general del partido, ranking de la polla. La única excepción deliberada es `usuario.saldo_monedas` (ver Decisiones).
+- Las **reglas de negocio críticas viven en el backend, nunca solo en el frontend** (regla general de la plataforma de apuestas).
 
 ## Decisiones
 
+Decisiones que `business-rules.md` no fija y que se tomaron aquí. Las que dependen de que confirmes algo están marcadas **[preguntar]** y se repiten en el resumen de la tarea.
+
 | # | Decisión |
 |---|---|
-| D1 | Un equipo pertenece a **una sola disciplina**. |
-| D2 | Un jugador puede estar en varios equipos, **pero solo uno por disciplina**. |
-| D3 | **No hay temporadas.** Cada disciplina es un único torneo. |
-| D4 | Un jugador **no puede cambiar de equipo** durante el torneo. |
+| D1 | Un equipo pertenece a **una sola competición** (y por tanto a un solo deporte, vía `competicion.deporte_id`). |
+| D2 | Un jugador puede estar en varios equipos, **pero solo uno por competición**. |
+| D3 | **No hay temporadas.** Cada competición es un único torneo, sin edición ni año. |
+| D4 | Un jugador **no puede cambiar de equipo** dentro de la misma competición. |
 | D5 | Local y visita se guardan en `partido_equipo`, una fila por equipo con `es_visita`. |
-| D6 | El **marcador se escribe a mano**, por equipo; no se calcula de las estadísticas. |
-| D7 | Las estadísticas se guardan por partido y por jugador, según la disciplina. Los totales se calculan. |
-| D8 | El campeón de cada disciplina es **el primero de la tabla de posiciones** al terminar todos sus partidos. |
-| D9 | Tabla de posiciones: **3 puntos por ganar, 1 por empatar, 0 por perder**. El desempate no importa. |
-| D10 | La polla es **por coins**; el que más coins acumula gana el premio. Si hay empate, el premio se reparte. |
-| D11 | Solo se apuesta a **qué equipo gana**: un partido (se permite el empate) o una disciplina (campeón). |
-| D12 | Las apuestas a un partido cierran **24 horas antes** del partido. |
-| D13 | Acertar un ganador da **3 coins**; acertar un empate da **1 coin**. Si se apostó con **48 horas o más** de anticipación: **3.5** y **1.5**. |
-| D14 | El **admin carga los resultados**; el **sistema calcula** qué apuestas acertaron. |
-| D15 | El admin **también puede apostar**. |
+| D6 | Los **goles se escriben a mano** por el admin (BR-028), por equipo, en `partido_equipo.goles`. |
+| D7 | El **"Resultado" de BR-011 no es una columna**: se deriva comparando `partido_equipo.goles` de las dos filas (BR-029), igual que ya hacía el resto del esquema con lo calculable. |
+| D8 | La tabla de posiciones informativa sigue siendo **3 puntos por ganar, 1 por empatar, 0 por perder** (D9 del esquema anterior). `business-rules.md` no toca esta regla: es del módulo Informativo, no de la polla. |
+| D9 | **"Fecha" y "Hora" de BR-011 son un solo `fecha_hora DATETIME` en UTC**, no dos columnas. Partirlo reabriría la ambigüedad de zona horaria que el esquema ya evita en todos lados; la UI ya separa fecha y hora de un mismo valor (`formatKickoff`). |
+| D10 | El **"resultado inmutable" de BR-032 no es una columna aparte**: el propio paso de `estado_partido` a `finalizado` es el momento de bloqueo. Antes de eso el admin puede editar los goles libremente; después, ni goles ni estado pueden cambiar. Se aplica en el backend (T-12), no hay trigger de base de datos. |
+| D11 | El **costo de 1 moneda por selección (BR-020) no se guarda como columna**: es una constante fija de negocio, aplicada por el backend al validar el saldo (BR-021) y al descontar (BR-022). Si algún día el costo variara por tipo de apuesta, ahí sí haría falta una columna. |
+| D12 | **`usuario.saldo_monedas` se guarda como columna**, además de registrar cada movimiento en `movimiento_moneda`. Es la única excepción a "lo calculable no se guarda": el saldo nunca debe ser negativo (BR-009), y MySQL no permite un `CHECK` contra una suma de otra tabla. `movimiento_moneda` es la fuente auditable; mantener la columna sincronizada con cada movimiento, en la misma transacción, es responsabilidad del backend. |
+| D13 | **Los puntos NO se guardan en `usuario`.** El ranking (BR-041 a BR-044) se calcula con `SUM(seleccion.puntos_obtenidos)` agrupado por usuario, igual que la tabla de posiciones informativa. `seleccion.puntos_obtenidos` sí se guarda por fila (ver `seleccion`) porque el resultado del partido es inmutable una vez confirmado (D10): no hay reliquidación que lo invalide. |
+| D14 | **`ticket` no tiene columna de "monedas utilizadas"**: se deriva contando sus selecciones (`COUNT(*)`, cada una cuesta 1 moneda fija). Como una selección anulada no se borra (solo cambia de estado), este conteo es estable en el tiempo y no se descuadra con una cancelación posterior. |
+| D15 | El rol `apostador` (código sin cambios respecto del esquema anterior) es el rol "Usuario" de BR-002. Se mantiene ese código para no chocar con el nombre de la tabla `usuario`; el nombre visible sí dice "Usuario". |
+| D16 | El admin **también puede tener selecciones y tickets** propios: ninguna regla lo prohíbe (igual que la vieja D15). No hay restricción de esquema para esto. |
+
+**Resueltas el 2026-09-15 (respuesta del usuario, ya reflejada en `business-rules.md`):**
+
+- **"Empate" en `resultado_general` sí está condicionado por `deporte.permite_empate`.** BR-015 ahora lo dice explícitamente: el empate solo se ofrece en deportes que lo admiten (ni se ofrece ni se acepta en Vóley o Básquet). `deporte.permite_empate` queda confirmado en el esquema; la restricción en sí (no ofrecer/aceptar la opción cuando `permite_empate = false`) se aplica en el backend, cuando corresponda (T-09), no en el esquema de T-01.
+- **BR-007 ya no pide un "Estado" suelto.** Se eliminó de `business-rules.md`: la tabla de inscritos muestra solo "Estado de pago" y "Estado de validación", exactamente los dos catálogos que ya existían (`estado_pago`, `estado_usuario`). No hace falta ninguna columna nueva.
+
+**Abiertas (no bloquean T-01, pero conviene resolverlas antes de las tareas que las tocan):**
+
+- **Duplicados exactos en `seleccion`:** nada en el esquema impide que un usuario repita la misma selección exacta (mismo partido, mismo tipo, mismo pronóstico), ni dentro de un ticket ni entre tickets. `business-rules.md` no lo prohíbe (BR-017/BR-018 solo muestran pronósticos *distintos* como ejemplo) y no le puse una `UNIQUE` para no bloquear un caso que nadie pidió prohibir. Si se quiere prohibir, es una regla de backend, no de esquema.
+- **Idempotencia del ticket (BR-054):** no agregué una columna de clave de idempotencia a `ticket`. El mecanismo concreto (token del cliente, deduplicación por ventana de tiempo, etc.) es una decisión de API que le corresponde a T-10; agregar una columna ahora arriesga atarla a un diseño que todavía no existe.
 
 ---
 
@@ -53,18 +67,37 @@ Regla: **Informativo nunca depende de Polla.** La liga funciona sin la polla.
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | `apostador`, `admin` |
+| codigo | VARCHAR, único | `apostador` (rol "Usuario" de BR-002, D15), `admin` |
 | nombre | VARCHAR | Etiqueta visible. |
 
-El rol `admin` incluye los permisos de `apostador` (D15), así que basta un rol por usuario.
+El rol `admin` incluye los permisos de `apostador` (D16), así que basta un rol por usuario.
+
+### estado_usuario — catálogo
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| codigo | VARCHAR, único | `pendiente`, `validado` (BR-005) |
+| nombre | VARCHAR | Etiqueta visible. |
+
+### estado_pago — catálogo
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| codigo | VARCHAR, único | `pendiente`, `confirmado` (BR-006) |
+| nombre | VARCHAR | Etiqueta visible. |
 
 ### usuario
 | Campo | Tipo | Notas |
 |---|---|---|
-| id | PK | |
+| id | PK | Identificador único (BR-003). |
 | rol_id | FK → rol | |
-| nombre | VARCHAR | |
-| email | VARCHAR, único | |
+| estado_usuario_id | FK → estado_usuario | BR-005. |
+| estado_pago_id | FK → estado_pago | BR-006/BR-007. |
+| nombre | VARCHAR | Nombre a mostrar (no lo pide BR-003, pero hace falta para "Participante" en el ranking, BR-042, y "Usuario" en la tabla de inscritos, BR-007). |
+| email | VARCHAR, único | Es el "usuario o correo electrónico" de BR-003: se usa solo el correo, sin una columna de nombre de usuario aparte. |
+| password_hash | VARCHAR(255) | Nunca texto plano (BR-004). El hash lo calcula el backend (T-03); 255 deja margen a bcrypt o argon2. |
+| saldo_monedas | SMALLINT UNSIGNED | Ver decisión D12. `DEFAULT 0`. Sin `CHECK` aparte: `UNSIGNED` ya impide un valor negativo por el tipo (a diferencia del viejo `coins_obtenidos`, un `DECIMAL` con signo, que sí necesitaba uno). |
+| creado_en | DATETIME (UTC) | Fecha de inscripción (BR-007). |
 
 No es un jugador: son entidades distintas.
 
@@ -72,25 +105,35 @@ No es un jugador: son entidades distintas.
 
 ## Módulo Informativo
 
-### disciplina
+### deporte
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| nombre | VARCHAR | Fútbol, Vóley… |
-| slug | VARCHAR, único | |
-| permite_empate | BOOLEAN | Fútbol: sí. Vóley: no. Controla si se puede apostar al empate. |
+| nombre | VARCHAR | Fútbol, Vóley… (BR-001, BR-048). |
+| slug | VARCHAR, único | Para filtrar/enrutar por deporte. |
+| permite_empate | BOOLEAN | Condiciona si `resultado_general` ofrece "Empate" para partidos de este deporte (BR-015). |
+
+### competicion — "Competición o torneo" de BR-011
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| deporte_id | FK → deporte | |
+| nombre | VARCHAR | |
+| slug | VARCHAR | Único por deporte, no global (dos deportes pueden compartir slug). |
+
+`UNIQUE(id, deporte_id)`: para FKs compuestas si algún día hiciera falta bajar `deporte_id` a otra tabla (hoy no hace falta: `equipo`/`partido` se enganchan por `competicion_id`, que ya fija el deporte).
 
 ### equipo
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| disciplina_id | FK → disciplina | D1 |
+| competicion_id | FK → competicion | D1. |
 | nombre | VARCHAR | |
-| nombre_corto | VARCHAR | |
-| escudo | VARCHAR | Ruta o URL del asset. |
-| color_acento | VARCHAR | |
+| nombre_corto | VARCHAR | No lo pide ninguna BR; se mantiene por continuidad con la landing informativa. |
+| escudo | VARCHAR | Ruta o URL del asset. Ídem. |
+| color_acento | VARCHAR | Ídem. |
 
-`UNIQUE(id, disciplina_id)`: permite FKs compuestas que garantizan la disciplina en otras tablas.
+`UNIQUE(id, competicion_id)`: permite FKs compuestas que garantizan la competición en otras tablas.
 
 ### jugador — la persona
 | Campo | Tipo | Notas |
@@ -105,163 +148,198 @@ No es un jugador: son entidades distintas.
 | id | PK | |
 | jugador_id | FK → jugador | |
 | equipo_id | FK → equipo | |
-| disciplina_id | FK → disciplina | Copia de la del equipo, para aplicar D2. |
-| numero_camiseta | SMALLINT UNSIGNED | |
+| competicion_id | FK → competicion | Copia de la del equipo, para aplicar D2. |
+| numero_camiseta | SMALLINT UNSIGNED | No lo pide ninguna BR; se mantiene por continuidad con la plantilla informativa. |
 
-- `FK(equipo_id, disciplina_id) → equipo(id, disciplina_id)`: la copia no puede contradecir al equipo.
-- `UNIQUE(jugador_id, disciplina_id)`: un equipo por disciplina (D2) y sin cambios de equipo (D4).
+- `FK(equipo_id, competicion_id) → equipo(id, competicion_id)`: la copia no puede contradecir al equipo.
+- `UNIQUE(jugador_id, competicion_id)`: un equipo por competición (D2) y sin cambios de equipo (D4).
 - `UNIQUE(equipo_id, numero_camiseta)`.
-- `UNIQUE(id, equipo_id)`: para la FK compuesta de `partido_jugador`.
+- `UNIQUE(id, equipo_id)`: para la FK compuesta de `gol`.
 
 ### estado_partido — catálogo
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | `programado`, `en_vivo`, `finalizado`, `suspendido` |
+| codigo | VARCHAR, único | `programado`, `en_curso`, `finalizado`, `cancelado` (BR-012) |
 | nombre | VARCHAR | Etiqueta visible. |
 
 ### partido — el encuentro
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| disciplina_id | FK → disciplina | |
+| competicion_id | FK → competicion | BR-011 ("Deporte" se obtiene por `JOIN` a través de `competicion`, sin duplicar la columna). |
 | estado_partido_id | FK → estado_partido | |
-| jornada | SMALLINT UNSIGNED | |
-| fecha_hora | DATETIME (UTC) | Base del cierre de apuestas y de la bonificación. |
-| sede | VARCHAR | |
+| jornada | SMALLINT UNSIGNED | No lo pide ninguna BR; se mantiene por continuidad con el fixture agrupado por jornada. |
+| fecha_hora | DATETIME (UTC) | D9. Base del cierre de apuestas (BR-014). |
+| sede | VARCHAR | No lo pide ninguna BR; se mantiene por continuidad. |
 
-`UNIQUE(id, disciplina_id)`: para la FK compuesta de `partido_equipo`.
+`UNIQUE(id, competicion_id)`: para la FK compuesta de `partido_equipo`.
 
-### partido_equipo — local y visita, con su marcador
+### partido_equipo — local y visita, con sus goles
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
 | partido_id | FK → partido | |
 | equipo_id | FK → equipo | |
-| disciplina_id | FK → disciplina | Copia, para las FKs compuestas. |
+| competicion_id | FK → competicion | Copia, para las FKs compuestas. |
 | es_visita | BOOLEAN | `false` = local, `true` = visita. |
-| marcador | SMALLINT UNSIGNED, opcional | Goles o sets. Lo escribe el admin (D6). Vacío hasta que empieza. |
+| goles | SMALLINT UNSIGNED, opcional | Lo escribe el admin (D6, BR-028). Vacío hasta que se registra el resultado. |
 
-- `FK(partido_id, disciplina_id) → partido(id, disciplina_id)` y `FK(equipo_id, disciplina_id) → equipo(id, disciplina_id)`: el equipo es de la disciplina del partido.
+- `FK(partido_id, competicion_id) → partido(id, competicion_id)` y `FK(equipo_id, competicion_id) → equipo(id, competicion_id)`: el equipo es de la competición del partido.
 - `UNIQUE(partido_id, es_visita)`: un solo local y una sola visita.
 - `UNIQUE(partido_id, equipo_id)`: un equipo no juega contra sí mismo.
-- `UNIQUE(id, equipo_id)`: para la FK compuesta de `partido_jugador`.
-- **Backend:** cada partido debe tener exactamente 2 filas.
+- `UNIQUE(id, equipo_id)`: para la FK compuesta de `gol`.
+- **Backend:** cada partido debe tener exactamente 2 filas. Una vez `partido.estado_partido = finalizado`, `goles` queda bloqueado (D10).
 
-### partido_jugador — quién jugó
+### gol — autor de un gol (BR-033)
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| partido_equipo_id | FK → partido_equipo | El lado del partido en que jugó. |
-| plantel_id | FK → plantel | |
+| partido_equipo_id | FK → partido_equipo | El lado del partido que anotó. |
+| plantel_id | FK → plantel | Quién anotó. |
 | equipo_id | FK → equipo | Copia, para las FKs compuestas. |
+| minuto | SMALLINT UNSIGNED | Sin tope superior (hay deportes con tiempos extra largos) ni `CHECK` de piso: `UNSIGNED` ya excluye los negativos. |
+| imagen | VARCHAR, opcional | BR-033. |
+| video | VARCHAR, opcional | BR-033. |
 
-- `FK(partido_equipo_id, equipo_id) → partido_equipo(id, equipo_id)` y `FK(plantel_id, equipo_id) → plantel(id, equipo_id)`: el jugador solo puede jugar para su propio equipo y en un partido donde ese equipo participa.
-- `UNIQUE(partido_equipo_id, plantel_id)`.
-
-### estadistica_tipo — catálogo por disciplina
-| Campo | Tipo | Notas |
-|---|---|---|
-| id | PK | |
-| disciplina_id | FK → disciplina | |
-| codigo | VARCHAR | `goles`, `asistencias`, `faltas`, `puntos_anotados`, `aces`… |
-| nombre | VARCHAR | Etiqueta visible. |
-
-`UNIQUE(disciplina_id, codigo)`.
-
-### partido_jugador_estadistica — los números
-| Campo | Tipo | Notas |
-|---|---|---|
-| partido_jugador_id | FK → partido_jugador | PK compuesta |
-| estadistica_tipo_id | FK → estadistica_tipo | PK compuesta |
-| valor | SMALLINT UNSIGNED | |
-
-**Backend:** la disciplina del tipo debe coincidir con la del partido.
+- `FK(partido_equipo_id, equipo_id) → partido_equipo(id, equipo_id)` y `FK(plantel_id, equipo_id) → plantel(id, equipo_id)`: el jugador solo puede anotar para su propio equipo y en un partido donde ese equipo participa.
+- Reemplaza a las viejas `partido_jugador`, `estadistica_tipo` y `partido_jugador_estadistica`: ninguna BR pide un sistema genérico de estadísticas por disciplina, y las estadísticas del radar de jugador del frontend (`PlayerStats`) son datos aleatorios de `src/data/`, sin relación con estas tablas (ver `CLAUDE.md`).
 
 ### Calculado, no guardado
-- **Tabla de posiciones:** a partir de `partido_equipo.marcador` en partidos `finalizado`, con 3/1/0 (D9).
-- **Goleadores y líderes:** `SUM(valor)` por jugador y tipo de estadística.
-- **Campeón:** primero de la tabla cuando todos los partidos de la disciplina están `finalizado` (D8).
+- **Tabla de posiciones:** a partir de `partido_equipo.goles` en partidos `finalizado`, con 3/1/0 (D8).
+- **Goleadores:** `COUNT(*)` de `gol` por jugador.
+- **Resultado general de un partido:** comparando los `goles` de sus dos filas de `partido_equipo` (D7, BR-029).
 
 ---
 
 ## Módulo Polla
 
-### mercado_tipo — catálogo
+### tipo_apuesta — catálogo
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | `ganador_partido`, `campeon_disciplina` |
+| codigo | VARCHAR, único | `resultado_general` (BR-015), `marcador_exacto` (BR-016) |
 | nombre | VARCHAR | Etiqueta visible. |
 
-### estado_mercado — catálogo
+### resultado_general — catálogo
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | `abierto`, `cerrado`, `liquidado`, `anulado` |
+| codigo | VARCHAR, único | `local_gana`, `empate`, `visitante_gana` (BR-029) |
 | nombre | VARCHAR | Etiqueta visible. |
 
-### mercado — algo sobre lo que se apuesta
+Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general`, y como resultado derivado de un partido (nunca guardado, D7).
+
+### estado_seleccion — catálogo
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| mercado_tipo_id | FK → mercado_tipo | |
-| estado_mercado_id | FK → estado_mercado | |
-| partido_id | FK → partido, opcional | Obligatorio en `ganador_partido`; vacío en `campeon_disciplina`. |
-| disciplina_id | FK → disciplina, opcional | Obligatorio en `campeon_disciplina`; vacío en `ganador_partido`. |
+| codigo | VARCHAR, único | `pendiente`, `acertada`, `no_acertada`, `anulada` (BR-027) |
+| nombre | VARCHAR | Etiqueta visible. |
 
-Un mercado referencia **solo a lo que se apuesta**: el partido o la disciplina, nunca los dos. En `ganador_partido` la disciplina se obtiene del partido (`JOIN partido`), así no hay una copia que pueda contradecirlo.
+### ticket
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | Identificador único (BR-025). |
+| usuario_id | FK → usuario | |
+| creado_en | DATETIME (UTC) | Fecha y hora del ticket (BR-025). |
 
-- `CHECK ((partido_id IS NULL) <> (disciplina_id IS NULL))`: exactamente uno de los dos tiene valor.
-- `UNIQUE(partido_id)`: un mercado por partido. MySQL permite varios `NULL`, así que los mercados de campeón no chocan.
-- `UNIQUE(disciplina_id)`: un solo mercado `campeon_disciplina` por disciplina. Los mercados de partido tienen `disciplina_id` vacío, y los `NULL` no chocan.
-- **Backend:** que la columna usada corresponda al tipo (`ganador_partido` → `partido_id`, `campeon_disciplina` → `disciplina_id`), comparando por `codigo`.
-- No se guarda la hora de cierre: el backend la calcula desde `partido.fecha_hora` (D12). Si el partido se reprograma, el cierre se mueve solo.
+- Sus selecciones, partidos, pronósticos y tipos de apuesta se leen por `JOIN` a `seleccion`. Monedas usadas y puntos obtenidos son calculados (D14, D13); el ticket no tiene un catálogo de estados propio (`business-rules.md` solo define estados para `seleccion`, BR-027), así que su "estado" se muestra derivado de sus selecciones.
 
-### apuesta
+### seleccion — una apuesta individual dentro de un ticket
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| ticket_id | FK → ticket | |
+| partido_id | FK → partido | |
+| tipo_apuesta_id | FK → tipo_apuesta | |
+| pronostico_resultado_id | FK → resultado_general, opcional | Se usa si `tipo_apuesta = resultado_general`. |
+| pronostico_goles_local | SMALLINT UNSIGNED, opcional | Se usa si `tipo_apuesta = marcador_exacto`. |
+| pronostico_goles_visitante | SMALLINT UNSIGNED, opcional | Ídem. |
+| estado_seleccion_id | FK → estado_seleccion | BR-027. |
+| puntos_obtenidos | SMALLINT UNSIGNED, opcional | Vacío hasta liquidar. Ver D13. |
+
+- `CHECK`: exactamente una de las dos formas de pronóstico tiene valor (igual patrón que la vieja `ck_mercado_objetivo`, sin depender de otra tabla).
+- **Backend:** que la forma usada corresponda al `tipo_apuesta` (por `codigo`), que el partido esté `programado` y dentro del plazo (BR-014, `fecha_hora − 24h`), y que el costo de 1 moneda (D11) no supere el saldo (BR-021).
+- `CHECK (puntos_obtenidos IN (0, 1, 3))`: son los únicos valores que produce la tabla de puntuación (BR-035 a BR-038).
+- Varias selecciones por partido y por ticket, incluso contradictorias entre sí, están permitidas (BR-017, BR-018): no hay `UNIQUE` que las junte por `usuario_id`/`partido_id` como en el diseño anterior.
+
+### tipo_movimiento — catálogo
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| codigo | VARCHAR, único | `validacion` (BR-008, +10), `seleccion_confirmada` (BR-020, −1), `devolucion_cancelacion` (BR-046, +1) |
+| nombre | VARCHAR | Etiqueta visible. |
+
+Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta incorrecta" y "apuesta acertada" no generan movimiento (la tabla lo dice explícitamente: "sin devolución").
+
+### movimiento_moneda
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
 | usuario_id | FK → usuario | |
-| mercado_id | FK → mercado | |
-| equipo_id | FK → equipo, opcional | El equipo elegido. **Vacío = empate**. |
-| creada_en | DATETIME (UTC) | |
-| actualizada_en | DATETIME (UTC) | La anticipación se mide desde aquí. |
-| coins_obtenidos | DECIMAL(5,1), opcional | Vacío hasta liquidar. |
+| tipo_movimiento_id | FK → tipo_movimiento | |
+| seleccion_id | FK → seleccion, opcional | Vacío en `validacion`; presente en `seleccion_confirmada` y `devolucion_cancelacion`. |
+| cantidad | SMALLINT | Con signo: positivo para créditos, negativo para débitos. |
+| creado_en | DATETIME (UTC) | |
 
-- `UNIQUE(usuario_id, mercado_id)`: **una sola elección por mercado**. Sin esto, apostar a todas las opciones asegura coins.
-- **Backend:** en `ganador_partido`, el equipo juega ese partido (tiene fila en `partido_equipo`), lo que ya garantiza la disciplina. En `campeon_disciplina`, el equipo es de `mercado.disciplina_id`.
-- **Backend:** empate solo en `ganador_partido` y solo si la disciplina del partido tiene `permite_empate`.
+- `UNIQUE(seleccion_id, tipo_movimiento_id)`: una selección no puede procesarse dos veces con el mismo tipo de movimiento (protege contra reintentos duplicados, en el espíritu de BR-054). No aplica a `validacion` (MySQL no cruza varios `NULL` en un índice único).
+- `CHECK (cantidad <> 0)`.
+- **Backend:** mantener `usuario.saldo_monedas` sincronizado con la suma de sus movimientos, en la misma transacción que cada inserción (D12, BR-053, BR-055).
 
-### Calculado, no guardado
-- **Ranking de la polla:** `SUM(coins_obtenidos)` por usuario. Si hay empate, el premio se reparte (D10).
+---
+
+## Módulo Auditoría
+
+### accion_auditoria — catálogo
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| codigo | VARCHAR, único | `validacion_usuario`, `modificacion_partido`, `registro_resultado`, `confirmacion_resultado`, `cancelacion_partido` (NFR-006) |
+| nombre | VARCHAR | Etiqueta visible. |
+| entidad | VARCHAR | Qué tabla afecta esta acción (`usuario` o `partido`), siempre la misma por código. |
+
+### auditoria
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| usuario_id | FK → usuario | El administrador que actuó. |
+| accion_id | FK → accion_auditoria | |
+| entidad_id | BIGINT UNSIGNED | El id de la fila afectada. **Sin FK**: apunta a tablas distintas según `accion_id`, y MySQL no admite una FK condicional. Integridad a cargo del backend. |
+| creado_en | DATETIME (UTC) | Fecha y hora de la acción. |
 
 ---
 
 ## Reglas del backend
 
-**Cierre de apuestas a un partido (D12).** Se aceptan apuestas nuevas o cambios mientras `ahora < partido.fecha_hora − 24 h`.
+**Cierre de apuestas a un partido (BR-014).** Se aceptan selecciones nuevas mientras `ahora < partido.fecha_hora − 24h` y `partido.estado_partido = programado` (BR-012).
 
-**Coins de una apuesta a un partido (D13).** La anticipación es `partido.fecha_hora − apuesta.actualizada_en`.
+**Puntos de una selección (BR-035 a BR-038), evaluados por separado al confirmar el resultado:**
 
-| Resultado acertado | Anticipación ≥ 48 h | Anticipación entre 24 h y 48 h |
+| Tipo de apuesta | Condición | Puntos |
 |---|---|---|
-| Ganador (local o visita) | 3.5 | 3 |
-| Empate | 1.5 | 1 |
-| No acertó | 0 | 0 |
+| `resultado_general` | Acierta el ganador | +3 |
+| `resultado_general` | Acierta el empate | +1 |
+| `marcador_exacto` | Acierta ambos goles | +3 |
+| Cualquiera | No acierta | 0 |
 
-**Liquidar un partido.** Se dispara cuando el admin pone el partido en `finalizado`:
-1. Se compara el `marcador` de las dos filas de `partido_equipo`: gana local, gana visita o empate.
-2. Cada apuesta del mercado recibe `coins_obtenidos` según la tabla anterior.
-3. El mercado pasa a `liquidado`.
+**Liquidar un partido.** Se dispara cuando el admin confirma el resultado y el partido pasa a `finalizado` (D10):
+1. Se compara `goles` de las dos filas de `partido_equipo`: gana local, gana visita o empate (D7).
+2. Cada `seleccion` de ese `partido_id` se evalúa según la tabla de arriba y pasa a `acertada` o `no_acertada`.
+3. Los goles y el estado del partido quedan bloqueados; nada de esto se puede deshacer desde la aplicación (BR-031, BR-032).
 
-**Liquidar el campeón.** Cuando el último partido de la disciplina queda `finalizado`, el ganador es el primero de la tabla de posiciones. Si hay empate en el primer lugar, todos los empatados cuentan como acierto.
+**Partido cancelado (BR-045 a BR-047).** El `estado_partido` pasa a `cancelado`:
+1. Cada `seleccion` de ese `partido_id` pasa a `anulada` (sin importar el ticket al que pertenezca).
+2. Por cada una, se crea un `movimiento_moneda` de tipo `devolucion_cancelacion` con `cantidad = +1`, y se actualiza `usuario.saldo_monedas` en la misma transacción (BR-055).
+3. Las demás selecciones del mismo ticket, de otros partidos, no se tocan (BR-047).
 
-**Corrección de un resultado.** Si el admin cambia un marcador ya liquidado, el sistema vuelve a liquidar ese mercado. Si cambia la tabla final, también el de campeón.
+**Validar un usuario (BR-006 a BR-008).** El admin pone `estado_usuario = validado`:
+1. Se crea un `movimiento_moneda` de tipo `validacion` con `cantidad = +10`, y se actualiza `usuario.saldo_monedas`.
+2. Solo debe ocurrir una vez por usuario: el backend lo garantiza validando que el usuario esté hoy en `pendiente` antes de aplicar el cambio (no hay forma de expresar "una sola vez" con una restricción de la tabla, porque no depende del contenido de la fila sino de su transición).
 
-**Partido suspendido.** El mercado pasa a `anulado` y sus apuestas quedan en 0 coins. Si el partido se reprograma, el mercado se reabre y el cierre sigue la nueva `fecha_hora`.
+**Ranking de la polla (BR-041 a BR-044).** `SUM(seleccion.puntos_obtenidos)` por usuario, orden `puntos DESC, aciertos DESC` (aciertos = `COUNT(seleccion.estado_seleccion = acertada)`). Empate total: comparten posición (BR-043 lo deja abierto).
 
-**Cambiar una apuesta.** Se permite hasta el cierre. `actualizada_en` se renueva, así que quien cambia tarde pierde la bonificación.
+**Auditoría (NFR-006).** Cada una de las 5 acciones de `accion_auditoria` inserta una fila en `auditoria` con el admin, la acción y el id de la fila afectada, como parte de la misma operación.
 
 ---
 
@@ -270,29 +348,31 @@ Un mercado referencia **solo a lo que se apuesta**: el partido o la disciplina, 
 ```mermaid
 erDiagram
   rol ||--o{ usuario : asigna
+  estado_usuario ||--o{ usuario : clasifica
+  estado_pago ||--o{ usuario : clasifica
 
-  disciplina ||--o{ equipo : tiene
-  disciplina ||--o{ partido : agrupa
-  disciplina ||--o{ estadistica_tipo : define
+  deporte ||--o{ competicion : agrupa
+  competicion ||--o{ equipo : tiene
+  competicion ||--o{ partido : agrupa
   estado_partido ||--o{ partido : clasifica
   jugador ||--o{ plantel : "juega en"
   equipo ||--o{ plantel : inscribe
   partido ||--|{ partido_equipo : "local / visita"
   equipo ||--o{ partido_equipo : juega
-  partido_equipo ||--o{ partido_jugador : alinea
-  plantel ||--o{ partido_jugador : participa
-  partido_jugador ||--o{ partido_jugador_estadistica : registra
-  estadistica_tipo ||--o{ partido_jugador_estadistica : mide
+  partido_equipo ||--o{ gol : anota
+  plantel ||--o{ gol : marca
 
-  mercado_tipo ||--o{ mercado : clasifica
-  estado_mercado ||--o{ mercado : clasifica
-  disciplina ||--o{ mercado : "campeón de"
-  partido |o--o| mercado : "ganador de"
-  mercado ||--o{ apuesta : recibe
-  usuario ||--o{ apuesta : hace
-  equipo |o--o{ apuesta : elegido
+  usuario ||--o{ ticket : arma
+  ticket ||--|{ seleccion : agrupa
+  partido ||--o{ seleccion : recibe
+  tipo_apuesta ||--o{ seleccion : clasifica
+  resultado_general ||--o{ seleccion : pronostica
+  estado_seleccion ||--o{ seleccion : clasifica
+
+  usuario ||--o{ movimiento_moneda : afecta
+  tipo_movimiento ||--o{ movimiento_moneda : clasifica
+  seleccion |o--o{ movimiento_moneda : origina
+
+  usuario ||--o{ auditoria : realiza
+  accion_auditoria ||--o{ auditoria : clasifica
 ```
-
-## Pendientes
-
-1. **Apuesta al campeón:** ¿hasta cuándo se puede apostar y cuántos coins da acertar? Las reglas de cierre y coins de arriba solo cubren partidos. Si el cierre no se puede calcular a partir de un partido, `mercado` necesitará una columna `cierra_en`.

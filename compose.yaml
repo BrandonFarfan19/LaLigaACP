@@ -1,4 +1,4 @@
-# Base de datos de La Liga ACP (MySQL 8.4 LTS).
+# Base de datos y backend de La Liga ACP.
 # Credenciales en .env (copiar desde .env.example). Esquema: EsquemaBD.md.
 services:
   db:
@@ -27,6 +27,33 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  # Modo desarrollo: código montado desde el host, tsx watch recarga en cada
+  # cambio (ver server/Dockerfile). DB_HOST/DB_PORT se pisan aquí a propósito:
+  # dentro de la red de compose el destino es el servicio db en su puerto
+  # interno fijo (3306), sin importar qué publique MYSQL_PORT en el host.
+  server:
+    build:
+      context: ./server
+    container_name: la-liga-acp-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: ${PORT:-3001}
+      CORS_ORIGIN: ${CORS_ORIGIN:?definir CORS_ORIGIN en .env}
+      DB_HOST: db
+      DB_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?definir MYSQL_DATABASE en .env}
+      MYSQL_USER: ${MYSQL_USER:?definir MYSQL_USER en .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?definir MYSQL_PASSWORD en .env}
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
 
 volumes:
   db-data:

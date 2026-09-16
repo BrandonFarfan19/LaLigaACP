@@ -161,3 +161,12 @@
 		padding-inline: var(--space-3);
 	}
 }
+
+/* Desktop: the navbar has vertical room to spare, so the logo fills it
+   edge to edge instead of floating at a fixed size. */
+@media (min-width: 64rem) {
+	.logo {
+		width: auto;
+		height: 100%;
+	}
+}

@@ -1,6 +1,7 @@
 ## Project
 
 **La Liga ACP** — a sports tournament web app (fixtures, standings, teams, players, match results).
+In addition a betting platform.
 
 ### Mobile first
 
@@ -39,7 +40,7 @@ Design and build every screen for phone widths first (~390px), then scale up wit
 
 ### Data: static now, backend-ready later
 
-Everything is **static hardcoded data for now** — no backend, no database. But write it so a real API and database can replace the static source **without rewriting the UI**. Rules:
+The frontend reads **static hardcoded data for now** — the backend in `server/` exists but the UI doesn't call it yet. Write it so the real API can replace the static source **without rewriting the UI**. Rules:
 
 - **One data-access layer.** All reads go through functions in `src/lib/` (`getTeams()`, `getTeamById(id)`, `getFixtures()`, `getStandings()`). Pages and components call these functions — they never import the raw data files directly.
 - **Async from day one.** Those functions return Promises even while reading local data, so swapping the body for a `fetch()` or a DB query changes nothing at the call sites.
@@ -52,12 +53,13 @@ Everything is **static hardcoded data for now** — no backend, no database. But
 
 **Player stats are placeholder, random data.** Every other dataset is meant to become real data from the backend. The attribute ratings (`PlayerStats`: shooting, passing, strength, defense, speed, dribbling) are different: they are generated in `src/data/player-stats.ts`, each a random whole number from 70 to 90, so every player's average also falls between 70 and 90. The generator is seeded by the player id, so the numbers stay the same across builds instead of reshuffling on every deploy. They still follow the data rules above: read only through `getPlayerStatsByTeamId()`, keyed by `playerId`, so real ratings can replace them without touching the UI. They are shown as a pixel-art radar (`PlayerStatsDialog.tsx`, drawn by `src/utils/pixel-radar.ts`) plus a table, opened by clicking a player's name on `/plantilla/:id`.
 
-### Database design (local DB built, app not connected)
+### Database design (local DB built, frontend not connected)
 
-This section summarizes the target schema. Full detail (every column, constraint and the ER diagram) lives in [EsquemaBD.md](EsquemaBD.md), in Spanish.
+This section summarizes the target schema. Full detail (every column, constraint and the ER diagram) lives in [EsquemaBD.md](EsquemaBD.md), in Spanish. The schema now models the betting pool from `docs/business-rules.md` (see **Betting platform** below) — `disciplina`/`mercado`/`apuesta` are gone, replaced by `deporte`/`competicion` and `ticket`/`seleccion`.
 
 - **A local MySQL 8.4 runs in Docker** (`compose.yaml`, credentials in `.env`, see `.env.example`). `db/init/01-schema.sql` creates every table and `db/init/02-catalogos.sql` loads only the catalog rows. Setup, connection and reset steps are in the README.
-- **The app is not connected to it.** `src/lib/` stays static and the site stays a static SPA. Do not add drivers, seed teams/players/matches or wire queries unless explicitly asked.
+- **The frontend is not connected to it.** `src/lib/` stays static and the site stays a static SPA until T-22 of `docs/plan-polla.md`. Do not wire `src/lib/` to the API, or seed teams/players/matches, unless explicitly asked.
+- **The backend (`server/`) is an Express app, and must stay one.** No other framework (Fastify, Nest, Koa, Next API routes…). It already connects to this database through `mysql2` (see **Backend stack** below) — but, as of T-02, only for `GET /health`; there is no business logic yet.
 - `EsquemaBD.md` and `db/init/01-schema.sql` must stay in sync: a schema change updates both in the same change.
 
 - Treat it as the source of truth when adding or changing entities in `src/types/` or `src/data/`, so the static layer keeps converging on the future tables.
@@ -68,50 +70,57 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - **MySQL 8** (≥ 8.0.16 so `CHECK` is enforced), InnoDB, `utf8mb4`.
 - Table and column names are `snake_case` Spanish (`partido_equipo`, `es_visita`). TypeScript stays camelCase; the data layer maps between them.
-- **Vocabulary:** the tournament uses **puntos** (standings, informational). The pool uses **coins** (what a user earns for a correct bet). Never mix the two terms in code, UI or schema.
-- Ids: `BIGINT UNSIGNED AUTO_INCREMENT`. Dates: `DATETIME`, always UTC (MySQL stores no zone). Pool coins: `DECIMAL(5,1)`, never `FLOAT`.
-- Catalog tables (`rol`, `estado_partido`, `mercado_tipo`, `estado_mercado`) have a stable unique `codigo`. Logic matches on `codigo`, never on the numeric id.
-- **Computed, never stored:** standings, top scorers, champion, pool ranking, bet closing time.
-- **Scoring and closing rules live in backend code**, not in tables.
+- **Vocabulary:** the tournament uses **puntos** (standings, informational). The pool uses **monedas** (what a user spends to bet, earns on validation) and, separately, its own **puntos** (BR-039: never the same thing as coins). Never mix the terms.
+- Ids: `BIGINT UNSIGNED AUTO_INCREMENT`. Dates: `DATETIME`, always UTC (MySQL stores no zone), no `DEFAULT CURRENT_TIMESTAMP` — the backend sets it explicitly. Pool coins and points: whole integers (`SMALLINT UNSIGNED`/`SMALLINT`), never `DECIMAL`/`FLOAT` — the old anticipation-based fractional bonus is gone.
+- Catalog tables have a stable unique `codigo`. Logic matches on `codigo`, never on the numeric id.
+- **Computed, never stored:** standings, top scorers, a match's general result, the pool ranking, bet closing time. The one deliberate exception is `usuario.saldo_monedas` (must never go negative, and MySQL can't `CHECK` against another table's sum) — kept in sync with `movimiento_moneda` by the backend, in the same transaction.
+- **Business rules that matter never live only in the frontend** (project-wide rule for the betting platform).
 
-**Modules.** Informativo must never depend on Polla.
+**Modules.** Informativo must never depend on Polla or Auditoría.
 
 | Module | Tables |
 |---|---|
-| Acceso | `rol`, `usuario` |
-| Informativo | `disciplina`, `equipo`, `jugador`, `plantel`, `estado_partido`, `partido`, `partido_equipo`, `partido_jugador`, `estadistica_tipo`, `partido_jugador_estadistica` |
-| Polla | `mercado_tipo`, `estado_mercado`, `mercado`, `apuesta` |
+| Acceso | `rol`, `estado_usuario`, `estado_pago`, `usuario` |
+| Informativo | `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `estado_partido`, `partido`, `partido_equipo`, `gol` |
+| Polla | `tipo_apuesta`, `resultado_general`, `estado_seleccion`, `ticket`, `seleccion`, `tipo_movimiento`, `movimiento_moneda` |
+| Auditoría | `accion_auditoria`, `auditoria` |
 
 **Tables at a glance**
 
-- `rol` (codigo: `apostador`, `admin`) → `usuario` (rol_id, nombre, email). One role per user; `admin` includes betting. A user is not a player.
-- `disciplina` (nombre, slug, permite_empate). Each discipline **is** the tournament: there are no seasons.
-- `equipo` (disciplina_id, nombre, nombre_corto, escudo, color_acento). A team belongs to exactly one discipline.
-- `jugador` is the person. `plantel` (jugador_id, equipo_id, disciplina_id, numero_camiseta) enrolls that person in a team. `UNIQUE(jugador_id, disciplina_id)` means one team per discipline and no mid-tournament transfers.
-- `partido` (disciplina_id, estado_partido_id, jornada, fecha_hora, sede). States: `programado`, `en_vivo`, `finalizado`, `suspendido`.
-- `partido_equipo` (partido_id, equipo_id, es_visita, marcador) holds **exactly two rows per match**, local (`es_visita = false`) and away. The score is entered by hand by an admin, never derived from stats.
-- `partido_jugador` (partido_equipo_id, plantel_id) records who played. `partido_jugador_estadistica` (partido_jugador_id, estadistica_tipo_id, valor) stores per-match numbers. `estadistica_tipo` is a per-discipline catalog (`goles`, `faltas`, `aces`…).
-- `mercado` (mercado_tipo_id, estado_mercado_id, partido_id?, disciplina_id?) is something to bet on, and references **only** that thing: `ganador_partido` sets `partido_id` (its discipline comes from the match via JOIN), `campeon_disciplina` sets `disciplina_id`. `CHECK ((partido_id IS NULL) <> (disciplina_id IS NULL))` enforces exactly one. `UNIQUE(partido_id)` allows one market per match and `UNIQUE(disciplina_id)` one champion market per discipline (NULLs don't collide). Matching the column to the type is backend logic by `codigo`. States: `abierto`, `cerrado`, `liquidado`, `anulado`.
-- `apuesta` (usuario_id, mercado_id, equipo_id?, creada_en, actualizada_en, coins_obtenidos). A null `equipo_id` means a draw. `UNIQUE(usuario_id, mercado_id)` allows one pick per market.
-- Composite FKs over `(id, disciplina_id)` and `(id, equipo_id)` guarantee teams, matches and players share a discipline. See `EsquemaBD.md`.
+- `rol` (codigo: `apostador` = BR-002's "Usuario", `admin`) → `usuario` (rol_id, estado_usuario_id, estado_pago_id, nombre, email, password_hash, saldo_monedas, creado_en). One role per user; `admin` includes betting. A user is not a player. `estado_usuario`: `pendiente`/`validado` (BR-005). `estado_pago`: `pendiente`/`confirmado` (BR-006).
+- `deporte` (nombre, slug, permite_empate) and `competicion` (deporte_id, nombre, slug) — BR-011 splits these; a competición is one standalone tournament, no seasons.
+- `equipo` (competicion_id, nombre, nombre_corto, escudo, color_acento). A team belongs to exactly one competición.
+- `jugador` is the person. `plantel` (jugador_id, equipo_id, competicion_id, numero_camiseta) enrolls that person in a team. `UNIQUE(jugador_id, competicion_id)` means one team per competición and no mid-tournament transfers.
+- `partido` (competicion_id, estado_partido_id, jornada, fecha_hora, sede). States: `programado`, `en_curso`, `finalizado`, `cancelado` (BR-012). "Deporte" (BR-011) comes via `JOIN` through `competicion`, never duplicated. Goals and the general result are never columns here (see `partido_equipo` and Business rules).
+- `partido_equipo` (partido_id, equipo_id, es_visita, goles) holds **exactly two rows per match**, local (`es_visita = false`) and away. Goals are entered by hand by an admin (BR-028), locked once the match is `finalizado`.
+- `gol` (partido_equipo_id, plantel_id, equipo_id, minuto, imagen?, video?) — a goal's scorer, team and minute, with optional media (BR-033). Replaces the old generic `partido_jugador`/`estadistica_tipo`/`partido_jugador_estadistica`, which no BR needs (the frontend's player radar stats are unrelated random data, see above).
+- `tipo_apuesta` (codigo: `resultado_general`, `marcador_exacto` — BR-015/BR-016). `resultado_general` catalog (codigo: `local_gana`, `empate`, `visitante_gana` — BR-029) is reused both as a `seleccion`'s pronóstico and as a match's derived result.
+- `ticket` (usuario_id, creado_en) groups one or more `seleccion` rows (BR-019). Coins used and points are always computed from its selections, never stored on the ticket.
+- `seleccion` (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id?, pronostico_goles_local?, pronostico_goles_visitante?, estado_seleccion_id, puntos_obtenidos?) is one individual bet. `CHECK` enforces exactly one pronóstico shape is filled; matching it to `tipo_apuesta` by `codigo` is backend logic. States: `pendiente`, `acertada`, `no_acertada`, `anulada` (BR-027). Several selections per match and per ticket, even contradictory ones, are allowed (BR-017/BR-018) — no uniqueness constraint groups them. The 1-coin cost per selection (BR-020) is a backend constant, never a column.
+- `tipo_movimiento` (codigo: `validacion` +10, `seleccion_confirmada` −1, `devolucion_cancelacion` +1 — the only tabla-28 events that move coins) → `movimiento_moneda` (usuario_id, tipo_movimiento_id, seleccion_id?, cantidad con signo, creado_en). `UNIQUE(seleccion_id, tipo_movimiento_id)` stops the same selection from being processed twice under the same movement type.
+- `accion_auditoria` (codigo, nombre, entidad — the table each code affects) → `auditoria` (usuario_id = admin, accion_id, entidad_id, creado_en). `entidad_id` has **no FK** (it points at different tables depending on `accion_id`, and MySQL can't express a conditional FK) — the backend owns that integrity.
+- Composite FKs over `(id, competicion_id)` and `(id, equipo_id)` guarantee teams, matches, players and goals share a competición. See `EsquemaBD.md`.
 
 **Business rules (backend)**
 
-- Standings **puntos**: win **3**, draw **1**, loss **0**. Tie-breaking does not matter. The champion is first in the table once every match of the discipline is `finalizado`.
-- The pool is **coins only**; the user with most coins wins the prize, split on a tie.
-- Bets are only on **which team wins**: a match (draw allowed only if `permite_empate` is true on the match's discipline, reached via `mercado.partido_id` → `partido.disciplina_id`) or a discipline champion.
-- Match bets close **24 h before** `partido.fecha_hora`. They can be changed until then; each change resets `actualizada_en`.
-- Match bet coins, with anticipation measured as `fecha_hora − actualizada_en`:
+- Standings **puntos** (informational, per competición): win **3**, draw **1**, loss **0**. Unrelated to the pool's own points.
+- The pool: monedas fund bets (BR-008 to BR-010), puntos measure performance (BR-039) — never convert one into the other.
+- A `seleccion` closes **24 h before** `partido.fecha_hora`, and only while the match is `programado` (BR-014).
+- Points per selection, evaluated independently when the match's result is confirmed (BR-034 to BR-038):
 
-  | Correct pick | ≥ 48 h before | 24–48 h before |
+  | Bet type | Condition | Points |
   |---|---|---|
-  | Winner | 3.5 | 3 |
-  | Draw | 1.5 | 1 |
-  | Wrong | 0 | 0 |
+  | `resultado_general` | Correct winner | +3 |
+  | `resultado_general` | Correct draw | +1 |
+  | `marcador_exacto` | Correct exact score | +3 |
+  | Either | Wrong | 0 |
 
-- An admin enters scores and sets the match to `finalizado`. The system then settles the market (fills `coins_obtenidos`, sets `liquidado`). Correcting a settled score re-settles it. A suspended match voids its market (0 coins) and reopens it if rescheduled.
-- If several teams tie for first, every tied team counts as a correct champion pick.
-- **Open:** closing time and coins for champion bets are not defined yet.
+- Confirming a result (admin action) moves the match to `finalizado`: that transition **is** the lock (BR-031/BR-032) — goals and state become immutable in the app from then on, no separate "confirmed" column. The system then settles every `seleccion` for that match per the table above.
+- Cancelling a match (`cancelado`) voids every one of its selections (`anulada`) and refunds 1 coin each via a `devolucion_cancelacion` movement, updating the balance in the same transaction (BR-045 to BR-047, BR-055). Other selections in the same ticket, from other matches, are untouched.
+- Validating a user (`estado_usuario → validado`) grants +10 coins exactly once — enforced by only allowing the transition from `pendiente`, not by a table constraint (BR-006 to BR-008).
+- Pool ranking: `SUM(seleccion.puntos_obtenidos)` per user, ordered by `puntos DESC, aciertos DESC`; a full tie shares position (BR-041 to BR-044, left open by BR-043).
+- **Resolved:** `resultado_general`'s "empate" is gated by `deporte.permite_empate` (BR-015, confirmed) — not enforced by the schema itself, applied in backend logic when betting rules are built (T-09). BR-007's admin table shows only `estado_pago` and `estado_usuario`, no separate "Estado" column.
+- **Still open, listed in `EsquemaBD.md`:** whether `ticket`'s idempotency key (BR-054) belongs on the table at all — deferred to the task that builds ticket confirmation.
 
 ### Change history
 
@@ -119,6 +128,13 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - Read it to learn which changes are already verified before building on them.
 - Only `tester_liga` appends entries, at the end of the file. Never rewrite or delete past entries.
+
+### Backlog
+
+[docs/pendientes.md](docs/pendientes.md) (in Spanish) lists known issues **deliberately postponed**: Astro-parity gaps left by the React migration, pixel-art rules the CSS still breaks, doc cleanup and open schema decisions.
+
+- Nothing there is in progress. Work on an item only when asked for it.
+- Add an item when something is found and postponed; tick it off when it ships, and record the change in `historial.md`.
 
 ### Assets
 
@@ -141,15 +157,27 @@ Team crests and logos live in `src/assets/` and are imported with a rendition pr
   - `vite build` also writes `dist/404.html` (a copy of `index.html`): the body hosts send for unknown URLs, and the only fallback on hosts without rewrites, where deep links render but return 404.
   - Verify Cloudflare behavior with `npx wrangler pages dev dist` (no invalid-rule warnings). `vite dev` and `vite preview` serve deep links, with or without a trailing slash, with 200. Details in the README's deployment section.
 
+## Backend stack
+
+- **Express 5 + TypeScript**, its own `server/` project with its own `package.json` — not an npm workspace, see `server/README.md` for why. Layers: `routes` (URL + verb only) → `controllers` (HTTP shaping) → `services` (business logic + data access) → `db/pool.ts` (mysql2/promise pool). The `pool` is threaded down as a parameter from `app.ts`, never a module-level singleton — that's what lets tests inject their own (including one pointed at an unreachable host, to exercise failure paths for real).
+- **Config:** `server/src/config/env.ts` validates every environment variable with `zod` at import time; the process refuses to start (naming every bad/missing variable) rather than run half-configured. Nothing else reads `process.env` directly. Reuses the root `.env`/`.env.example` (same file `compose.yaml` uses for `db`) — see it for the full variable list, including `DB_HOST`/`DB_PORT` (differ between bare local dev and the `server` compose service) and `MYSQL_DATABASE_TEST`.
+- **Response envelope:** every response is `{ data }` or `{ error: { code, message, details? } }` — success and error alike, including `404`s and validation failures. Controllers/services `throw new HttpError(...)` (`server/src/lib/http-error.ts`) or let a `ZodError` propagate; Express 5 forwards a rejected async handler to the error middleware automatically, no manual `try/catch`/`next(err)`. Unexpected errors always log the real cause server-side and return a generic `INTERNAL_ERROR` — never a stack trace or driver message to the client.
+- **`GET /health`** checks the database live (with one retry) on every call — it does **not** gate process startup; the app comes up even with the database down, so `/health` itself can report that clearly (`503 DATABASE_UNAVAILABLE`) instead of the whole process being unreachable.
+- **Security base (NFR-005):** `helmet()`, CORS locked to `CORS_ORIGIN` (no wildcard), a 100kb JSON body limit (no uploads yet — BR-033's goal media needs its own task), and a basic global rate limit, all wired in `server/src/middleware/security.ts`.
+- **Tests:** Vitest + Supertest, against `MYSQL_DATABASE_TEST` — never the real database. `server/tests/global-setup.ts` recreates and migrates it from `db/init/` once per run (as `root`, since the app's own MySQL user only has grants on `MYSQL_DATABASE`), so it can't drift from the real schema. Test files run serially (`fileParallelism: false`): they share one database.
+- **Docker dev reload:** the `server` compose service bind-mounts the source, but a Windows-host bind mount doesn't deliver the native filesystem events `tsx watch` needs. It runs `dev:docker` (`nodemon --legacy-watch`, polling-based) instead; bare local dev (`npm run dev` in `server/`, no mount involved) keeps the faster `tsx watch`. After adding a new dependency, if the container comes up with `<package>: not found`, the anonymous `node_modules` volume is stale — `docker compose up -d --force-recreate -V server` forces it to pick up the new image's install.
+
 ## Development
 
 ```
-npm run dev       # Vite dev server, http://localhost:5173
-npm run build     # tsc -b && vite build → dist/
-npm run preview   # serve dist/ locally
+npm run dev             # Vite dev server, http://localhost:5173
+npm run build           # tsc -b && vite build → dist/
+npm run preview         # serve dist/ locally
+npm run server:dev      # backend, http://localhost:3001 (needs `docker compose up -d db`)
+npm run server:test     # backend test suite (Vitest + Supertest)
 ```
 
-Start the dev server as a background process so it doesn't block the session, and stop it when done. `npm run build` must finish with no TypeScript errors or warnings.
+Start the dev server as a background process so it doesn't block the session, and stop it when done. `npm run build` must finish with no TypeScript errors or warnings. For the backend, `docker compose up -d` (from the repo root) runs both `db` and `server` together, with reload — see `server/README.md` for the full command reference and layer conventions.
 
 ## Documentation
 
@@ -157,3 +185,23 @@ Start the dev server as a background process so it doesn't block the session, an
 - [React](https://react.dev/reference/react): components, hooks, `<dialog>` and form handling.
 - [React Router, data mode](https://reactrouter.com/start/data/routing): routes, loaders, error boundaries, navigation.
 - [sharp](https://sharp.pixelplumbing.com/api-resize): the resize options the pixel-images plugin mirrors.
+- [Express 5](https://expressjs.com/en/5x/api.html): routing, error-handling middleware, async handler forwarding.
+- [zod](https://zod.dev/): schema validation, used for both env config and (from T-03 on) request validation.
+- [mysql2](https://sidorares.github.io/node-mysql2/docs): promise pool, prepared statements.
+
+
+## Betting platform
+Construir una plataforma web de polla deportiva con autenticación, roles, monedas virtuales, apuestas, resultados, ranking y administración de partidos.
+
+El agente debe leer antes de desarrollar:
+
+@business-rules.md
+
+### Reglas generales de trabajo para Betting platform
+
+1. Implementar una tarea a la vez.
+2. No avanzar a la siguiente tarea si la actual tiene errores.
+3. Toda regla de negocio crítica debe validarse en backend.
+4. No confiar únicamente en validaciones frontend.
+5. Toda funcionalidad nueva debe incluir pruebas.
+6. No modificar reglas de negocio sin actualizar `business-rules.md`.
