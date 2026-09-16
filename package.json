@@ -13,6 +13,8 @@
     "server:dev": "npm --prefix server run dev",
     "server:build": "npm --prefix server run build",
     "server:test": "npm --prefix server test",
+    "server:typecheck": "npm --prefix server run typecheck",
+    "server:admin:create": "npm --prefix server run admin:create",
     "server:start": "npm --prefix server start"
   },
   "dependencies": {

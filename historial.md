@@ -98,3 +98,118 @@ Entradas en orden cronológico, la más reciente al final. Formato de cada entra
 - **Archivos:** `EsquemaBD.md`, `db/init/01-schema.sql`, `db/init/02-catalogos.sql`, `CLAUDE.md`, `AGENTS.md`, `docs/plan-polla.md`.
 - **Verificación:** cobertura regla por regla de las BR que tocan datos (BR-003 a BR-047 y NFR-006): todas tienen soporte; lo que no puede expresar el esquema queda como regla de backend y está documentado · la tabla de conflictos de `plan-polla.md` se cumple: varias selecciones por partido, ticket con selecciones, los dos tipos de apuesta, puntos enteros 3/1/3/0 (`CHECK ... IN (0,1,3)`), monedas enteras, estados de partido `programado`/`en_curso`/`finalizado`/`cancelado`, usuario con estado y pago, sin mercado de campeón · convenciones: MySQL 8.4.11, InnoDB en las 22 tablas, `utf8mb4_unicode_ci`, `snake_case` en español, todos los `id` `BIGINT UNSIGNED`, `DATETIME` sin `DEFAULT CURRENT_TIMESTAMP`, catálogos con `codigo` único, sin `DECIMAL`/`FLOAT`, nada calculado guardado salvo `saldo_monedas` · base recreada desde cero (`down -v` + `up -d`): healthy, init sin errores, 0 filas de datos y catálogos con acentos correctos · pruebas propias con ROLLBACK (0 filas después): FKs compuestas de `plantel`, `partido_equipo` y `gol` (1452), lados y camisetas duplicados (1062), email repetido (1062), saldo negativo bloqueado por el tipo (1690), `cantidad = 0`, puntos = 2 y pronóstico doble o ausente (3819), borrado de un deporte en uso (1451), movimiento repetido de la misma selección y tipo (1062), y devolución con otro tipo aceptada · casos de borde: dos tickets del mismo usuario, tercera selección contradictoria, movimiento sin selección, gol de un jugador ajeno al plantel y auditoría sin administrador · `npm run build` OK · `EsquemaBD.md`, el SQL, `CLAUDE.md` y `business-rules.md` coherentes, incluidas las dos resoluciones del usuario (BR-015: el empate depende de `deporte.permite_empate`, que sigue en el esquema y se aplicará en backend; BR-007: sin "Estado" suelto, bastan `estado_pago` y `estado_usuario`) · `AGENTS.md` idéntico a `CLAUDE.md`.
 - **Observaciones:** quedan a cargo del backend, sin barrera en la base: BR-008 «una sola vez» (probé dos movimientos de validación de +10 al mismo usuario y los acepta; se podría cerrar con una columna generada y un índice único); `usuario.saldo_monedas` puede desincronizarse de `SUM(movimiento_moneda)` (lo reproduje: columna 8 contra suma 19), así que conviene una prueba de consistencia periódica; `seleccion.puntos_obtenidos` admite valor con estado `pendiente`; `auditoria.usuario_id` no exige rol `admin` y `entidad_id` no tiene FK (documentado); `gol.minuto` no tiene tope y los goles registrados no tienen que cuadrar con `partido_equipo.goles`. Menores: no hay índice propio sobre `partido.fecha_hora`, que es el orden de BR-013, y `EsquemaBD.md:31` todavía explica el marcador `[preguntar]` aunque ya no queda ninguno. Ajeno a T-01: `src/components/Navbar.module.css` está modificado en el árbol (logo del navbar desde 64rem), sin relación con esta tarea.
+
+## 2026-09-16 — T-02 · Esqueleto del backend
+
+- **Cambio:** backend en `server/` con su propio `package.json`: Express 5 + TypeScript en capas `routes` → `controllers` → `services` → `db/pool.ts`, con el pool inyectado desde `app.ts`. La configuración se valida con zod en `config/env.ts`: si algo falta o es inválido, el proceso sale con exit 1, un mensaje claro y sin stack. Todas las respuestas usan el sobre `{ data }` / `{ error: { code, message, details? } }` y los errores esperados usan `HttpError`. `GET /health` consulta la base en vivo con un reintento: 200, o 503 `DATABASE_UNAVAILABLE`, y el servidor arranca aunque la base esté caída. El pool usa `timezone: 'Z'`. Seguridad: helmet, CORS solo para `CORS_ORIGIN`, rate limit (sin contar `GET`/`HEAD /health`) antes de un límite de body de 100 KB. Pruebas con Vitest + Supertest sobre `la_liga_acp_test`, recreada desde `db/init` en cada corrida. Servicio `server` en `compose.yaml` con nodemon `--legacy-watch`. Scripts `server:*` en la raíz, incluido `server:typecheck`.
+- **Archivos:** `server/**` (src, tests, `package.json`, `Dockerfile`, `.dockerignore`, `tsconfig*`, `vitest.config.ts`, `README.md`), `compose.yaml`, `.env.example`, `.gitignore`, `package.json`, `README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Historia de la prueba:** se reprobó dos veces.
+  - **Primer intento.** JSON mal formado, un cuerpo de más de 100 KB y un charset no soportado respondían 500 `INTERNAL_ERROR`. Además, con `NODE_ENV=development` exportado, las pruebas resolvían la base principal (`resetDatabase` la habría vaciado), y nada impedía que `MYSQL_DATABASE_TEST` fuera igual a `MYSQL_DATABASE`, en cuyo caso `global-setup` la habría borrado.
+    - **Corrección 1:** esos cuerpos pasan a dar 400 `INVALID_JSON`, 413 `PAYLOAD_TOO_LARGE` y 415 `UNSUPPORTED_MEDIA_TYPE`. `vitest.config.ts` fuerza `NODE_ENV=test`, `env.ts` rechaza bases iguales, y `global-setup` y `resetDatabase` abortan si el destino no es la base de pruebas. `resetDatabase` conserva los catálogos. `/health` sale del rate limit y el limitador pasa antes de `express.json`.
+  - **Segundo intento.** Un cuerpo gzip o brotli corrupto (error con status 400 y `expose`, pero sin `type`) seguía dando 500 y quedaba en el log.
+    - **Corrección 2:** todo error con `expose: true` y status 4xx es error de cliente (código específico si el `type` es conocido, `BAD_REQUEST` si no) y no se registra en el log. La exclusión de `/health` sigue el criterio de Express: sin distinguir mayúsculas, con o sin barra final, solo `GET`/`HEAD`.
+- **Verificación final:**
+  - **Instalación y pruebas:** `npm ci` en `server/`, `npm run server:typecheck` (exit 0) y las pruebas dos veces seguidas con `NODE_ENV=development` exportado (7 archivos, 30/30). `npm run build` del front OK.
+  - **Errores de cuerpo, contra el contenedor en 3001:** JSON mal formado 400 `INVALID_JSON`; 150 KB 413; charset desconocido 415; gzip, brotli y deflate corruptos y gzip truncado 400 `BAD_REQUEST`, sin detalles de zlib y sin log. Content-Encoding desconocido 415; JSON escalar y utf-16 400.
+  - **Errores internos:** `errorHandler` montado en una app temporal. Un error real de mysql2 (tabla inexistente), un `ECONNREFUSED`, un error con `expose` y status 500, uno 400 sin `expose` y uno con status en texto dan `INTERNAL_ERROR` genérico con un solo log y sin filtrar detalles.
+  - **Guardias, con una fila testigo en la base principal:** la suite con `NODE_ENV=development` usó `la_liga_acp_test`. Con `MYSQL_DATABASE_TEST=la_liga_acp`, el proceso y la suite se niegan antes de tocar nada, y un nombre con caracteres de inyección se rechaza. `resetDatabase` contra un pool de la principal aborta antes de pedir la conexión del truncate. La testigo siguió y después se borró.
+  - **Base de pruebas:** los catálogos quedan intactos tras el reset.
+  - **Rate limit, en instancia propia:** `/health`, `/HEALTH`, `/Health/` y `HEAD` no consumen ni llevan `RateLimit-*`. `POST /health`, `/health/extra`, `/healthz` y las demás rutas sí consumen, y un JSON inválido también cuenta. Se ve el 429 con sobre y `Retry-After`, y `/health` sigue en 200 después.
+  - **Configuración:** una configuración inválida da exit 1 sin stack.
+  - **Health y seguridad:** `/health` da 200, 503 con `db` detenida y vuelve a 200 sin reiniciar el server; 404 con sobre. CORS nunca refleja un origen ajeno, preflight incluido, y helmet está completo.
+  - **Docker:** `up -d --build` levanta `db` y `server`, `/health` responde también desde dentro del contenedor, la recarga en caliente tarda unos 2 s y la imagen no lleva secretos.
+  - **Documentación y front:** `CLAUDE.md` y `AGENTS.md` idénticos y coherentes; `src/` y `business-rules.md` sin cambios.
+- **Observaciones:**
+  - El 503 de `/health` tarda 8–9 s con la base caída (propuesta de `connectTimeout` de 2 s pendiente de decisión del usuario).
+  - `/health//` (doble barra) responde el health pero consume el límite; sin importancia.
+  - El preflight `OPTIONS` lo resuelve CORS antes del limitador.
+
+## 2026-09-16 — T-03 · Registro, login y roles (backend)
+
+- **Cambio:** autenticación y autorización en `server/`.
+  - **Rutas:** `POST /auth/register` (201, sin abrir sesión; siempre `apostador`, `pendiente`, pago `pendiente` y 0 monedas), `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` y `GET /admin/sesion` como prueba de protección.
+  - **Contraseñas:** argon2id, de 10 a 128 caracteres. Si el correo no existe, el login igual verifica un hash de relleno.
+  - **Credenciales incorrectas:** la respuesta es siempre la misma, 401 `INVALID_CREDENTIALS`.
+  - **Sesiones en servidor:** tabla `sesion` con el SHA-256 del token, `ON DELETE CASCADE`, `CHECK` de vencimiento e índice `idx_sesion_expira_en`. Cada login purga las sesiones vencidas de todos los usuarios. La cookie es HttpOnly, SameSite=Strict y Path=/, dura 12 h, y en producción es `Secure` con prefijo `__Host-`.
+  - **CSRF:** `Origin` más un token firmado con `SESSION_SECRET` en todo lo que no sea GET/HEAD/OPTIONS.
+  - **Middlewares:** `requireAuth` (401), `requireRole('admin')` (403) y `requireValidated` (403 `USER_NOT_VALIDATED`).
+  - **Límites:** login con 5 fallos por IP + correo cada 15 min (los éxitos no cuentan); registro con 10 por IP por hora (decisión del usuario: se mantiene el 409 `EMAIL_TAKEN`). `TRUST_PROXY` configurable, nunca `true`. `SESSION_SECRET` obligatorio y rechaza valores de ejemplo.
+  - **`admin:create`:** crea o promueve un administrador. Pide la clave sin eco y con confirmación, y también acepta `ADMIN_PASSWORD_FILE` o `ADMIN_PASSWORD_STDIN=1`. Al promover no toca contraseña, estado ni saldo, y avisa si ignoró una clave.
+  - **Pruebas:** `resetDatabase` pasa a usar `DELETE`.
+  - **Documentación:** `business-rules.md` alinea BR-003 y BR-004 (se entra con correo) y aclara BR-001: el panel no cambia roles, con nota en T-21 de `plan-polla.md`.
+- **Archivos:** `server/src/**` (cli, config/env.ts, app.ts, controllers, lib, middleware, routes, schemas, services, types), `server/tests/**`, `server/package.json`, `server/package-lock.json`, `db/init/01-schema.sql`, `EsquemaBD.md`, `compose.yaml`, `.env.example`, `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`, `docs/business-rules.md`, `docs/plan-polla.md`.
+- **Historia de la prueba:** se reprobó una vez. En el primer intento, `admin:create` recibía la clave en `ADMIN_PASSWORD` y los ejemplos de los dos README la escribían en la línea de comandos: quedaba en el historial de la terminal y, con `docker compose exec -e`, completa en la línea de comandos de `docker.exe` y `docker-compose.exe` (verificado escaneando procesos), aunque el README decía lo contrario.
+  - **Corrección:** prompt sin eco con confirmación, las fuentes `ADMIN_PASSWORD_FILE` y `ADMIN_PASSWORD_STDIN`, y README corregidos con la explicación del riesgo.
+  - **Observaciones incorporadas en la misma corrección:** rechazo del `SESSION_SECRET` de ejemplo, índice y purga global de sesiones, `TRUST_PROXY`, límite de registro por IP y mensajes más claros de `admin:create`.
+- **Verificación final:**
+  - **Instalación y pruebas:** `npm ci`, `npm run server:typecheck` (exit 0) y pruebas dos veces seguidas (14 archivos, 135/135). `npm run build` del front OK.
+  - **Base:** recreada desde cero con `down -v` + `up -d --build`, sin errores; 23 tablas; `sesion` con PK, único de `token_hash`, `idx_sesion_expira_en` e índice de la FK.
+  - **`admin:create` interactivo:** probado en una consola real (ConPTY con PowerShell y PSReadLine) siguiendo los ejemplos de los README, local y con `docker compose exec -it`.
+    - La clave no se muestra, no queda en el historial de PSReadLine ni aparece en la línea de comandos de ningún proceso del host o del contenedor (escaneado entre la clave y su confirmación).
+    - La confirmación distinta da «Las contraseñas no coinciden» con exit 1; Ctrl+C da «Cancelado» con exit 130.
+    - `ADMIN_PASSWORD_FILE` (con CRLF y segunda línea), `ADMIN_PASSWORD_STDIN=1` local y `docker compose exec -T ... < archivo` crean administradores que después entran con esa clave.
+    - Un archivo inexistente, dos fuentes a la vez, la falta de `ADMIN_EMAIL`, un correo nuevo sin clave ni terminal y una clave débil dan mensajes claros con exit 1.
+    - Al promover un apostador validado con saldo 7 y una clave en archivo, avisa que la ignoró y el hash, el saldo y el estado quedan iguales; la clave original sigue entrando y la repetición dice «Ya era administrador».
+  - **`SESSION_SECRET`:** se rechazan el valor de `.env.example`, `changeme…`, uno con «secreto», `Example…` y valores repetitivos o cortos; un secreto aleatorio arranca.
+  - **Purga de sesiones:** el login de otro usuario borró una sesión vencida y dejó intactas las vigentes; `EXPLAIN` de la purga usa `idx_sesion_expira_en`.
+  - **`TRUST_PROXY`:** sin configurar, cambiar `X-Forwarded-For` no evita el 429; con `1` la IP informada separa los contadores; `true`, `yes`, `-1` y un CIDR inválido se rechazan; `loopback`, una lista de rangos y `2` se aceptan.
+  - **Límite de registro:** éxito, 409 y 400 cuentan, el cuarto intento con límite 3 da 429 `RATE_LIMITED` con `Retry-After`, el 409 no cambió y el login no se ve afectado.
+  - **Casos propios del primer intento:** siguen pasando.
+    - **Registro:** ignora los campos de rol, saldo y estado, normaliza el correo y valida los campos.
+    - **Login:** fallo idéntico y con tiempos parecidos para correo inexistente y clave incorrecta; un éxito no reinicia el contador de fallos.
+    - **Sesión y cookie:** `/auth/me` no expone el hash, la sesión vencida da 401, el logout invalida la cookie vieja y los flags son correctos en desarrollo y en producción.
+    - **CSRF:** sin token, con token ajeno o de otra sesión, alterado, con Origin ajeno o `null` y en rutas en mayúsculas da 403, sin cortar la sesión; GET y HEAD no cambian nada.
+    - **Autorización:** 401, 403 y 200 según corresponde, con cambios de rol y de estado aplicados en la petición siguiente; `requireValidated` probado con el middleware real; cascada al borrar el usuario.
+    - **Repaso tras recrear la base:** registro, login, CSRF y autorización correctos.
+  - **Documentación:** BR-001, BR-003 y BR-004 coherentes con el resto; `CLAUDE.md` y `AGENTS.md` idénticos; README al día; `compose.yaml` y `.env.example` con las variables nuevas.
+  - **Limpieza:** los datos de prueba de la base de desarrollo se borraron (0 usuarios, 0 sesiones).
+- **Observaciones:**
+  - El `DELETE` de `resetDatabase` no debilita las guardias de T-02 y ninguna prueba depende de ids fijos.
+  - Si alguien escribe la clave antes de que aparezca el prompt, la terminal la toma como comando y queda en su historial (comportamiento normal de cualquier prompt; lo vi al principio por un error de mi propio script).
+
+## 2026-09-16 — T-04 · Validación de participantes (backend)
+
+- **Cambio:** API de administración para validar participantes (BR-005 a BR-008).
+  - **Tabla de inscritos:** `GET /admin/participantes`, paginada, con filtros de pago y validación, búsqueda por nombre o correo y orden por fecha de inscripción. Sin query string desconocida: un parámetro extra da 400.
+  - **Conteos:** `GET /admin/participantes/conteos` da inscritos y validados; no acepta query.
+  - **Acciones:** `POST /admin/participantes/:id/pago/confirmar`, `/pago/revertir` y `/validar`.
+    - Validar exige el pago confirmado y da +10 monedas una sola vez. Usa una transacción con UPDATE condicional desde `pendiente` y un movimiento `validacion` (`MONEDAS_POR_VALIDACION` en `lib/coins.ts`).
+    - El pago solo se revierte mientras el usuario sigue pendiente.
+  - **Cambio de alcance durante la tarea (pausa del coordinador):** los administradores no participan en la polla.
+    - La tabla y los conteos muestran solo apostadores y el filtro `rol` desapareció.
+    - Las acciones sobre un admin dan 404 `NOT_A_PARTICIPANT`.
+    - `requireRole` compara el rol exacto.
+    - `requireBettor` reemplaza a `requireValidated` y responde 403 `ADMIN_CANNOT_BET` o `USER_NOT_VALIDATED`.
+    - `admin:create` solo promueve cuentas limpias.
+  - **Query string:** `rejectQueryParams` en `/auth/*` y en las rutas de `/admin` sin parámetros. En login y registro va antes del limitador propio, así que un 400 por query no cuenta como fallo ni gasta cupo (el limitador general sí lo cuenta). Hay una nota para T-18 en `server/README.md` y en `docs/plan-polla.md`.
+  - **Mensajes de `page` y `pageSize`:** cada caso tiene el suyo (no es número, no es entero, menor que 1, mayor que el tope). `page` tiene tope 100000 y `pageSize` 100.
+- **Archivos:**
+  - **Rutas y controladores:** `server/src/routes/admin.route.ts`, `participants.route.ts`, `auth.route.ts`; `server/src/controllers/participants.controller.ts`.
+  - **Servicios:** `server/src/services/participants.service.ts`, `participant-validation.service.ts`, `admin-bootstrap.service.ts`.
+  - **Esquemas:** `server/src/schemas/participants.schema.ts`, `common.schema.ts`.
+  - **Middleware y utilidades:** `server/src/middleware/auth.ts`, `no-query.ts`; `server/src/lib/coins.ts`, `error-codes.ts`; `server/src/db/transaction.ts`.
+  - **Pruebas:** `server/tests/participants-list.test.ts`, `participants-actions.test.ts`, `query-params.test.ts`, `auth-rate-limits.test.ts`, `authorization.test.ts`, `create-admin.test.ts`.
+  - **Documentación:** `server/README.md`, `docs/plan-polla.md` (notas en T-09, T-10, T-15, T-16, T-17, T-18 y T-21).
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 224/224 pruebas dos veces seguidas; `npm run build` del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Reprobaciones y correcciones:**
+    - **Primera reprobación:** los conteos ignoraban la query (`?rol=admin` daba 200). Corregido: ahora dan 400.
+    - **Segunda reprobación:** un login con query y clave correcta daba 400 pero contaba como fallo, y el sexto intento bloqueaba con 429. Además, `page=100001` decía «page debe ser un número». Ambas cosas están corregidas.
+  - **Re-test final (instancia local con límite de registro 3):**
+    - **Login con query:** 6 intentos con `?next=/x` y clave correcta dieron 400 sin cookie, y 6 con clave incorrecta, 400. Después, el login sin query dio 200.
+    - **El límite de login sigue funcionando:** con clave incorrecta sin query hubo cinco 401 y el sexto dio 429 `RATE_LIMITED`. Mientras dura el bloqueo, la clave correcta da 429 y con query da 400. Otro correo desde la misma IP entra.
+    - **Registro:** 6 intentos con query dieron 400 y no crearon cuentas; después, el registro sin query dio 201. Sin query, el tercero dio 201 y el cuarto 429 sin crear la cuenta; con el cupo agotado, un intento con query da 400.
+    - **El limitador general sí descuenta los 400 por query:** `RateLimit-Remaining` baja en cada uno.
+    - **Mensajes de `page` y `pageSize`:** `abc`, `1.5`, `0`, `-3`, `100001` y `101` dan cada uno su mensaje. `page=100000` y `pageSize=100` dan 200, y si fallan los dos parámetros llegan los dos detalles.
+  - **Repaso de T-04 (script propio de 114 casos, sin fallos):**
+    - **Tabla:** solo apostadores, filtros, búsqueda con comodines escapados y paginación.
+    - **Conteos:** excluyen a los admins; con query dan 400.
+    - **Acciones:** confirmar, validar y revertir; validación doble; 10 validaciones en paralelo con un solo +10.
+    - **Admins:** las acciones sobre admins dan 404 sin efectos.
+    - **Middlewares:** `requireBettor` y `requireRole` exacto.
+    - **Query en `/auth/*` y `/admin/sesion`:** da 400 sin efectos.
+  - **Orden de las comprobaciones:** 401 (anónimo), luego 403 `FORBIDDEN` (apostador), luego 403 `CSRF_FAILED` (sin token u Origin ajeno) y por último 400 (query o id inválido). Ninguna de esas peticiones cambió al usuario. Login y registro con Origin ajeno y query dan 403. El logout con query da 400 y la sesión sigue viva. Como control positivo, confirmar y validar dan 200 con +10 y un solo movimiento.
+  - **Limpieza:** se borraron los datos de prueba de la base de desarrollo (usuarios, sesiones, movimientos, tickets, selecciones, partido, competición y deporte: todo en 0). La base y el server de Docker quedan corriendo.
+- **Observaciones:**
+  - **Detalles menores de los mensajes:** `page=` (vacío) responde «page debe ser 1 o mayor». Un número más allá del rango seguro, como `9007199254740993`, trae dos detalles («entero» y «mayor que 100000»). Los dos casos dan 400.
+  - **D19 (ya documentado):** un movimiento `validacion` con `seleccion_id` esquiva la barrera de unicidad, y dos movimientos del mismo tipo sin selección chocan.

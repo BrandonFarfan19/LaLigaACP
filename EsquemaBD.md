@@ -6,7 +6,7 @@
 
 | Módulo | Contenido | Depende de |
 |---|---|---|
-| **Acceso** | Usuarios, roles, estado de validación y de pago. | — |
+| **Acceso** | Usuarios, roles, estado de validación y de pago, sesiones. | — |
 | **Informativo** | Deportes, competiciones, equipos, jugadores, partidos y goles. Es el backbone compartido: lo usa tanto la landing/fixture/posiciones como la polla. | Acceso (el admin carga resultados y goles) |
 | **Polla** | Tickets, selecciones y las monedas que mueven. | Acceso, Informativo |
 | **Auditoría** | Registro de operaciones administrativas relevantes (NFR-006). | Acceso (el admin que actúa); referencia libre, sin FK, a la fila afectada de cualquier módulo |
@@ -47,7 +47,10 @@ Decisiones que `business-rules.md` no fija y que se tomaron aquí. Las que depen
 | D13 | **Los puntos NO se guardan en `usuario`.** El ranking (BR-041 a BR-044) se calcula con `SUM(seleccion.puntos_obtenidos)` agrupado por usuario, igual que la tabla de posiciones informativa. `seleccion.puntos_obtenidos` sí se guarda por fila (ver `seleccion`) porque el resultado del partido es inmutable una vez confirmado (D10): no hay reliquidación que lo invalide. |
 | D14 | **`ticket` no tiene columna de "monedas utilizadas"**: se deriva contando sus selecciones (`COUNT(*)`, cada una cuesta 1 moneda fija). Como una selección anulada no se borra (solo cambia de estado), este conteo es estable en el tiempo y no se descuadra con una cancelación posterior. |
 | D15 | El rol `apostador` (código sin cambios respecto del esquema anterior) es el rol "Usuario" de BR-002. Se mantiene ese código para no chocar con el nombre de la tabla `usuario`; el nombre visible sí dice "Usuario". |
-| D16 | El admin **también puede tener selecciones y tickets** propios: ninguna regla lo prohíbe (igual que la vieja D15). No hay restricción de esquema para esto. |
+| D16 | **El admin no participa en la polla** (decisión del usuario en T-04, BR-001): no se valida, no recibe monedas y no tiene selecciones ni tickets. Lo garantiza el backend (`requireBettor`, las acciones de participantes y la promoción de `admin:create`), no el esquema: una FK no puede mirar el rol. Las consultas de la polla (participantes, conteos, ranking, estadísticas) filtran `rol = apostador`. |
+| D17 | **Se entra con el correo; no hay nombre de usuario aparte** (T-03). BR-003/BR-004 piden "usuario **o** correo": el correo ya es único, lo necesita el administrador para contactar al inscrito y no suma otro identificador que validar, reservar y proteger contra enumeración. `nombre` es solo para mostrar y puede repetirse. `business-rules.md` quedó alineado. |
+| D18 | **Sesiones en servidor, en la tabla `sesion`** (T-03, NFR-005), no JWT. El logout tiene que invalidar de verdad: con una fila por sesión basta borrarla, mientras que un JWT seguiría siendo válido hasta vencer (o exigiría una lista de revocados, que es otra tabla igual). Se guarda el SHA-256 del token, nunca el token. |
+| D19 | **La asignación de +10 es única también en la base** (T-04, BR-008). El backend valida con un `UPDATE` condicionado a `pendiente` y pago `confirmado`, dentro de la misma transacción que el movimiento. Además, `movimiento_moneda` tiene una columna generada `sin_seleccion` con `UNIQUE(usuario_id, tipo_movimiento_id, sin_seleccion)`, así que un segundo movimiento `validacion` del mismo usuario falla en la base aunque alguien lo devolviera a `pendiente` a mano. Un `CHECK` o una columna generada no pueden leer el `codigo` del catálogo; por eso la barrera es "uno por usuario y tipo entre los que no tienen selección", que hoy solo es `validacion`. Si algún día hay otro tipo sin selección que pueda repetirse (un ajuste manual, por ejemplo), hay que revisar este índice. **Límites conocidos de D19** (observados en T-04, sin cambiar el esquema todavía): (1) un movimiento `validacion` con `seleccion_id` cargado a mano esquiva la barrera, porque ahí `sin_seleccion` es NULL; (2) dos movimientos del **mismo tipo** sin selección para el mismo usuario chocan con la UNIQUE aunque sean legítimos. Por eso los débitos (T-10) y las devoluciones (T-16) siempre llevan su `seleccion_id`, y `validacion` nunca. |
 
 **Resueltas el 2026-09-15 (respuesta del usuario, ya reflejada en `business-rules.md`):**
 
@@ -70,7 +73,7 @@ Decisiones que `business-rules.md` no fija y que se tomaron aquí. Las que depen
 | codigo | VARCHAR, único | `apostador` (rol "Usuario" de BR-002, D15), `admin` |
 | nombre | VARCHAR | Etiqueta visible. |
 
-El rol `admin` incluye los permisos de `apostador` (D16), así que basta un rol por usuario.
+Un rol por usuario. Los roles no se incluyen entre sí: el `admin` administra y **no apuesta** (D16).
 
 ### estado_usuario — catálogo
 | Campo | Tipo | Notas |
@@ -94,12 +97,27 @@ El rol `admin` incluye los permisos de `apostador` (D16), así que basta un rol 
 | estado_usuario_id | FK → estado_usuario | BR-005. |
 | estado_pago_id | FK → estado_pago | BR-006/BR-007. |
 | nombre | VARCHAR | Nombre a mostrar (no lo pide BR-003, pero hace falta para "Participante" en el ranking, BR-042, y "Usuario" en la tabla de inscritos, BR-007). |
-| email | VARCHAR, único | Es el "usuario o correo electrónico" de BR-003: se usa solo el correo, sin una columna de nombre de usuario aparte. |
-| password_hash | VARCHAR(255) | Nunca texto plano (BR-004). El hash lo calcula el backend (T-03); 255 deja margen a bcrypt o argon2. |
+| email | VARCHAR, único | Es el "usuario o correo electrónico" de BR-003: se usa solo el correo, sin una columna de nombre de usuario aparte (D17). El backend lo guarda recortado y en minúsculas; la collation `_ci` hace que la unicidad tampoco distinga mayúsculas. |
+| password_hash | VARCHAR(255) | Nunca texto plano (BR-004). argon2id en formato PHC (`$argon2id$v=19$m=...`), calculado por el backend (T-03). |
 | saldo_monedas | SMALLINT UNSIGNED | Ver decisión D12. `DEFAULT 0`. Sin `CHECK` aparte: `UNSIGNED` ya impide un valor negativo por el tipo (a diferencia del viejo `coins_obtenidos`, un `DECIMAL` con signo, que sí necesitaba uno). |
 | creado_en | DATETIME (UTC) | Fecha de inscripción (BR-007). |
 
 No es un jugador: son entidades distintas.
+
+El registro por la API siempre crea `apostador`, `pendiente`, pago `pendiente` y saldo 0 (las 10 monedas llegan al validar, BR-008). Un `admin` solo se crea o promueve con el comando del backend (ver `server/README.md`), y solo se promueve una cuenta que nunca participó (pendiente, sin pago, sin monedas, sin movimientos ni tickets).
+
+### sesion
+Una sesión iniciada (NFR-005, D18).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| usuario_id | FK → usuario | `ON DELETE CASCADE`: una sesión no tiene sentido sin su usuario. |
+| token_hash | CHAR(64) ASCII, único | SHA-256 en hex del token aleatorio de la cookie. El token nunca se guarda: una copia de la base no permite entrar. |
+| creado_en | DATETIME (UTC) | |
+| expira_en | DATETIME (UTC), índice | Vencimiento absoluto (`SESSION_TTL_HOURS`). `CHECK (expira_en > creado_en)`. Índice `idx_sesion_expira_en` para la purga. |
+
+- **Backend:** una sesión vale solo si `expira_en > ahora`. Logout borra la fila. Cada inicio de sesión purga las sesiones vencidas de **todos** los usuarios (hasta 500 por vez, usando el índice) y borra la que traía la cookie, si había una.
 
 ---
 
@@ -282,8 +300,11 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 | seleccion_id | FK → seleccion, opcional | Vacío en `validacion`; presente en `seleccion_confirmada` y `devolucion_cancelacion`. |
 | cantidad | SMALLINT | Con signo: positivo para créditos, negativo para débitos. |
 | creado_en | DATETIME (UTC) | |
+| sin_seleccion | TINYINT, generada (`STORED`) | `1` si `seleccion_id` es NULL, NULL si no. Nadie la escribe; existe solo para el índice de abajo (D19). |
 
 - `UNIQUE(seleccion_id, tipo_movimiento_id)`: una selección no puede procesarse dos veces con el mismo tipo de movimiento (protege contra reintentos duplicados, en el espíritu de BR-054). No aplica a `validacion` (MySQL no cruza varios `NULL` en un índice único).
+- `UNIQUE(usuario_id, tipo_movimiento_id, sin_seleccion)`: como mucho **un** movimiento sin selección por usuario y tipo. Es la barrera de base de datos de BR-008: un usuario no puede recibir dos veces el `validacion` de +10 aunque el backend fallara (D19). A los tipos que siempre llevan selección no los afecta, porque ahí `sin_seleccion` es NULL y MySQL no compara NULL en un índice único.
+  - **Límites conocidos de D19** (observados en T-04, sin cambiar el esquema todavía): (1) un movimiento `validacion` con `seleccion_id` cargado a mano esquiva la barrera, porque ahí `sin_seleccion` es NULL; (2) dos movimientos del **mismo tipo** sin selección para el mismo usuario chocan con la UNIQUE aunque sean legítimos. La regla del backend: `seleccion_confirmada` y `devolucion_cancelacion` siempre llevan `seleccion_id`, y `validacion` nunca (ver notas de T-10 y T-16 en `docs/plan-polla.md`).
 - `CHECK (cantidad <> 0)`.
 - **Backend:** mantener `usuario.saldo_monedas` sincronizado con la suma de sus movimientos, en la misma transacción que cada inserción (D12, BR-053, BR-055).
 
@@ -350,6 +371,7 @@ erDiagram
   rol ||--o{ usuario : asigna
   estado_usuario ||--o{ usuario : clasifica
   estado_pago ||--o{ usuario : clasifica
+  usuario ||--o{ sesion : inicia
 
   deporte ||--o{ competicion : agrupa
   competicion ||--o{ equipo : tiene

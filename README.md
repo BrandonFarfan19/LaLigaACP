@@ -46,6 +46,8 @@ Desde la raíz del proyecto:
 | `npm run server:install` | Instala las dependencias del backend (`server/`)        |
 | `npm run server:dev` | Backend en modo desarrollo (fuera de Docker), `localhost:3001` |
 | `npm run server:test` | Corre las pruebas del backend (necesita `docker compose up -d db`) |
+| `npm run server:typecheck` | Revisa los tipos del backend y de sus pruebas |
+| `npm run server:admin:create` | Crea o promueve un administrador; pide la contraseña (ver abajo) |
 
 `npm run dev` y `npm run preview` sirven cualquier ruta, con o sin barra final (`/posiciones/`, `/plantilla/boca-juniors/`), con 200.
 
@@ -77,7 +79,7 @@ MySQL 8.4 con el esquema de [EsquemaBD.md](EsquemaBD.md), más la API de `server
 **Levantar todo** (base de datos + backend, con recarga en caliente)
 
 ```sh
-cp .env.example .env   # la primera vez; cambiar los passwords
+cp .env.example .env   # la primera vez; cambiar los passwords y SESSION_SECRET
 docker compose up -d
 docker compose ps      # esperar a que "db" diga (healthy)
 curl http://localhost:3001/health
@@ -91,6 +93,18 @@ Para levantar solo la base (por ejemplo, para correr el backend fuera de Docker 
 docker compose up -d db
 ```
 
+**Cuentas y primer administrador**
+
+La API ya tiene registro, login y roles (`/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`), con sesión en cookie y protección CSRF. Todo registro crea un usuario común y pendiente. El panel no cambia roles: el primer administrador se crea (o una cuenta existente se promueve) desde el servidor. El comando pide la contraseña sin mostrarla:
+
+```sh
+docker compose exec -it -e ADMIN_EMAIL=ana@liga.test -e ADMIN_NOMBRE=Ana server npm run admin:create
+```
+
+No escribas la contraseña en el comando (`ADMIN_PASSWORD=...` o `-e ADMIN_PASSWORD=...`): queda en el historial de la terminal y, con `docker compose exec -e`, a la vista de cualquier proceso del equipo mientras corre. Para scripts y CI hay `ADMIN_PASSWORD_FILE` y `ADMIN_PASSWORD_STDIN`; `ADMIN_PASSWORD` solo sirve cuando la carga la plataforma de CI desde sus secretos.
+
+Detalles y decisiones en [server/README.md](server/README.md#autenticación-y-roles-t-03).
+
 **Conectarse a MySQL**
 
 - Desde el host: `127.0.0.1`, puerto `MYSQL_PORT` (3306 por defecto), base `MYSQL_DATABASE`, usuario `MYSQL_USER` / `MYSQL_PASSWORD`.
@@ -103,7 +117,7 @@ docker compose down -v
 docker compose up -d
 ```
 
-Los scripts de `db/init/` solo corren con el volumen vacío: si los cambias, hay que resetear. `down -v` no toca nada del backend (no tiene volumen de datos propio).
+Los scripts de `db/init/` solo corren con el volumen vacío: si los cambias, hay que resetear. T-03 agregó la tabla `sesion` (con su índice sobre `expira_en`): un volumen creado antes no la tiene, así que el backend falla al iniciar sesión hasta que resetees. `down -v` también borra el volumen anónimo de `node_modules` del servicio `server`; no hay que hacer nada, porque el siguiente `up` lo vuelve a llenar con las dependencias de la imagen. El backend no tiene otros datos propios que se pierdan.
 
 ## 👀 Documentación
 

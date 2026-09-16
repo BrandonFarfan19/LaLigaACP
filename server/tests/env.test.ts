@@ -1,3 +1,7 @@
+import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, parseEnv } from '../src/config/env.js';
 
@@ -32,6 +36,71 @@ describe('parseEnv', () => {
 			expect(String(error)).toMatch(/CORS_ORIGIN/);
 			expect(String(error)).toMatch(/DB_HOST/);
 		}
+	});
+
+	it('requires a SESSION_SECRET of at least 32 characters', () => {
+		const missing = { ...process.env };
+		delete missing.SESSION_SECRET;
+
+		expect(() => parseEnv(missing)).toThrow(/SESSION_SECRET/);
+		expect(() => parseEnv({ ...process.env, SESSION_SECRET: 'corto' })).toThrow(/SESSION_SECRET/);
+	});
+
+	it('rejects the SESSION_SECRET placeholder from .env.example, so an unedited copy does not start', () => {
+		const example = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../.env.example'), 'utf8');
+		const placeholder = /^SESSION_SECRET=(.*)$/m.exec(example)?.[1]?.trim();
+		expect(placeholder?.length).toBeGreaterThanOrEqual(32);
+
+		expect(() => parseEnv({ ...process.env, SESSION_SECRET: placeholder })).toThrow(/SESSION_SECRET: es un valor de ejemplo/);
+	});
+
+	it.each([
+		['changeme', 'changeme-changeme-changeme-changeme-1234'],
+		['secret', 'my-super-secret-value-for-sessions-2026!'],
+		['ejemplo', 'EJEMPLO_de_clave_para_la_sesion_0123456789'],
+		['repetitive', 'a'.repeat(48)],
+		['low variety', 'abcabcabcabcabcabcabcabcabcabcabcabc'],
+	])('rejects an obvious SESSION_SECRET (%s)', (_label, value) => {
+		expect(() => parseEnv({ ...process.env, SESSION_SECRET: value })).toThrow(/SESSION_SECRET/);
+	});
+
+	it('accepts a random SESSION_SECRET', () => {
+		expect(() => parseEnv({ ...process.env, SESSION_SECRET: randomBytes(48).toString('base64') })).not.toThrow();
+	});
+
+	it.each([
+		[undefined, false],
+		['false', false],
+		['0', false],
+		['1', 1],
+		['2', 2],
+		['loopback', ['loopback']],
+		['loopback, 10.0.0.0/8, ::1', ['loopback', '10.0.0.0/8', '::1']],
+	])('TRUST_PROXY=%s -> %o', (value, expected) => {
+		const source = { ...process.env, TRUST_PROXY: value };
+		if (value === undefined) delete source.TRUST_PROXY;
+		expect(parseEnv(source).trustProxy).toEqual(expected);
+	});
+
+	it.each(['true', 'cualquiera', '10.0.0.0/33', '999.1.1.1', '-1'])('rejects TRUST_PROXY=%s', (value) => {
+		expect(() => parseEnv({ ...process.env, TRUST_PROXY: value })).toThrow(/TRUST_PROXY/);
+	});
+
+	it('has registration limit defaults and validates them', () => {
+		const source = { ...process.env };
+		delete source.REGISTER_RATE_LIMIT_MAX;
+		delete source.REGISTER_RATE_LIMIT_WINDOW_MS;
+		expect(parseEnv(source).registerRateLimit).toEqual({ windowMs: 3_600_000, max: 10 });
+		expect(() => parseEnv({ ...process.env, REGISTER_RATE_LIMIT_MAX: '0' })).toThrow(/REGISTER_RATE_LIMIT_MAX/);
+	});
+
+	it('derives the session cookie settings from NODE_ENV', () => {
+		const dev = parseEnv({ ...process.env, NODE_ENV: 'development' });
+		const prod = parseEnv({ ...process.env, NODE_ENV: 'production' });
+
+		expect(dev.session).toMatchObject({ cookieName: 'liga_sid', secureCookie: false });
+		expect(prod.session).toMatchObject({ cookieName: '__Host-liga_sid', secureCookie: true });
+		expect(dev.session.ttlMs).toBe(Number(process.env.SESSION_TTL_HOURS ?? 12) * 3_600_000);
 	});
 
 	it('resolves the test database name (not the real one) when NODE_ENV=test', () => {

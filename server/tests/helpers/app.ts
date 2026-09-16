@@ -1,15 +1,30 @@
 import { createApp } from '../../src/app.js';
-import { env } from '../../src/config/env.js';
+import { loadEnv, type Env } from '../../src/config/env.js';
 import { createPool } from '../../src/db/pool.js';
 
 /**
- * The real app, wired to the test database (`env.db.database` already
- * resolves to `MYSQL_DATABASE_TEST` here, since Vitest sets
- * `NODE_ENV=test` — see `src/config/env.ts`).
+ * The validated env for tests. `env.db.database` resolves to
+ * `MYSQL_DATABASE_TEST` because `vitest.config.ts` forces `NODE_ENV=test`,
+ * whatever the terminal exported — see `src/config/env.ts`.
  */
-export function createTestApp() {
-	const pool = createPool(env);
-	return { app: createApp({ pool, env }), pool };
+export const env: Env = loadEnv();
+
+/**
+ * The real app, wired to the test database. `overrides` tweaks config (e.g. a
+ * tiny rate limit). The global, login and registration limits default to generous
+ * values here, because most files register and log in many users from the
+ * same address; the files that test those limits set them explicitly.
+ */
+export function createTestApp(overrides: Partial<Env> = {}) {
+	const testEnv: Env = {
+		...env,
+		rateLimit: { ...env.rateLimit, max: 10_000 },
+		loginRateLimit: { ...env.loginRateLimit, max: 1000 },
+		registerRateLimit: { ...env.registerRateLimit, max: 1000 },
+		...overrides,
+	};
+	const pool = createPool(testEnv);
+	return { app: createApp({ pool, env: testEnv }), pool };
 }
 
 /**

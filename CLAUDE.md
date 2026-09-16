@@ -59,7 +59,7 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - **A local MySQL 8.4 runs in Docker** (`compose.yaml`, credentials in `.env`, see `.env.example`). `db/init/01-schema.sql` creates every table and `db/init/02-catalogos.sql` loads only the catalog rows. Setup, connection and reset steps are in the README.
 - **The frontend is not connected to it.** `src/lib/` stays static and the site stays a static SPA until T-22 of `docs/plan-polla.md`. Do not wire `src/lib/` to the API, or seed teams/players/matches, unless explicitly asked.
-- **The backend (`server/`) is an Express app, and must stay one.** No other framework (Fastify, Nest, Koa, Next API routes…). It already connects to this database through `mysql2` (see **Backend stack** below) — but, as of T-02, only for `GET /health`; there is no business logic yet.
+- **The backend (`server/`) is an Express app, and must stay one.** No other framework (Fastify, Nest, Koa, Next API routes…). It already connects to this database through `mysql2` (see **Backend stack** below). As of T-04 it has `GET /health`, accounts (register, login, sessions, roles) and participant validation under `/admin/participantes`. No betting logic yet.
 - `EsquemaBD.md` and `db/init/01-schema.sql` must stay in sync: a schema change updates both in the same change.
 
 - Treat it as the source of truth when adding or changing entities in `src/types/` or `src/data/`, so the static layer keeps converging on the future tables.
@@ -80,14 +80,17 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 | Module | Tables |
 |---|---|
-| Acceso | `rol`, `estado_usuario`, `estado_pago`, `usuario` |
+| Acceso | `rol`, `estado_usuario`, `estado_pago`, `usuario`, `sesion` |
 | Informativo | `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `estado_partido`, `partido`, `partido_equipo`, `gol` |
 | Polla | `tipo_apuesta`, `resultado_general`, `estado_seleccion`, `ticket`, `seleccion`, `tipo_movimiento`, `movimiento_moneda` |
 | Auditoría | `accion_auditoria`, `auditoria` |
 
 **Tables at a glance**
 
-- `rol` (codigo: `apostador` = BR-002's "Usuario", `admin`) → `usuario` (rol_id, estado_usuario_id, estado_pago_id, nombre, email, password_hash, saldo_monedas, creado_en). One role per user; `admin` includes betting. A user is not a player. `estado_usuario`: `pendiente`/`validado` (BR-005). `estado_pago`: `pendiente`/`confirmado` (BR-006).
+- `rol` (codigo: `apostador` = BR-002's "Usuario", `admin`) → `usuario` (rol_id, estado_usuario_id, estado_pago_id, nombre, email, password_hash, saldo_monedas, creado_en). One role per user; roles do not include each other. **Admins never take part in the pool** (user decision, BR-001): they are not participants, never get payment confirmed, validated or coins, and never bet. A user is not a player. `estado_usuario`: `pendiente`/`validado` (BR-005). `estado_pago`: `pendiente`/`confirmado` (BR-006).
+  - **Login is by email only**; there is no separate username (BR-003/BR-004 say "usuario o correo", and `business-rules.md` now says email). `email` is stored trimmed and lowercased; `nombre` is display-only and may repeat. `password_hash` is argon2id.
+  - API registration always creates `apostador` + `pendiente` + pago `pendiente` + 0 coins. An `admin` only comes from the server-side `admin:create` command.
+- `sesion` (usuario_id, token_hash, creado_en, expira_en, indexed) is one server-side login session (NFR-005). It stores only the SHA-256 of the cookie token, never the token. A session is live while `expira_en > now`, and logout deletes the row. `ON DELETE CASCADE` from `usuario`.
 - `deporte` (nombre, slug, permite_empate) and `competicion` (deporte_id, nombre, slug) — BR-011 splits these; a competición is one standalone tournament, no seasons.
 - `equipo` (competicion_id, nombre, nombre_corto, escudo, color_acento). A team belongs to exactly one competición.
 - `jugador` is the person. `plantel` (jugador_id, equipo_id, competicion_id, numero_camiseta) enrolls that person in a team. `UNIQUE(jugador_id, competicion_id)` means one team per competición and no mid-tournament transfers.
@@ -97,7 +100,7 @@ This section summarizes the target schema. Full detail (every column, constraint
 - `tipo_apuesta` (codigo: `resultado_general`, `marcador_exacto` — BR-015/BR-016). `resultado_general` catalog (codigo: `local_gana`, `empate`, `visitante_gana` — BR-029) is reused both as a `seleccion`'s pronóstico and as a match's derived result.
 - `ticket` (usuario_id, creado_en) groups one or more `seleccion` rows (BR-019). Coins used and points are always computed from its selections, never stored on the ticket.
 - `seleccion` (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id?, pronostico_goles_local?, pronostico_goles_visitante?, estado_seleccion_id, puntos_obtenidos?) is one individual bet. `CHECK` enforces exactly one pronóstico shape is filled; matching it to `tipo_apuesta` by `codigo` is backend logic. States: `pendiente`, `acertada`, `no_acertada`, `anulada` (BR-027). Several selections per match and per ticket, even contradictory ones, are allowed (BR-017/BR-018) — no uniqueness constraint groups them. The 1-coin cost per selection (BR-020) is a backend constant, never a column.
-- `tipo_movimiento` (codigo: `validacion` +10, `seleccion_confirmada` −1, `devolucion_cancelacion` +1 — the only tabla-28 events that move coins) → `movimiento_moneda` (usuario_id, tipo_movimiento_id, seleccion_id?, cantidad con signo, creado_en). `UNIQUE(seleccion_id, tipo_movimiento_id)` stops the same selection from being processed twice under the same movement type.
+- `tipo_movimiento` (codigo: `validacion` +10, `seleccion_confirmada` −1, `devolucion_cancelacion` +1 — the only tabla-28 events that move coins) → `movimiento_moneda` (usuario_id, tipo_movimiento_id, seleccion_id?, cantidad con signo, creado_en). `UNIQUE(seleccion_id, tipo_movimiento_id)` stops the same selection from being processed twice under the same movement type. A generated column `sin_seleccion` (1 when `seleccion_id` is NULL) plus `UNIQUE(usuario_id, tipo_movimiento_id, sin_seleccion)` allows at most one selection-less movement per user and type, which makes the `validacion` +10 unique at the database level (BR-008, EsquemaBD D19). Revisit that index if a repeatable selection-less movement type is ever added.
 - `accion_auditoria` (codigo, nombre, entidad — the table each code affects) → `auditoria` (usuario_id = admin, accion_id, entidad_id, creado_en). `entidad_id` has **no FK** (it points at different tables depending on `accion_id`, and MySQL can't express a conditional FK) — the backend owns that integrity.
 - Composite FKs over `(id, competicion_id)` and `(id, equipo_id)` guarantee teams, matches, players and goals share a competición. See `EsquemaBD.md`.
 
@@ -117,7 +120,9 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - Confirming a result (admin action) moves the match to `finalizado`: that transition **is** the lock (BR-031/BR-032) — goals and state become immutable in the app from then on, no separate "confirmed" column. The system then settles every `seleccion` for that match per the table above.
 - Cancelling a match (`cancelado`) voids every one of its selections (`anulada`) and refunds 1 coin each via a `devolucion_cancelacion` movement, updating the balance in the same transaction (BR-045 to BR-047, BR-055). Other selections in the same ticket, from other matches, are untouched.
-- Validating a user (`estado_usuario → validado`) grants +10 coins exactly once — enforced by only allowing the transition from `pendiente`, not by a table constraint (BR-006 to BR-008).
+- Validating a user (`estado_usuario → validado`) grants +10 coins exactly once (BR-006 to BR-008). The backend allows only the transition from `pendiente` with payment `confirmado`, in a conditional UPDATE in the same transaction as the movement, and the database refuses a second `validacion` movement (D19). The amount lives only in `server/src/lib/coins.ts`.
+- Participation flow (§23): confirm payment, then validate. A payment can be reverted only while the user is still `pendiente`. Validation is never reverted. These actions only apply to `apostador` accounts; on an admin account they return 404 `NOT_A_PARTICIPANT`. The participant table and counts show **only apostadores**.
+- **Every pool query excludes admins** (`rol = 'apostador'`): participant table, counts, ranking (T-15), pool statistics and bet listings (T-21).
 - Pool ranking: `SUM(seleccion.puntos_obtenidos)` per user, ordered by `puntos DESC, aciertos DESC`; a full tie shares position (BR-041 to BR-044, left open by BR-043).
 - **Resolved:** `resultado_general`'s "empate" is gated by `deporte.permite_empate` (BR-015, confirmed) — not enforced by the schema itself, applied in backend logic when betting rules are built (T-09). BR-007's admin table shows only `estado_pago` and `estado_usuario`, no separate "Estado" column.
 - **Still open, listed in `EsquemaBD.md`:** whether `ticket`'s idempotency key (BR-054) belongs on the table at all — deferred to the task that builds ticket confirmation.
@@ -128,6 +133,7 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - Read it to learn which changes are already verified before building on them.
 - Only `tester_liga` appends entries, at the end of the file. Never rewrite or delete past entries.
+- **Report back to the coordinator (Herdr pane `w4:p1`) with `herdr agent prompt w4:p1 "<summary>"`**, no double quotes inside the text. `ejecutor_liga` reports when it finishes a task or a fix, or when it is blocked on a decision; `tester_liga` reports every verdict, pass or fail. The coordinator relies on these messages to hand work over.
 
 ### Backlog
 
@@ -160,11 +166,29 @@ Team crests and logos live in `src/assets/` and are imported with a rendition pr
 ## Backend stack
 
 - **Express 5 + TypeScript**, its own `server/` project with its own `package.json` — not an npm workspace, see `server/README.md` for why. Layers: `routes` (URL + verb only) → `controllers` (HTTP shaping) → `services` (business logic + data access) → `db/pool.ts` (mysql2/promise pool). The `pool` is threaded down as a parameter from `app.ts`, never a module-level singleton — that's what lets tests inject their own (including one pointed at an unreachable host, to exercise failure paths for real).
-- **Config:** `server/src/config/env.ts` validates every environment variable with `zod` at import time; the process refuses to start (naming every bad/missing variable) rather than run half-configured. Nothing else reads `process.env` directly. Reuses the root `.env`/`.env.example` (same file `compose.yaml` uses for `db`) — see it for the full variable list, including `DB_HOST`/`DB_PORT` (differ between bare local dev and the `server` compose service) and `MYSQL_DATABASE_TEST`.
-- **Response envelope:** every response is `{ data }` or `{ error: { code, message, details? } }` — success and error alike, including `404`s and validation failures. Controllers/services `throw new HttpError(...)` (`server/src/lib/http-error.ts`) or let a `ZodError` propagate; Express 5 forwards a rejected async handler to the error middleware automatically, no manual `try/catch`/`next(err)`. Unexpected errors always log the real cause server-side and return a generic `INTERNAL_ERROR` — never a stack trace or driver message to the client.
+- **Config:** `server/src/config/env.ts` validates every environment variable with `zod` in `loadEnv()`, called once at startup by `index.ts`; the process refuses to start rather than run half-configured, printing every bad/missing variable and exiting with code 1 (no stack trace). `MYSQL_DATABASE_TEST` must differ from `MYSQL_DATABASE`. Nothing else reads `process.env` directly. Reuses the root `.env`/`.env.example` (same file `compose.yaml` uses for `db`) — see it for the full variable list, including `DB_HOST`/`DB_PORT` (differ between bare local dev and the `server` compose service) and `MYSQL_DATABASE_TEST`.
+- **Validate every input, including the query string.** Bodies, `:params` and query go through zod. Query schemas are `z.strictObject`, and a route that takes no query uses `rejectQueryParams` (`middleware/no-query.ts`, after `requireAuth`). No route under `/auth` or `/admin` may silently ignore an unknown parameter: it's a 400. `/health` is the deliberate exception.
+- **Response envelope:** every response is `{ data }` or `{ error: { code, message, details? } }` — success and error alike, including `404`s and validation failures. Controllers/services `throw new HttpError(...)` (`server/src/lib/http-error.ts`) or let a `ZodError` propagate; Express 5 forwards a rejected async handler to the error middleware automatically, no manual `try/catch`/`next(err)`. Any error with `expose: true` and a 4xx `status` (what `express.json()` raises for a bad body) is a client error, not a crash: it keeps its status, isn't logged, and never forwards the library's message. Known body-parser `type`s get their own code — `INVALID_JSON` (400), `PAYLOAD_TOO_LARGE` (413), `UNSUPPORTED_MEDIA_TYPE` (415) — and the rest, including a corrupt gzip/brotli body (no `type`), get `BAD_REQUEST`. A 5xx or non-exposed error is always `INTERNAL_ERROR`. Unexpected errors always log the real cause server-side and return a generic `INTERNAL_ERROR` — never a stack trace or driver message to the client.
 - **`GET /health`** checks the database live (with one retry) on every call — it does **not** gate process startup; the app comes up even with the database down, so `/health` itself can report that clearly (`503 DATABASE_UNAVAILABLE`) instead of the whole process being unreachable.
-- **Security base (NFR-005):** `helmet()`, CORS locked to `CORS_ORIGIN` (no wildcard), a 100kb JSON body limit (no uploads yet — BR-033's goal media needs its own task), and a basic global rate limit, all wired in `server/src/middleware/security.ts`.
-- **Tests:** Vitest + Supertest, against `MYSQL_DATABASE_TEST` — never the real database. `server/tests/global-setup.ts` recreates and migrates it from `db/init/` once per run (as `root`, since the app's own MySQL user only has grants on `MYSQL_DATABASE`), so it can't drift from the real schema. Test files run serially (`fileParallelism: false`): they share one database.
+- **Security base (NFR-005):** `helmet()`, CORS locked to `CORS_ORIGIN` (no wildcard), a basic global rate limit, then a 100kb JSON body limit (no uploads yet — BR-033's goal media needs its own task), all wired in `server/src/middleware/security.ts`. The limiter runs before body parsing, so invalid bodies count too, and skips `GET /health` with the same matching the route uses (case-insensitive, optional trailing slash).
+- **Tests:** Vitest + Supertest, against `MYSQL_DATABASE_TEST` — never the real database. `server/tests/global-setup.ts` recreates and migrates it from `db/init/` once per run (as `root`, since the app's own MySQL user only has grants on `MYSQL_DATABASE`), so it can't drift from the real schema. Test files run serially (`fileParallelism: false`): they share one database. `resetDatabase()` (`server/tests/helpers/db.ts`) empties every table except the catalogs loaded by `02-catalogos.sql`, for use in `beforeEach`. It uses `DELETE` (`TRUNCATE` made each reset take ~1 s), so AUTO_INCREMENT keeps counting and tests must never assume specific ids. `server/tests/helpers/auth.ts` has the register/login/role shortcuts.
+- **Never let tests touch the real database.** `vitest.config.ts` forces `NODE_ENV=test` (a value exported in the terminal can't override it). `global-setup.ts` and `resetDatabase()` refuse to run unless their target is exactly `MYSQL_DATABASE_TEST` (`server/tests/helpers/test-database.ts`). Keep all three guards.
+- **Auth (T-03, details and rationale in `server/README.md`):**
+  - Server-side sessions, not JWT, so logout really invalidates. The cookie (`HttpOnly`, `SameSite=Strict`, `Path=/`, plus `Secure` and the `__Host-` prefix in production) expires after `SESSION_TTL_HOURS`. The user is re-read from the database on every request, so role and state changes apply immediately.
+  - Passwords use argon2id (19 MiB, t=2, p=1). A failed login always returns the same `401 INVALID_CREDENTIALS`, and an unknown email still runs a dummy verification so both cases take about the same time.
+  - `/auth/login` has its own limit: `LOGIN_RATE_LIMIT_MAX` failed attempts per IP + email. `/auth/register` has another one: `REGISTER_RATE_LIMIT_MAX` attempts per IP, successful or not. The user decided the duplicate email keeps answering 409 `EMAIL_TAKEN`.
+  - Rate limits key on `req.ip`, which is the socket address unless `TRUST_PROXY` (off by default; a hop count or IPs/CIDRs, never `true`) names the proxies allowed to set `X-Forwarded-For`. It is applied in `app.ts`.
+  - `SESSION_SECRET` rejects placeholder-looking values, including the one in `.env.example`. Every login also purges expired sessions of all users, via `idx_sesion_expira_en`.
+  - **CSRF** (`middleware/csrf.ts`) applies to every non-GET request. A foreign `Origin` gets 403. With a session cookie, `X-CSRF-Token` must equal the `csrfToken` returned by login and `/auth/me` (an HMAC of the session token with `SESSION_SECRET`). Login and register are exempt from the token, not from the Origin check.
+  - **Route protection:** `requireAuth` (401) → `requireRole(role)` (403, exact role; roles don't include each other) / `requireBettor` (403). Everything under `/admin` already has `requireAuth` + `requireRole('admin')`.
+  - **Every betting or coin-spending route (T-09 on) must use `requireAuth, requireBettor`.** It lets through only a validated `apostador`: an admin gets 403 `ADMIN_CANNOT_BET` even if the database says `validado`, and a `pendiente` user gets 403 `USER_NOT_VALIDATED` (they can still log in and browse, BR-005).
+  - **Roles are never changed from the app** (user decision, BR-001). There is no admin panel or API action for it, and T-21 must not add one. An admin is only created or promoted with `npm run admin:create` on the server. Promotion is refused for any account that took part in the pool: not `pendiente`, payment confirmed, coins, movements or tickets.
+  - That command takes `ADMIN_EMAIL`/`ADMIN_NOMBRE` from the environment and **prompts for the password without echo** (`docker compose exec -it ...`). Never document or use a password typed on the command line (`ADMIN_PASSWORD=...`, `-e ADMIN_PASSWORD=...`): it ends up in shell history and in docker's visible process command line. For non-interactive use there are `ADMIN_PASSWORD_FILE`, `ADMIN_PASSWORD_STDIN=1`, or `ADMIN_PASSWORD` only when injected by a CI secret store.
+- **Participants (T-04, details in `server/README.md`):**
+  - Admin actions live in `services/participant-validation.service.ts`. Each runs through `withTransaction` (`db/transaction.ts`) with `READ COMMITTED` and changes state only through an `UPDATE ... WHERE <expected state>`, so a repeated or concurrent call gets 409 without side effects.
+  - Their `hooks.inTransaction(conn, outcome)` is where T-17's audit insert goes: same transaction, before commit.
+  - Coin amounts go in `lib/coins.ts`, never inline.
+  - Participant points are always `SUM(seleccion.puntos_obtenidos)` in the query.
 - **Docker dev reload:** the `server` compose service bind-mounts the source, but a Windows-host bind mount doesn't deliver the native filesystem events `tsx watch` needs. It runs `dev:docker` (`nodemon --legacy-watch`, polling-based) instead; bare local dev (`npm run dev` in `server/`, no mount involved) keeps the faster `tsx watch`. After adding a new dependency, if the container comes up with `<package>: not found`, the anonymous `node_modules` volume is stale — `docker compose up -d --force-recreate -V server` forces it to pick up the new image's install.
 
 ## Development
@@ -175,6 +199,8 @@ npm run build           # tsc -b && vite build → dist/
 npm run preview         # serve dist/ locally
 npm run server:dev      # backend, http://localhost:3001 (needs `docker compose up -d db`)
 npm run server:test     # backend test suite (Vitest + Supertest)
+npm run server:typecheck # backend type check, src + tests
+npm run server:admin:create # create/promote an admin (ADMIN_EMAIL, ADMIN_NOMBRE; asks for the password)
 ```
 
 Start the dev server as a background process so it doesn't block the session, and stop it when done. `npm run build` must finish with no TypeScript errors or warnings. For the backend, `docker compose up -d` (from the repo root) runs both `db` and `server` together, with reload — see `server/README.md` for the full command reference and layer conventions.
@@ -186,7 +212,8 @@ Start the dev server as a background process so it doesn't block the session, an
 - [React Router, data mode](https://reactrouter.com/start/data/routing): routes, loaders, error boundaries, navigation.
 - [sharp](https://sharp.pixelplumbing.com/api-resize): the resize options the pixel-images plugin mirrors.
 - [Express 5](https://expressjs.com/en/5x/api.html): routing, error-handling middleware, async handler forwarding.
-- [zod](https://zod.dev/): schema validation, used for both env config and (from T-03 on) request validation.
+- [zod](https://zod.dev/): schema validation, used for both env config and request bodies (`server/src/schemas/`).
+- [OWASP cheat sheets](https://cheatsheetseries.owasp.org/): Password Storage, Session Management and CSRF Prevention, which the T-03 auth design follows.
 - [mysql2](https://sidorares.github.io/node-mysql2/docs): promise pool, prepared statements.
 
 

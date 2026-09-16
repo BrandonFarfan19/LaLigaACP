@@ -1,7 +1,21 @@
 import { createApp } from './app.js';
-import { env } from './config/env.js';
+import { ConfigError, loadEnv, type Env } from './config/env.js';
 import { createPool } from './db/pool.js';
 
+/** An incomplete environment is an operator mistake, not a crash: print what's wrong and exit 1, no stack trace. */
+function loadEnvOrExit(): Env {
+	try {
+		return loadEnv();
+	} catch (error) {
+		if (error instanceof ConfigError) {
+			console.error(error.message);
+			process.exit(1);
+		}
+		throw error;
+	}
+}
+
+const env = loadEnvOrExit();
 const pool = createPool(env);
 const app = createApp({ pool, env });
 

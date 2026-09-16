@@ -27,12 +27,12 @@ Desglose de [business-rules.md](business-rules.md) en tareas que se hacen **una 
 ## Fase 1 — Cimientos
 
 - [x] **T-01 · Esquema nuevo.** Reescribir `EsquemaBD.md` y `db/init/` según las reglas: usuario con estado y pago, deporte, competición, equipo, jugador, partido, gol, ticket, selección, movimiento de monedas y auditoría. Recrear la base y documentar los conflictos resueltos. *(BR-003, BR-005, BR-011, BR-012, BR-019, BR-025, BR-027, BR-033, NFR-006)*
-- [ ] **T-02 · Esqueleto del backend.** Proyecto Express + TypeScript, conexión a MySQL, configuración por entorno, manejo de errores, formato de respuestas, `healthcheck`, servicio en `compose.yaml` y Vitest + Supertest con base de pruebas. *(NFR-005)*
-- [ ] **T-03 · Registro, login y roles.** Alta de cuenta, hash de contraseña, inicio de sesión, sesión o token, autorización por rol y protección de rutas. *(BR-003, BR-004, BR-005, NFR-005)*
+- [x] **T-02 · Esqueleto del backend.** Proyecto Express + TypeScript, conexión a MySQL, configuración por entorno, manejo de errores, formato de respuestas, `healthcheck`, servicio en `compose.yaml` y Vitest + Supertest con base de pruebas. *(NFR-005)*
+- [x] **T-03 · Registro, login y roles.** Alta de cuenta, hash de contraseña, inicio de sesión, sesión o token, autorización por rol y protección de rutas. *(BR-003, BR-004, BR-005, NFR-005)*
 
 ## Fase 2 — Participantes y monedas
 
-- [ ] **T-04 · Validación de participantes.** Tabla de inscritos para el administrador, validación manual con confirmación de pago y asignación única de 10 monedas. Resolver aquí la barrera de BR-008: hoy nada impide dos asignaciones de +10 al mismo usuario. *(BR-006, BR-007, BR-008)*
+- [x] **T-04 · Validación de participantes.** Tabla de inscritos para el administrador, validación manual con confirmación de pago y asignación única de 10 monedas. Resolver aquí la barrera de BR-008: hoy nada impide dos asignaciones de +10 al mismo usuario. *(BR-006, BR-007, BR-008)*
 - [ ] **T-05 · Saldo y movimientos.** Saldo por usuario que nunca queda negativo, registro de cada movimiento y consulta del saldo propio. `usuario.saldo_monedas` puede desincronizarse de `SUM(movimiento_moneda)`: definir cómo se mantienen juntos y una comprobación de consistencia. *(BR-009, tabla 28)*
 
 ## Fase 3 — Datos deportivos
@@ -44,7 +44,9 @@ Desglose de [business-rules.md](business-rules.md) en tareas que se hacen **una 
 ## Fase 4 — Apuestas
 
 - [ ] **T-09 · Selecciones y cierre.** Tipos de apuesta (resultado general y marcador exacto), varias por partido, costo de 1 moneda por selección, validación de saldo y cierre 24 h antes, todo verificado en backend. *(BR-014 a BR-018, BR-020, BR-021)*
+  - Nota de T-04: toda ruta de apuestas va con `requireAuth, requireBettor` (`server/src/middleware/auth.ts`): solo pasa un apostador validado; un admin recibe 403 `ADMIN_CANNOT_BET` aunque figure validado. Vale también para T-10 y cualquier ruta que gaste monedas.
 - [ ] **T-10 · Confirmación del ticket.** Resumen previo, confirmación explícita, descuento de monedas y creación del ticket en una sola transacción, con protección contra envíos duplicados. *(BR-019, BR-022 a BR-025, BR-053, BR-054)*
+  - Nota de T-04 (barrera D19 de `movimiento_moneda`, ver EsquemaBD.md): cada `seleccion_confirmada` **debe** llevar su `seleccion_id`. Un débito sin selección (por ejemplo uno solo por ticket) chocaría con `uq_movimiento_sin_seleccion` desde el segundo ticket del usuario. Además, el backend nunca debe poner `seleccion_id` en un movimiento `validacion`: eso esquivaría la barrera de BR-008.
 - [ ] **T-11 · Mis apuestas.** Historial del usuario con el detalle de cada selección y sus estados. *(BR-026, BR-027)*
 
 ## Fase 5 — Resultados y puntos
@@ -53,15 +55,21 @@ Desglose de [business-rules.md](business-rules.md) en tareas que se hacen **una 
 - [ ] **T-13 · Autores de goles.** Jugador, equipo, minuto e imagen o video opcionales. `gol.minuto` no tiene tope y los goles registrados no cuadran automáticamente con el marcador de `partido_equipo`: definir qué se exige. *(BR-033, BR-001)*
 - [ ] **T-14 · Cálculo de puntos.** Procesamiento automático al confirmar: cada selección se evalúa por separado, con +3, +1, +3 o 0, y los puntos no generan monedas. *(BR-034 a BR-040, tabla 27)*
 - [ ] **T-15 · Ranking.** Orden por puntos y luego por aciertos, top 10 con posición, participante, puntos y aciertos, y actualización automática. *(BR-041 a BR-044)*
+  - Decisión del usuario (T-04): **el ranking excluye a los administradores** (`rol = 'apostador'` en la consulta), aunque tuvieran selecciones en la base. Los administradores no participan (BR-001).
 - [ ] **T-16 · Cancelación.** Anulación de las selecciones del partido cancelado y devolución de sus monedas, sin tocar las demás selecciones del ticket. *(BR-045 a BR-047, BR-055)*
+  - Nota de T-04 (barrera D19): cada `devolucion_cancelacion` **debe** llevar el `seleccion_id` que devuelve. Así la protege `UNIQUE(seleccion_id, tipo_movimiento_id)` contra devoluciones dobles. Una devolución agrupada sin selección chocaría con `uq_movimiento_sin_seleccion` en la segunda cancelación que afecte al mismo usuario.
 - [ ] **T-17 · Auditoría.** Registro de las operaciones administrativas relevantes con administrador, acción, fecha y registro afectado. La base no exige que el autor sea administrador ni que `entidad_id` exista: lo garantiza el backend. *(NFR-006)*
+  - Nota de T-04: debe cubrir **confirmar pago** y **validar usuario** (y **revertir pago**). Las tres acciones viven en `server/src/services/participant-validation.service.ts` y aceptan `hooks.inTransaction(conn, outcome)`, que corre dentro de la misma transacción antes del commit: la fila de `auditoria` se inserta ahí, con `outcome.actorId`, `outcome.action` y `outcome.participant.id`. Hoy `accion_auditoria` solo tiene `validacion_usuario`; confirmar y revertir el pago necesitan códigos nuevos en el catálogo.
 
 ## Fase 6 — Interfaz
 
 - [ ] **T-18 · Entrar y monedas.** Pantallas de registro e inicio de sesión, rutas protegidas por rol y contador de monedas siempre visible en el navbar, con icono pixel art. *(BR-010, NFR-004, NFR-005)*
+  - Nota de T-04: la API no acepta query string en `/auth/register`, `/auth/login`, `/auth/me` ni `/auth/logout` (responde 400). Un `?next=` u otro parámetro de la página del front se resuelve en el front y **no se reenvía** a la URL de la API. Ver `server/README.md`.
 - [ ] **T-19 · Interfaz de apuestas.** Listado con filtros por deporte y fecha, estado visual de cada partido, armado del ticket, resumen y confirmación. *(BR-051, BR-052, BR-023, BR-024)*
 - [ ] **T-20 · Mis apuestas y ranking.** Pantallas del historial propio y del ranking. *(BR-026, BR-042)*
 - [ ] **T-21 · Panel de administración.** Participantes, partidos, resultados, goles y consulta de apuestas y estadísticas. *(BR-001, BR-007, BR-028 a BR-033)*
+  - Decisión del usuario (T-04): **los administradores no participan**. La tabla de participantes, los conteos, las estadísticas de la polla y la consulta de apuestas muestran solo apostadores. Las acciones de pago y validación sobre una cuenta admin responden 404 `NOT_A_PARTICIPANT`.
+  - Decisión del usuario (T-03): el panel **no cambia roles**. "Administrar usuarios" es validar, confirmar pago y consultar. Un administrador solo se crea o promueve con `npm run admin:create` desde el servidor (ver `server/README.md`). No agregar al panel ni a la API una acción de cambio de rol.
 - [ ] **T-22 · Landing con datos reales.** La parte informativa deja los datos estáticos y consume la API, sin cambiar la interfaz ni salirse de `src/lib`. *(BR-048 a BR-050)*
 
 ## Fase 7 — Cierre

@@ -38,8 +38,9 @@ CREATE TABLE estado_pago (
   CONSTRAINT ck_estado_pago_codigo CHECK (codigo <> '')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- BR-003/BR-004: identificador único (id), usuario o correo (email), contraseña
--- (password_hash, nunca texto plano), estado y rol. BR-009: saldo nunca negativo;
+-- BR-003/BR-004: identificador único (id), correo (email, único; es el dato
+-- para entrar), contraseña (password_hash, argon2id, nunca texto plano),
+-- estado y rol. BR-009: saldo nunca negativo;
 -- se guarda como columna (ver "Decisiones" en EsquemaBD.md) además del historial
 -- en movimiento_moneda. Sin CHECK aparte: SMALLINT UNSIGNED ya impide un valor
 -- negativo por el tipo (a diferencia del viejo coins_obtenidos, un DECIMAL con
@@ -59,6 +60,24 @@ CREATE TABLE usuario (
   CONSTRAINT fk_usuario_rol FOREIGN KEY (rol_id) REFERENCES rol (id),
   CONSTRAINT fk_usuario_estado_usuario FOREIGN KEY (estado_usuario_id) REFERENCES estado_usuario (id),
   CONSTRAINT fk_usuario_estado_pago FOREIGN KEY (estado_pago_id) REFERENCES estado_pago (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- NFR-005 (T-03): sesiones del lado del servidor. La cookie lleva un token
+-- aleatorio; aquí solo se guarda su SHA-256 (una copia de la base no sirve para
+-- entrar). Logout borra la fila, así que la sesión queda invalidada de verdad.
+-- ON DELETE CASCADE: una sesión no tiene sentido sin su usuario.
+-- idx_sesion_expira_en: cada login purga las sesiones vencidas de todos.
+CREATE TABLE sesion (
+  id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  usuario_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 hex del token de la cookie',
+  creado_en  DATETIME        NOT NULL COMMENT 'UTC',
+  expira_en  DATETIME        NOT NULL COMMENT 'UTC',
+  PRIMARY KEY (id),
+  CONSTRAINT uq_sesion_token_hash UNIQUE (token_hash),
+  INDEX idx_sesion_expira_en (expira_en),
+  CONSTRAINT fk_sesion_usuario FOREIGN KEY (usuario_id) REFERENCES usuario (id) ON DELETE CASCADE,
+  CONSTRAINT ck_sesion_expiracion CHECK (expira_en > creado_en)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -286,6 +305,10 @@ CREATE TABLE tipo_movimiento (
 -- cantidad con signo (+10, -1, +1...); uq_movimiento_seleccion_tipo evita
 -- procesar dos veces el mismo evento sobre la misma selección (p. ej. una
 -- devolución duplicada); no aplica a "validacion", que no tiene selección.
+-- Para esa (BR-008, T-04): sin_seleccion vale 1 solo si no hay selección, y
+-- uq_movimiento_sin_seleccion permite un único movimiento sin selección por
+-- usuario y tipo: una sola asignación de +10 aunque el backend fallara. Los
+-- tipos con selección no se ven afectados (NULL no choca en un UNIQUE).
 CREATE TABLE movimiento_moneda (
   id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   usuario_id         BIGINT UNSIGNED NOT NULL,
@@ -293,8 +316,12 @@ CREATE TABLE movimiento_moneda (
   seleccion_id       BIGINT UNSIGNED NULL,
   cantidad           SMALLINT        NOT NULL,
   creado_en          DATETIME        NOT NULL COMMENT 'UTC',
+  sin_seleccion      TINYINT UNSIGNED
+    GENERATED ALWAYS AS (IF(seleccion_id IS NULL, 1, NULL)) STORED
+    COMMENT '1 si no hay selección; NULL si la hay. Solo para uq_movimiento_sin_seleccion',
   PRIMARY KEY (id),
   CONSTRAINT uq_movimiento_seleccion_tipo UNIQUE (seleccion_id, tipo_movimiento_id),
+  CONSTRAINT uq_movimiento_sin_seleccion UNIQUE (usuario_id, tipo_movimiento_id, sin_seleccion),
   CONSTRAINT fk_movimiento_usuario FOREIGN KEY (usuario_id) REFERENCES usuario (id),
   CONSTRAINT fk_movimiento_tipo FOREIGN KEY (tipo_movimiento_id) REFERENCES tipo_movimiento (id),
   CONSTRAINT fk_movimiento_seleccion FOREIGN KEY (seleccion_id) REFERENCES seleccion (id),

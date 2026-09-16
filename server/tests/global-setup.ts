@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import mysql from 'mysql2/promise';
-import { loadRootEnvFile } from '../src/config/load-root-env.js';
+import { loadEnv } from '../src/config/env.js';
+import { DB_INIT_DIR } from './helpers/db.js';
+import { assertIsTestDatabase, resolveTestDatabase } from './helpers/test-database.js';
 
 /**
  * Runs once before the whole suite (Vitest `globalSetup`): creates the test
@@ -12,52 +13,37 @@ import { loadRootEnvFile } from '../src/config/load-root-env.js';
  * the official mysql image's entrypoint behavior), never on a second
  * database — then grants that user access to the test database too, since
  * the actual test requests run as the app normally would.
+ *
+ * Before the DROP, the target is checked against the test database name (and
+ * against `MYSQL_DATABASE`): a misconfigured `.env` aborts the run instead of
+ * wiping the real data.
  */
 export default async function globalSetup(): Promise<void> {
-	loadRootEnvFile();
+	// Validates the whole config (including MYSQL_DATABASE_TEST !== MYSQL_DATABASE).
+	const { db } = loadEnv();
+	const testDatabase = resolveTestDatabase();
+	assertIsTestDatabase(testDatabase);
 
-	const host = process.env.DB_HOST;
-	const port = Number(process.env.DB_PORT);
 	const rootPassword = process.env.MYSQL_ROOT_PASSWORD;
-	const appUser = process.env.MYSQL_USER;
-	const testDatabase = process.env.MYSQL_DATABASE_TEST ?? 'la_liga_acp_test';
-
-	const missing = [
-		!host && 'DB_HOST',
-		!Number.isFinite(port) && 'DB_PORT',
-		!rootPassword && 'MYSQL_ROOT_PASSWORD',
-		!appUser && 'MYSQL_USER',
-	].filter((name): name is string => Boolean(name));
-	if (missing.length > 0) {
-		throw new Error(
-			`No se pudo preparar la base de pruebas: faltan estas variables en .env: ${missing.join(', ')}.`,
-		);
+	if (!rootPassword) {
+		throw new Error('No se pudo preparar la base de pruebas: falta MYSQL_ROOT_PASSWORD en .env.');
 	}
 
-	const here = dirname(fileURLToPath(import.meta.url));
-	// server/tests -> server -> repo root -> db/init.
-	const dbInitDir = resolve(here, '../../db/init');
-	const schemaSql = readFileSync(resolve(dbInitDir, '01-schema.sql'), 'utf8');
-	const catalogSql = readFileSync(resolve(dbInitDir, '02-catalogos.sql'), 'utf8');
+	const schemaSql = readFileSync(resolve(DB_INIT_DIR, '01-schema.sql'), 'utf8');
+	const catalogSql = readFileSync(resolve(DB_INIT_DIR, '02-catalogos.sql'), 'utf8');
+	const server = { host: db.host, port: db.port, user: 'root', password: rootPassword, multipleStatements: true };
 
-	const admin = await mysql.createConnection({ host, port, user: 'root', password: rootPassword, multipleStatements: true });
+	const admin = await mysql.createConnection(server);
 	try {
 		await admin.query(
 			`DROP DATABASE IF EXISTS \`${testDatabase}\`; CREATE DATABASE \`${testDatabase}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`,
 		);
-		await admin.query(`GRANT ALL PRIVILEGES ON \`${testDatabase}\`.* TO '${appUser}'@'%'; FLUSH PRIVILEGES;`);
+		await admin.query('GRANT ALL PRIVILEGES ON ??.* TO ?@?; FLUSH PRIVILEGES;', [testDatabase, db.user, '%']);
 	} finally {
 		await admin.end();
 	}
 
-	const conn = await mysql.createConnection({
-		host,
-		port,
-		user: 'root',
-		password: rootPassword,
-		database: testDatabase,
-		multipleStatements: true,
-	});
+	const conn = await mysql.createConnection({ ...server, database: testDatabase });
 	try {
 		await conn.query(schemaSql);
 		await conn.query(catalogSql);

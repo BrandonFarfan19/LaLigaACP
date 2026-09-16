@@ -12,9 +12,12 @@
     "build": "tsc -b",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.test.json"
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "admin:create": "tsx src/cli/create-admin.ts"
   },
   "dependencies": {
+    "argon2": "^0.45.1",
+    "cookie": "^2.0.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

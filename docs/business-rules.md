@@ -23,7 +23,7 @@ El administrador tendrá acceso a las funcionalidades administrativas del sistem
 
 Podrá:
 
-* Administrar usuarios.
+* Administrar usuarios: validar participantes, confirmar su pago y consultarlos. El administrador no puede cambiar roles desde el sistema.
 * Validar usuarios inscritos en la polla.
 * Consultar el número de usuarios inscritos.
 * Consultar el número de usuarios validados.
@@ -42,9 +42,15 @@ Podrá:
 * Filtrar partidos por fecha.
 * Consultar resultados y estadísticas de la polla.
 
+Los roles no se cambian desde la aplicación: ni el panel de administración ni la API ofrecen esa acción. Un administrador solo se crea, o una cuenta existente se promueve, con un comando que se ejecuta en el servidor. Solo se promueve una cuenta que nunca participó en la polla: pendiente, sin pago confirmado, sin monedas, sin movimientos y sin tickets.
+
+**El administrador no participa en la polla.** No es participante, no se le confirma pago, no se valida, no recibe monedas y no puede apostar, sin importar el estado que figure en su cuenta. Así quien carga los resultados nunca tiene apuestas en juego. Tampoco figura en la tabla de participantes, en los conteos, en el ranking ni en las estadísticas de la polla.
+
 ---
 
 ## BR-002 – Rol Usuario
+
+El usuario es el único rol que participa en la polla. Los roles no se incluyen entre sí: un administrador no tiene los permisos de apuesta del usuario (ver BR-001).
 
 El usuario podrá:
 
@@ -71,11 +77,16 @@ El sistema deberá permitir que una persona cree una cuenta.
 
 Cada cuenta deberá contener como mínimo:
 
-* Usuario o correo electrónico.
+* Correo electrónico (único).
+* Nombre a mostrar.
 * Contraseña.
 * Identificador único.
 * Estado de validación.
 * Rol.
+
+El correo electrónico es el dato con el que se entra; no hay un nombre de usuario aparte. El nombre a mostrar puede repetirse.
+
+Toda cuenta creada por registro nace con rol Usuario, estado `PENDIENTE`, pago pendiente y 0 monedas. Nadie puede registrarse como Administrador: un administrador solo se crea o promueve desde el servidor, y no participa en la polla (BR-001).
 
 ---
 
@@ -83,10 +94,12 @@ Cada cuenta deberá contener como mínimo:
 
 El acceso a las funcionalidades privadas requerirá autenticación mediante:
 
-* Usuario o correo electrónico.
+* Correo electrónico.
 * Contraseña.
 
 Las contraseñas nunca deberán almacenarse en texto plano.
+
+Ante credenciales incorrectas, el sistema responderá siempre lo mismo, sin revelar si el correo está registrado.
 
 ---
 
@@ -115,6 +128,13 @@ Cuando el administrador valide al usuario:
 2. El sistema le asignará 10 monedas.
 3. El usuario quedará habilitado para realizar apuestas.
 
+Precisiones (T-04):
+
+* El administrador primero confirma el pago y después valida. Validar a un usuario sin pago confirmado no está permitido.
+* La validación no se revierte. Un pago confirmado por error puede volver a pendiente solo mientras el usuario siga pendiente; nunca después de validarlo.
+* Confirmar un pago ya confirmado, o validar a un usuario ya validado, se rechaza sin efectos.
+* Solo se confirma el pago y se valida a usuarios (participantes). Sobre una cuenta de administrador estas acciones se rechazan: los administradores no participan (BR-001).
+
 ---
 
 ## BR-007 – Administración de inscritos
@@ -131,6 +151,8 @@ La tabla deberá mostrar como mínimo:
 * Puntos acumulados.
 
 El administrador deberá poder validar al usuario desde esta interfaz.
+
+La tabla muestra solo usuarios (participantes); los administradores no figuran. Se puede filtrar por estado de pago y estado de validación, buscar por nombre o correo, y se ordena por fecha de inscripción. Los conteos de inscritos y validados cuentan solo participantes.
 
 ---
 
