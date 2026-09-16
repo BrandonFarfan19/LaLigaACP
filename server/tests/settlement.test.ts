@@ -14,7 +14,7 @@ import {
 	settleSelection,
 } from '../src/lib/points.js';
 import { countPendingSelections } from '../src/services/bets-match-probe.service.js';
-import { LOTE_LIQUIDACION, settleMatchBets, settleMatchSelections } from '../src/services/bets-settlement.service.js';
+import { LOTE_LIQUIDACION, PENDING_IDS_SQL, settleMatchBets, settleMatchSelections } from '../src/services/bets-settlement.service.js';
 import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
 import { confirmResult, type MatchSettler, type ResultDeps } from '../src/services/results.service.js';
 import { createTestApp } from './helpers/app.js';
@@ -396,11 +396,9 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			await insertSelections(rows);
 
 			// The pending read goes through the new index.
-			const [plan] = await pool.query<RowDataPacket[]>(
-				'EXPLAIN SELECT id FROM seleccion WHERE partido_id = ? AND estado_seleccion_id = ? ORDER BY id',
-				[id, s.cat['estado:pendiente']],
-			);
+			const [plan] = await pool.query<RowDataPacket[]>(`EXPLAIN ${PENDING_IDS_SQL}`, [id, s.cat['estado:pendiente']]);
 			expect(plan[0]).toMatchObject({ key: 'idx_seleccion_partido_estado', type: 'ref' });
+			expect(await countPendingSelections(pool, id)).toBe(TOTAL);
 
 			let statements = 0;
 			const counting: MatchSettler = async (conn, match) => {

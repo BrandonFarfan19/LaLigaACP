@@ -19,9 +19,8 @@ export const countBetsOnMatch: MatchBetsProbe = async (conn, matchId) => {
  */
 export const countPendingSelections: PendingSelectionsProbe = async (db, matchId) => {
 	const [[row]] = await db.query<RowDataPacket[]>(
-		`SELECT COUNT(*) AS n FROM seleccion s
-		JOIN estado_seleccion es ON es.id = s.estado_seleccion_id
-		WHERE s.partido_id = ? AND es.codigo = 'pendiente'`,
+		`SELECT COUNT(*) AS n FROM seleccion s FORCE INDEX (idx_seleccion_partido_estado)
+		WHERE s.partido_id = ? AND s.estado_seleccion_id = (SELECT id FROM estado_seleccion WHERE codigo = 'pendiente')`,
 		[matchId],
 	);
 	return Number(row?.n ?? 0);

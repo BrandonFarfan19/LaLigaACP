@@ -17,6 +17,23 @@ import type { MatchSettler, SettledMatch } from './results.service.js';
 /** Selections updated per statement: a few statements even with thousands of bets on one match. */
 export const LOTE_LIQUIDACION = 1000;
 
+/** The index that finds a match's selections by state (EsquemaBD, T-14). */
+export const PENDING_INDEX = 'idx_seleccion_partido_estado';
+
+/**
+ * Optimizer hint for `PENDING_INDEX` on the table aliased `alias`. With stale
+ * statistics (right after many bets came in) MySQL picked
+ * `fk_seleccion_estado`, every pending selection of every match. The hint
+ * works like `FORCE INDEX`, but a missing index (renamed, dropped) is only a
+ * warning (3128) and MySQL plans on its own: the query stays correct, where
+ * `FORCE INDEX` would fail with 1176 and turn every confirmation into a 500.
+ * `tests/settlement.test.ts` checks the plan and the missing-index case.
+ */
+export const pendingIndexHint = (alias: string) => `/*+ INDEX(${alias} ${PENDING_INDEX}) */`;
+
+/** The match's pending selection ids. */
+export const PENDING_IDS_SQL = `SELECT ${pendingIndexHint('seleccion')} id FROM seleccion WHERE partido_id = ? AND estado_seleccion_id = ? ORDER BY id`;
+
 export interface SettlementSummary {
 	/** Selections this call moved from `pendiente` to `acertada` or `no_acertada`. */
 	liquidadas: number;
@@ -51,10 +68,7 @@ export interface SettlementSummary {
 export async function settleMatchSelections(conn: TransactionConnection, match: SettledMatch): Promise<SettlementSummary> {
 	assertInTransaction(conn);
 	const ids = await catalogIds(conn, match.resultado);
-	const [pending] = await conn.query<RowDataPacket[]>(
-		'SELECT id FROM seleccion WHERE partido_id = ? AND estado_seleccion_id = ? ORDER BY id',
-		[match.id, ids.pendiente],
-	);
+	const [pending] = await conn.query<RowDataPacket[]>(PENDING_IDS_SQL, [match.id, ids.pendiente]);
 	const summary: SettlementSummary = { liquidadas: 0, acertadas: 0, puntos: 0 };
 	if (pending.length === 0) return summary;
 
