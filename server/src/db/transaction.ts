@@ -94,3 +94,25 @@ async function runOnce<T>(pool: Pool, work: (conn: TransactionConnection) => Pro
 		conn.release();
 	}
 }
+
+/**
+ * Runs several reads on one connection that all see the same moment
+ * (`START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY`, under the
+ * session's REPEATABLE READ): a count and its page, or a page and its
+ * details, can't disagree because of a write in between (T-11). Nothing
+ * can be written through `conn`.
+ */
+export async function withReadSnapshot<T>(pool: Pool, work: (conn: PoolConnection) => Promise<T>): Promise<T> {
+	const conn = await pool.getConnection();
+	try {
+		await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+		await conn.query('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
+		try {
+			return await work(conn);
+		} finally {
+			await conn.query('COMMIT');
+		}
+	} finally {
+		conn.release();
+	}
+}

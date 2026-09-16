@@ -12,6 +12,7 @@ export async function adminApi(app: Express, pool: Pool) {
 		get: (path: string) => request(app).get(`/admin${path}`).set('Cookie', admin.cookie),
 		post: (path: string, body: unknown) => withAuth(request(app).post(`/admin${path}`)).send(body as object),
 		patch: (path: string, body: unknown) => withAuth(request(app).patch(`/admin${path}`)).send(body as object),
+		put: (path: string, body: unknown) => withAuth(request(app).put(`/admin${path}`)).send(body as object),
 		del: (path: string) => withAuth(request(app).delete(`/admin${path}`)),
 	};
 }
@@ -69,7 +70,7 @@ export async function insertMatch(
 /** A draw bet on a match, from a fresh user (straight in the database; betting is T-09/T-10). */
 export async function insertDrawBet(app: Express, pool: Pool, matchId: number): Promise<void> {
 	const { user } = await registerUser(app);
-	const [ticket] = await pool.query<ResultSetHeader>('INSERT INTO ticket (usuario_id, creado_en) VALUES (?, UTC_TIMESTAMP())', [
+	const [ticket] = await pool.query<ResultSetHeader>('INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES (?, UTC_TIMESTAMP(), UUID(), SHA2(UUID(), 256))', [
 		user.id,
 	]);
 	await pool.query(

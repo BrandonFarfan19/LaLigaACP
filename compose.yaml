@@ -37,6 +37,8 @@ services:
       context: ./server
     container_name: la-liga-acp-server
     restart: unless-stopped
+    # Sin root (ver server/Dockerfile): /data/uploads pertenece a node.
+    user: node
     depends_on:
       db:
         condition: service_healthy
@@ -58,11 +60,19 @@ services:
       PUBLIC_RATE_LIMIT_WINDOW_MS: ${PUBLIC_RATE_LIMIT_WINDOW_MS:-60000}
       PUBLIC_RATE_LIMIT_MAX: ${PUBLIC_RATE_LIMIT_MAX:-120}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      # T-13: imágenes subidas, en su propio volumen (fuera del código montado).
+      UPLOADS_DIR: /data/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+      UPLOAD_MAX_PIXELS: ${UPLOAD_MAX_PIXELS:-24000000}
+      UPLOAD_RATE_LIMIT_WINDOW_MS: ${UPLOAD_RATE_LIMIT_WINDOW_MS:-900000}
+      UPLOAD_RATE_LIMIT_MAX: ${UPLOAD_RATE_LIMIT_MAX:-60}
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     volumes:
       - ./server:/app
       - /app/node_modules
+      - uploads-data:/data/uploads
 
 volumes:
   db-data:
+  uploads-data:

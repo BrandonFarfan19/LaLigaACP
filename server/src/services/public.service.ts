@@ -1,17 +1,22 @@
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
+import { officialResult, type ResultadoGeneralCodigo } from '../lib/match-result.js';
+import { effectiveState, effectiveStateCondition } from '../lib/match-state.js';
 import { proximityOrderBy } from '../lib/match-order.js';
+import { storedVideo, type VideoLink } from '../lib/video-links.js';
 import { PUNTOS_DERROTA, PUNTOS_EMPATE, PUNTOS_VICTORIA } from '../lib/standings.js';
 import type { Page } from '../schemas/common.schema.js';
 import type { MatchState } from '../schemas/matches.schema.js';
 import type { ListFixtureQuery, ListPublicCompetitionsQuery } from '../schemas/public.schema.js';
 import { pageOf, Where } from './catalog-query.js';
+import { imagePath } from './goals.service.js';
+import { type MatchMedia, readMatchMedia } from './match-media.service.js';
 
 /**
  * Módulo Informativo, read-only and public (T-08: BR-013, BR-048 to BR-050).
  * Reads only deporte, competicion, equipo, jugador, plantel, partido,
- * partido_equipo, estado_partido and gol. Never users, sessions, coins, bets
+ * partido_equipo, estado_partido, gol and multimedia_partido. Never users, sessions, coins, bets
  * or audit rows, and it imports nothing from Polla or Auditoría.
  */
 
@@ -58,6 +63,8 @@ export interface PublicMatch {
 	sede: string;
 	local: PublicMatchSide;
 	visita: PublicMatchSide;
+	/** BR-029, only when the score is shown (`officialResult`); `null` otherwise. */
+	resultado: ResultadoGeneralCodigo | null;
 }
 
 export interface PublicGoal {
@@ -65,13 +72,17 @@ export interface PublicGoal {
 	minuto: number;
 	equipoId: number;
 	jugador: { id: number; nombre: string; foto: string | null };
+	/** Path of the uploaded image (`GET /public/archivos/:nombre`), T-13. */
 	imagen: string | null;
-	video: string | null;
+	/** Link to an allowed platform, with the only URL an embedded player may use (T-13). */
+	video: VideoLink | null;
 }
 
 export interface PublicMatchDetail extends PublicMatch {
 	/** Only once `finalizado` with both scores loaded, in minute order; `null` otherwise. */
 	goles: PublicGoal[] | null;
+	/** The match's own images and videos (T-13), under the same rule as `goles`. */
+	multimedia: MatchMedia | null;
 }
 
 export interface StandingRow {
@@ -174,12 +185,13 @@ export const MATCH_FROM = `FROM partido p
 	JOIN partido_equipo v ON v.partido_id = p.id AND v.es_visita = TRUE
 	JOIN equipo ve ON ve.id = v.equipo_id`;
 
-export function matchFrom(row: RowDataPacket): PublicMatch {
-	const estado = row.estado as MatchState;
+/** `estado` is the effective one at `now` (lib/match-state.ts): a match whose kick-off came is `en_curso`. */
+export function matchFrom(row: RowDataPacket, now: Date = new Date()): PublicMatch {
+	const estado = effectiveState(row.estado as MatchState, row.fecha_hora as Date, now);
 	// The score is only public once the result is confirmed (T-12 loads it before
 	// that), and only whole: with one side still empty, both sides are null.
-	const complete = estado === 'finalizado' && row.l_goles !== null && row.v_goles !== null;
-	const shown = (value: unknown) => (complete ? Number(value) : null);
+	const goles = (value: unknown) => (value === null || value === undefined ? null : Number(value));
+	const result = officialResult(estado, goles(row.l_goles), goles(row.v_goles));
 	return {
 		id: Number(row.id),
 		competicion: { id: Number(row.c_id), nombre: String(row.c_nombre), slug: String(row.c_slug) },
@@ -188,8 +200,9 @@ export function matchFrom(row: RowDataPacket): PublicMatch {
 		fechaHora: row.fecha_hora as Date,
 		estado,
 		sede: String(row.sede),
-		local: { equipo: teamFrom(row, 'le_'), goles: shown(row.l_goles) },
-		visita: { equipo: teamFrom(row, 've_'), goles: shown(row.v_goles) },
+		local: { equipo: teamFrom(row, 'le_'), goles: result?.golesLocal ?? null },
+		visita: { equipo: teamFrom(row, 've_'), goles: result?.golesVisitante ?? null },
+		resultado: result?.resultado ?? null,
 	};
 }
 
@@ -209,7 +222,10 @@ export function listFixture(pool: Pool, query: ListFixtureQuery, now: Date = new
 		// Through partido_equipo.equipo_id, which is indexed; "l.equipo_id = ? OR v.equipo_id = ?" scanned the table.
 		where.add('p.id IN (SELECT pe.partido_id FROM partido_equipo pe WHERE pe.equipo_id = ?)', query.equipoId);
 	}
-	if (query.estado) where.add('ep.codigo = ?', query.estado);
+	if (query.estado) {
+		const state = effectiveStateCondition(query.estado, now);
+		where.add(state.sql, ...state.params);
+	}
 	if (query.jornada) where.add('p.jornada = ?', query.jornada);
 	if (query.desde) where.add('p.fecha_hora >= ?', query.desde);
 	if (query.hasta) where.add('p.fecha_hora <= ?', query.hasta);
@@ -218,7 +234,7 @@ export function listFixture(pool: Pool, query: ListFixtureQuery, now: Date = new
 		pool,
 		{ columns: MATCH_COLUMNS, from: MATCH_FROM, where, orderBy: order.sql, orderParams: order.params },
 		query,
-		matchFrom,
+		(row) => matchFrom(row, now),
 	);
 }
 
@@ -226,8 +242,8 @@ export async function getPublicMatch(pool: Pool, id: number): Promise<PublicMatc
 	const [[row]] = await pool.query<RowDataPacket[]>(`SELECT ${MATCH_COLUMNS} ${MATCH_FROM} WHERE p.id = ?`, [id]);
 	if (!row) throw HttpError.notFound('No existe ese partido.', ErrorCode.MATCH_NOT_FOUND);
 	const match = matchFrom(row);
-	// Same rule as the score: goals only for a finished match with both sides loaded.
-	if (match.local.goles === null) return { ...match, goles: null };
+	// Same rule as the score: goals and media only for a finished match with both sides loaded.
+	if (match.resultado === null) return { ...match, goles: null, multimedia: null };
 
 	const [goals] = await pool.query<RowDataPacket[]>(
 		`SELECT g.id, g.minuto, g.equipo_id, g.imagen, g.video, j.id AS jugador_id, j.nombre AS jugador_nombre, j.foto AS jugador_foto
@@ -246,9 +262,10 @@ export async function getPublicMatch(pool: Pool, id: number): Promise<PublicMatc
 			minuto: Number(g.minuto),
 			equipoId: Number(g.equipo_id),
 			jugador: { id: Number(g.jugador_id), nombre: String(g.jugador_nombre), foto: text(g.jugador_foto) },
-			imagen: text(g.imagen),
-			video: text(g.video),
+			imagen: imagePath('public', g.imagen),
+			video: storedVideo(g.video),
 		})),
+		multimedia: await readMatchMedia(pool, id, 'public'),
 	};
 }
 

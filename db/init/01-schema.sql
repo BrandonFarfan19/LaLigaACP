@@ -204,20 +204,47 @@ CREATE TABLE partido_equipo (
 -- (partido_equipo_id), nunca partido_id directo (se llega por ahí), igual que
 -- la vieja partido_jugador. El jugador solo puede anotar para su propio
 -- equipo y en un partido donde ese equipo participa.
+-- T-13: imagen es el nombre de un archivo subido y reprocesado por el backend
+-- (32 hex + .webp, en la carpeta UPLOADS_DIR); video, un enlace https
+-- normalizado a una plataforma permitida (server/src/lib/video-links.ts).
+-- minuto va de 1 a 120: el partido dura 60 y queda margen para descuentos.
 CREATE TABLE gol (
   id                BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
   partido_equipo_id BIGINT UNSIGNED   NOT NULL,
   plantel_id        BIGINT UNSIGNED   NOT NULL,
   equipo_id         BIGINT UNSIGNED   NOT NULL,
   minuto            SMALLINT UNSIGNED NOT NULL,
-  imagen            VARCHAR(255)      NULL,
-  video             VARCHAR(255)      NULL,
+  imagen            CHAR(37)          CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT 'archivo subido (T-13)',
+  video             VARCHAR(255)      NULL COMMENT 'enlace https a una plataforma permitida (T-13)',
   PRIMARY KEY (id),
+  CONSTRAINT uq_gol_imagen UNIQUE (imagen),
+  CONSTRAINT ck_gol_minuto CHECK (minuto BETWEEN 1 AND 120),
+  CONSTRAINT ck_gol_imagen CHECK (imagen IS NULL OR REGEXP_LIKE(imagen, '^[0-9a-f]{32}[.]webp$', 'c')),
+  CONSTRAINT ck_gol_video CHECK (video IS NULL OR video LIKE 'https://%'),
   CONSTRAINT fk_gol_equipo FOREIGN KEY (equipo_id) REFERENCES equipo (id),
   CONSTRAINT fk_gol_partido_equipo FOREIGN KEY (partido_equipo_id, equipo_id)
     REFERENCES partido_equipo (id, equipo_id),
   CONSTRAINT fk_gol_plantel FOREIGN KEY (plantel_id, equipo_id)
     REFERENCES plantel (id, equipo_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- T-13 (BR-001, BR-033): imágenes y videos del partido (no de un gol). Cada fila
+-- es una imagen subida o un enlace a video, nunca las dos cosas. No cambian el
+-- resultado ni los puntos: se pueden agregar desde que el partido empieza,
+-- también después de confirmarlo.
+CREATE TABLE multimedia_partido (
+  id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  partido_id BIGINT UNSIGNED NOT NULL,
+  imagen     CHAR(37)        CHARACTER SET ascii COLLATE ascii_bin NULL COMMENT 'archivo subido',
+  video      VARCHAR(255)    NULL COMMENT 'enlace https a una plataforma permitida',
+  creado_en  DATETIME        NOT NULL COMMENT 'UTC',
+  PRIMARY KEY (id),
+  INDEX idx_multimedia_partido (partido_id, id),
+  CONSTRAINT uq_multimedia_imagen UNIQUE (imagen),
+  CONSTRAINT fk_multimedia_partido FOREIGN KEY (partido_id) REFERENCES partido (id),
+  CONSTRAINT ck_multimedia_tipo CHECK ((imagen IS NULL) <> (video IS NULL)),
+  CONSTRAINT ck_multimedia_imagen CHECK (imagen IS NULL OR REGEXP_LIKE(imagen, '^[0-9a-f]{32}[.]webp$', 'c')),
+  CONSTRAINT ck_multimedia_video CHECK (video IS NULL OR video LIKE 'https://%')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -257,12 +284,24 @@ CREATE TABLE estado_seleccion (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BR-019/BR-025: agrupa una o varias selecciones confirmadas juntas.
+-- BR-054 (T-10): clave_idempotencia es el UUID que el cliente manda en el
+-- header Idempotency-Key al confirmar; uq_ticket_usuario_clave impide dos
+-- tickets con la misma clave para el mismo usuario. huella_solicitud es el
+-- SHA-256 de las selecciones pedidas: la misma clave con otras selecciones es
+-- un error, no el mismo ticket. La clave dura lo que dura el ticket.
+-- idx_ticket_usuario_fecha (T-11): los tickets de un usuario, del más reciente al más antiguo.
 CREATE TABLE ticket (
-  id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  usuario_id BIGINT UNSIGNED NOT NULL,
-  creado_en  DATETIME        NOT NULL COMMENT 'UTC',
+  id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  usuario_id         BIGINT UNSIGNED NOT NULL,
+  creado_en          DATETIME        NOT NULL COMMENT 'UTC',
+  clave_idempotencia CHAR(36)        CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'UUID en minúsculas (BR-054)',
+  huella_solicitud   CHAR(64)        CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SHA-256 hex de las selecciones pedidas',
   PRIMARY KEY (id),
-  CONSTRAINT fk_ticket_usuario FOREIGN KEY (usuario_id) REFERENCES usuario (id)
+  CONSTRAINT uq_ticket_usuario_clave UNIQUE (usuario_id, clave_idempotencia),
+  INDEX idx_ticket_usuario_fecha (usuario_id, creado_en, id),
+  CONSTRAINT fk_ticket_usuario FOREIGN KEY (usuario_id) REFERENCES usuario (id),
+  CONSTRAINT ck_ticket_clave CHECK (REGEXP_LIKE(clave_idempotencia, '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 'c')),
+  CONSTRAINT ck_ticket_huella CHECK (REGEXP_LIKE(huella_solicitud, '^[0-9a-f]{64}$', 'c'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BR-014 a BR-018: una selección por apuesta individual, varias por partido y
@@ -282,6 +321,12 @@ CREATE TABLE seleccion (
   estado_seleccion_id        BIGINT UNSIGNED   NOT NULL,
   puntos_obtenidos           SMALLINT UNSIGNED NULL,
   PRIMARY KEY (id),
+  -- T-11: las selecciones de un ticket con su estado y sus puntos, sin leer la fila
+  -- (estado y totales del ticket, "Mis apuestas"). También es el índice de la FK.
+  INDEX idx_seleccion_ticket_estado (ticket_id, estado_seleccion_id, puntos_obtenidos),
+  -- T-14: las selecciones pendientes de un partido, que se liquidan al confirmar
+  -- su resultado (y las que cuenta la vista previa). También es el índice de la FK.
+  INDEX idx_seleccion_partido_estado (partido_id, estado_seleccion_id),
   CONSTRAINT fk_seleccion_ticket FOREIGN KEY (ticket_id) REFERENCES ticket (id),
   CONSTRAINT fk_seleccion_partido FOREIGN KEY (partido_id) REFERENCES partido (id),
   CONSTRAINT fk_seleccion_tipo_apuesta FOREIGN KEY (tipo_apuesta_id) REFERENCES tipo_apuesta (id),

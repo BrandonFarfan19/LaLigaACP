@@ -12,6 +12,9 @@ import { type AdminApi, adminApi, created, insertDrawBet, insertGoal, insertMatc
 import { resetDatabase } from './helpers/db.js';
 
 const HOUR = 60 * 60 * 1000;
+const GOAL_IMAGE = `${'a'.repeat(32)}.webp`;
+const MATCH_IMAGE = `${'b'.repeat(32)}.webp`;
+const LIVE_IMAGE = `${'c'.repeat(32)}.webp`;
 const DAY = 24 * HOUR;
 
 /** Every key the public API may return. Anything else (email, saldo, csrfToken...) fails the privacy test. */
@@ -20,8 +23,9 @@ const ALLOWED_KEYS = new Set([
 	'items', 'page', 'pageSize', 'total', 'totalPages',
 	'id', 'nombre', 'slug', 'permiteEmpate', 'deporte', 'competicion', 'competicionId',
 	'nombreCorto', 'escudo', 'colorAcento',
-	'jornada', 'fechaHora', 'estado', 'sede', 'local', 'visita', 'equipo', 'goles',
-	'minuto', 'equipoId', 'jugador', 'foto', 'imagen', 'video',
+	'jornada', 'fechaHora', 'estado', 'sede', 'local', 'visita', 'equipo', 'goles', 'resultado',
+	'minuto', 'equipoId', 'jugador', 'foto', 'imagen', 'video', 'plataforma', 'url', 'embedUrl',
+	'multimedia', 'imagenes', 'videos', 'tipo', 'creadoEn',
 	'filas', 'posicion', 'jugados', 'ganados', 'empatados', 'perdidos', 'golesAFavor', 'golesEnContra', 'diferencia', 'puntos',
 	'plantel', 'jugadorId', 'numeroCamiseta',
 ]);
@@ -123,8 +127,13 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 		}
 		await insertGoal(pool, s.match.CA, s.team.C!, s.enrollments.cris!);
 		await insertGoal(pool, s.match.CA, s.team.A!, s.enrollments.ana!);
-		await pool.query('UPDATE gol SET minuto = 77, imagen = ? WHERE plantel_id = ?', ['https://cdn.example.com/gol.png', s.enrollments.cris]);
-		await pool.query('UPDATE gol SET minuto = 12, video = ? WHERE plantel_id = ?', ['https://cdn.example.com/gol.mp4', s.enrollments.ana]);
+		// Media as T-13 stores it: a server-made file name and a normalized video link.
+		await pool.query('UPDATE gol SET minuto = 77, imagen = ? WHERE plantel_id = ?', [GOAL_IMAGE, s.enrollments.cris]);
+		await pool.query('UPDATE gol SET minuto = 12, video = ? WHERE plantel_id = ?', ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', s.enrollments.ana]);
+		await pool.query(
+			'INSERT INTO multimedia_partido (partido_id, imagen, video, creado_en) VALUES (?, ?, NULL, UTC_TIMESTAMP()), (?, NULL, ?, UTC_TIMESTAMP()), (?, ?, NULL, UTC_TIMESTAMP())',
+			[s.match.CA, MATCH_IMAGE, s.match.CA, 'https://vimeo.com/76979871', s.match.BDlive, LIVE_IMAGE],
+		);
 		// A goal already loaded on the live match: hidden until it's finished.
 		const liveHome = await created<{ id: number }>(api.post('/jugadores', { nombre: 'Delantero Boca' }));
 		const liveEnrollment = await created<{ id: number }>(api.post('/planteles', { jugadorId: liveHome.id, equipoId: s.team.B, numeroCamiseta: 7 }));
@@ -210,6 +219,7 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 				sede: 'Matute',
 				local: { equipo: expect.objectContaining({ id: s.team.D, nombre: 'Deportivo', escudo: 'escudos/D.webp' }), goles: null },
 				visita: { equipo: expect.objectContaining({ id: s.team.C, nombre: 'Cristal' }), goles: null },
+				resultado: null,
 			});
 		});
 
@@ -222,8 +232,8 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 			}>;
 			const byId = new Map(items.map((m) => [m.id, m]));
 
-			expect(byId.get(s.match.CA!)).toMatchObject({ estado: 'finalizado', local: { goles: 3 }, visita: { goles: 1 } });
-			expect(byId.get(s.match.BDlive!)).toMatchObject({ estado: 'en_curso', local: { goles: null }, visita: { goles: null } });
+			expect(byId.get(s.match.CA!)).toMatchObject({ estado: 'finalizado', resultado: 'local_gana', local: { goles: 3 }, visita: { goles: 1 } });
+			expect(byId.get(s.match.BDlive!)).toMatchObject({ estado: 'en_curso', resultado: null, local: { goles: null }, visita: { goles: null } });
 			expect(byId.get(s.match.CEcancel!)).toMatchObject({ estado: 'cancelado', local: { goles: null } });
 		});
 
@@ -255,24 +265,42 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 					equipoId: s.team.A,
 					jugador: { id: s.players.ana, nombre: 'Ana Pérez', foto: 'https://cdn.example.com/ana.jpg' },
 					imagen: null,
-					video: 'https://cdn.example.com/gol.mp4',
+					video: {
+						plataforma: 'youtube',
+						id: 'dQw4w9WgXcQ',
+						url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+						embedUrl: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+					},
 				},
 				{
 					id: expect.any(Number),
 					minuto: 77,
 					equipoId: s.team.C,
 					jugador: { id: s.players.cris, nombre: 'Cris Ruiz', foto: null },
-					imagen: 'https://cdn.example.com/gol.png',
+					imagen: `/public/archivos/${GOAL_IMAGE}`,
 					video: null,
 				},
 			]);
+			// T-13: the match's own images and videos, under the same rule.
+			expect(res.body.data.multimedia).toEqual({
+				imagenes: [{ id: expect.any(Number), tipo: 'imagen', url: `/public/archivos/${MATCH_IMAGE}`, creadoEn: expect.any(String) }],
+				videos: [
+					{
+						id: expect.any(Number),
+						tipo: 'video',
+						creadoEn: expect.any(String),
+						video: { plataforma: 'vimeo', id: '76979871', url: 'https://vimeo.com/76979871', embedUrl: 'https://player.vimeo.com/video/76979871' },
+					},
+				],
+			});
 		});
 
 		it('match detail hides goals of a match that is not finished', async () => {
 			const res = await get(`/partidos/${s.match.BDlive}`);
 
-			expect(res.body.data).toMatchObject({ estado: 'en_curso', goles: null, local: { goles: null }, visita: { goles: null } });
+			expect(res.body.data).toMatchObject({ estado: 'en_curso', goles: null, multimedia: null, local: { goles: null }, visita: { goles: null } });
 			expect(JSON.stringify(res.body)).not.toContain('Delantero Boca');
+			expect(JSON.stringify(res.body)).not.toContain(LIVE_IMAGE);
 		});
 	});
 

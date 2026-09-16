@@ -6,6 +6,8 @@ import { publicRateLimit } from '../middleware/security.js';
 import { idParamsSchema } from '../schemas/common.schema.js';
 import { listFixtureQuery, listPublicCompetitionsQuery, noQuery } from '../schemas/public.schema.js';
 import * as publicData from '../services/public.service.js';
+import type { MediaStore } from '../services/media-storage.js';
+import { serveImage } from '../controllers/media.controller.js';
 
 /**
  * Public read-only API (T-08, Módulo Informativo), no session needed:
@@ -18,6 +20,7 @@ import * as publicData from '../services/public.service.js';
  *   GET /public/partidos?deporteId=&competicionId=&equipoId=&estado=&jornada=&desde=&hasta=   (BR-049, BR-013)
  *   GET /public/partidos/:id                        (with goals once finalizado)
  *   GET /public/equipos/:id                         (with squad)
+ *   GET /public/archivos/:nombre                    an image of a match with its official result (T-13)
  *
  * Its own rate limit, and `Cache-Control: public, max-age=30` on success:
  * the answers are the same for everyone and nothing in them is private.
@@ -27,7 +30,7 @@ import * as publicData from '../services/public.service.js';
 /** How long a browser or proxy may reuse a public answer. Short: results change on match days. */
 export const PUBLIC_MAX_AGE_SECONDS = 30;
 
-export function createPublicRouter(pool: Pool, env: Env): Router {
+export function createPublicRouter(pool: Pool, env: Env, store: MediaStore): Router {
 	const router = Router();
 	router.use(publicRateLimit(env));
 
@@ -50,6 +53,11 @@ export function createPublicRouter(pool: Pool, env: Env): Router {
 	router.get('/partidos', handler(listFixtureQuery, (q) => publicData.listFixture(pool, q)));
 	router.get('/partidos/:id', handler(noQuery, (_q, id) => publicData.getPublicMatch(pool, id)));
 	router.get('/equipos/:id', handler(noQuery, (_q, id) => publicData.getPublicTeam(pool, id)));
+	// T-13: images of matches with an official result (the handler sets its own headers).
+	router.get('/archivos/:nombre', (req, _res, next) => {
+		noQuery.parse(req.query);
+		next();
+	}, serveImage(pool, store, 'public'));
 
 	return router;
 }

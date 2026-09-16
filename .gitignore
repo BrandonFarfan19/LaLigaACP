@@ -4,6 +4,9 @@ dist/
 # dependencies
 node_modules/
 
+# uploaded images in local development (T-13; in Docker they live in a volume)
+server/.data/
+
 # logs
 npm-debug.log*
 yarn-debug.log*

@@ -66,7 +66,7 @@ describe('malformed percent-encoding in route parameters', () => {
 			attempts.push([`PATCH ${entity}`, api.patch(`/${entity}/${id}`, { nombre: 'X' })]);
 			attempts.push([`DELETE ${entity}`, api.del(`/${entity}/${id}`)]);
 		}
-		attempts.push(['POST partido estado', api.post(`/partidos/${id}/estado`, { estado: 'cancelado' })]);
+		attempts.push(['PUT partido resultado', api.put(`/partidos/${id}/resultado`, { golesLocal: 1, golesVisitante: 0 })]);
 		for (const action of ['pago/confirmar', 'pago/revertir', 'validar']) {
 			attempts.push([`POST participante ${action}`, api.post(`/participantes/${id}/${action}`, {})]);
 		}

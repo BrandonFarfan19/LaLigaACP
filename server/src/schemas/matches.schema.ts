@@ -1,10 +1,13 @@
 import { z } from 'zod';
+import { MAX_GOLES } from '../lib/match-result.js';
+import { MATCH_STATES } from '../lib/match-state.js';
 import { displayName } from './catalog.schema.js';
 import { idFromText, paginationFields } from './common.schema.js';
 
 /** Request schemas of `/admin/partidos` (T-07). Strict: unknown keys are a 400, including `goles` (T-12). */
 
-export const MATCH_STATES = ['programado', 'en_curso', 'finalizado', 'cancelado'] as const;
+// The states and the effective-state rule live in lib/match-state.ts.
+export { MATCH_STATES, type MatchState } from '../lib/match-state.js';
 
 /** Latest accepted date: a sanity bound, far beyond any real fixture. */
 const MAX_DATE = Date.UTC(2100, 0, 1);
@@ -73,12 +76,28 @@ export const updateMatchBody = z
 	})
 	.refine(notEmpty, { message: 'No hay campos para modificar.' });
 
-/** All four states are accepted here so an attempt to finish or cancel gets a clear 409, not a 400. */
-export const changeStateBody = z.strictObject({
-	estado: z.enum(MATCH_STATES, { error: `Tiene que ser uno de: ${MATCH_STATES.join(', ')}.` }),
+const goles = z
+	.number({ error: 'Debe ser un número.' })
+	.int('Debe ser un número entero.')
+	.min(0, `Tiene que estar entre 0 y ${MAX_GOLES}.`)
+	.max(MAX_GOLES, `Tiene que estar entre 0 y ${MAX_GOLES}.`);
+
+/** T-12, BR-028: both sides at once. */
+export const setResultBody = z.strictObject({ golesLocal: goles, golesVisitante: goles });
+
+/**
+ * T-12, BR-031: an explicit confirmation. `confirmar` must be `true`, and the
+ * score must be the one the admin saw in the preview: if it was corrected in
+ * between, the confirmation is refused (409 `RESULT_CHANGED`).
+ */
+export const confirmResultBody = z.strictObject({
+	confirmar: z.literal(true, { error: 'Para confirmar el resultado, enviá confirmar: true.' }),
+	golesLocal: goles,
+	golesVisitante: goles,
 });
 
+export type SetResultBody = z.infer<typeof setResultBody>;
+export type ConfirmResultBody = z.infer<typeof confirmResultBody>;
 export type ListMatchesQuery = z.infer<typeof listMatchesQuery>;
 export type CreateMatchBody = z.infer<typeof createMatchBody>;
 export type UpdateMatchBody = z.infer<typeof updateMatchBody>;
-export type MatchState = (typeof MATCH_STATES)[number];

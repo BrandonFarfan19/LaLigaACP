@@ -1,5 +1,5 @@
 import cors from 'cors';
-import type { Express, Request } from 'express';
+import type { Express, Request, RequestHandler } from 'express';
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
@@ -49,6 +49,22 @@ export function publicRateLimit(env: Env) {
 }
 
 /**
+ * T-13: image uploads per IP (UPLOAD_RATE_LIMIT_*), on top of the global
+ * limit. Uploads are the heaviest requests the API takes.
+ */
+export function uploadRateLimit(env: Env): RequestHandler {
+	return rateLimit({
+		windowMs: env.uploadRateLimit.windowMs,
+		limit: env.uploadRateLimit.max,
+		standardHeaders: true,
+		legacyHeaders: false,
+		handler: (_req, res) => {
+			res.status(429).json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiadas subidas de imágenes. Probá de nuevo más tarde.'));
+		},
+	});
+}
+
+/**
  * NFR-005 base: helmet's default headers, CORS locked to exactly the
  * frontend's origin (never a wildcard), a basic global rate limit and a
  * body-size cap — applied first, before any route. No secrets live here: the
@@ -66,6 +82,8 @@ export function applySecurity(app: Express, env: Env): void {
 		cors({
 			origin: env.corsOrigin,
 			credentials: true,
+			// T-10: the frontend reads these on a ticket confirmation.
+			exposedHeaders: ['Location', 'Idempotent-Replayed'],
 		}),
 	);
 
@@ -82,7 +100,7 @@ export function applySecurity(app: Express, env: Env): void {
 		}),
 	);
 
-	// No file uploads yet (BR-033's goal media is a later task); a JSON API has
-	// no legitimate reason to need more than this.
+	// JSON bodies only. Image uploads (T-13) have their own parser and limit
+	// (middleware/upload.ts); nothing else needs more than this.
 	app.use(express.json({ limit: '100kb' }));
 }

@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createApp } from '../../src/app.js';
 import { loadEnv, type Env } from '../../src/config/env.js';
 import { createPool } from '../../src/db/pool.js';
@@ -8,6 +10,13 @@ import { createPool } from '../../src/db/pool.js';
  * whatever the terminal exported — see `src/config/env.ts`.
  */
 export const env: Env = loadEnv();
+
+/**
+ * Uploaded images of this test process go to a temporary directory, never to
+ * UPLOADS_DIR. The media store creates it on the first upload; the files that
+ * upload remove it when they finish.
+ */
+export const testUploadsDir = join(tmpdir(), `liga-uploads-${process.pid}-${Date.now()}`);
 
 /**
  * The real app, wired to the test database. `overrides` tweaks config (e.g. a
@@ -22,6 +31,8 @@ export function createTestApp(overrides: Partial<Env> = {}) {
 		loginRateLimit: { ...env.loginRateLimit, max: 1000 },
 		registerRateLimit: { ...env.registerRateLimit, max: 1000 },
 		publicRateLimit: { ...env.publicRateLimit, max: 10_000 },
+		uploadRateLimit: { ...env.uploadRateLimit, max: 10_000 },
+		uploads: { ...env.uploads, dir: testUploadsDir },
 		...overrides,
 	};
 	const pool = createPool(testEnv);

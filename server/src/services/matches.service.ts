@@ -1,9 +1,10 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { TransactionConnection } from '../db/transaction.js';
-import { bettingCloseTime, isBeforeBettingClose } from '../lib/betting.js';
+import { bettingCloseTime } from '../lib/betting.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { proximityOrderBy } from '../lib/match-order.js';
+import { effectiveState, effectiveStateCondition } from '../lib/match-state.js';
 import type { Page } from '../schemas/common.schema.js';
 import type { CreateMatchBody, ListMatchesQuery, MatchState, UpdateMatchBody } from '../schemas/matches.schema.js';
 import { type AdminActionContext, runAdminAction } from './admin-action.js';
@@ -12,7 +13,8 @@ import { type Db, pageOf, Where } from './catalog-query.js';
 /**
  * Módulo Informativo: `partido` and its two `partido_equipo` rows (BR-011 to
  * BR-013). Goals and results are not written here (T-12); `finalizado` and
- * `cancelado` are only reached through T-12 and T-16.
+ * `cancelado` are only reached through T-12 and T-16, and `en_curso` comes by
+ * itself at the kick-off (lib/match-state.ts): there is no manual state change.
  */
 
 export interface MatchSide {
@@ -64,13 +66,14 @@ const FROM = `FROM partido p
 
 const goles = (value: unknown) => (value === null ? null : Number(value));
 
-function toMatch(row: RowDataPacket): Match {
+/** `estado` is the effective one (lib/match-state.ts): a `programado` match whose kick-off came is `en_curso`. */
+function toMatch(row: RowDataPacket, now: Date): Match {
 	const fechaHora = row.fecha_hora as Date;
 	return {
 		id: Number(row.id),
 		competicionId: Number(row.competicion_id),
 		deporteId: Number(row.deporte_id),
-		estado: row.estado as MatchState,
+		estado: effectiveState(row.estado as MatchState, fechaHora, now),
 		jornada: Number(row.jornada),
 		fechaHora,
 		cierreApuestas: bettingCloseTime(fechaHora),
@@ -80,32 +83,56 @@ function toMatch(row: RowDataPacket): Match {
 	};
 }
 
-async function find(db: Db, id: number): Promise<Match> {
+export async function find(db: Db, id: number, now: Date = new Date()): Promise<Match> {
 	const [[row]] = await db.query<RowDataPacket[]>(`SELECT ${COLUMNS} ${FROM} WHERE p.id = ?`, [id]);
 	if (!row) throw HttpError.notFound('No existe ese partido.', ErrorCode.MATCH_NOT_FOUND);
-	return toMatch(row);
+	return toMatch(row, now);
 }
 
-/** Locks the match row (only that row) and returns the match. */
-async function findForUpdate(conn: TransactionConnection, id: number): Promise<Match> {
+/** Locks the match row (only that row) and returns the match, with its effective state at `now`. */
+export async function findForUpdate(conn: TransactionConnection, id: number, now: Date = new Date()): Promise<Match> {
 	const [[locked]] = await conn.query<RowDataPacket[]>('SELECT id FROM partido FORCE INDEX (PRIMARY) WHERE id = ? FOR UPDATE', [id]);
 	if (!locked) throw HttpError.notFound('No existe ese partido.', ErrorCode.MATCH_NOT_FOUND);
-	return find(conn, id);
+	return find(conn, id, now);
 }
 
-async function stateId(conn: TransactionConnection, codigo: MatchState): Promise<number> {
+export async function stateId(conn: TransactionConnection, codigo: MatchState): Promise<number> {
 	const [[row]] = await conn.query<RowDataPacket[]>('SELECT id FROM estado_partido WHERE codigo = ?', [codigo]);
 	if (!row) throw new Error(`Falta el estado_partido ${codigo} (¿se cargó 02-catalogos.sql?).`);
 	return Number(row.id);
 }
 
-async function countGoals(conn: TransactionConnection, matchId: number): Promise<number> {
+export async function countGoals(conn: TransactionConnection, matchId: number): Promise<number> {
 	const [[row]] = await conn.query<RowDataPacket[]>(
 		'SELECT COUNT(*) AS n FROM gol g JOIN partido_equipo pe ON pe.id = g.partido_equipo_id WHERE pe.partido_id = ?',
 		[matchId],
 	);
 	return Number(row?.n ?? 0);
 }
+
+export type Side = 'local' | 'visita';
+
+/** How many goals (T-13) each side has attributed. The caller holds the match row lock. */
+export async function attributedGoals(db: Db, matchId: number): Promise<Record<Side, number>> {
+	const [rows] = await db.query<RowDataPacket[]>(
+		`SELECT pe.es_visita, COUNT(g.id) AS n
+		FROM partido_equipo pe LEFT JOIN gol g ON g.partido_equipo_id = pe.id
+		WHERE pe.partido_id = ? GROUP BY pe.id, pe.es_visita`,
+		[matchId],
+	);
+	const counts: Record<Side, number> = { local: 0, visita: 0 };
+	for (const row of rows) counts[row.es_visita ? 'visita' : 'local'] = Number(row.n);
+	return counts;
+}
+
+/** T-12: a score loaded on either side (`partido_equipo.goles`), confirmed or not. */
+export const hasLoadedScore = (match: Match) => match.local.goles !== null || match.visita.goles !== null;
+
+const resultLoaded = (match: Match) =>
+	new HttpError(409, ErrorCode.MATCH_HAS_RESULT, 'El partido ya tiene un resultado cargado.', {
+		golesLocal: match.local.goles,
+		golesVisitante: match.visita.goles,
+	});
 
 function requireFuture(fechaHora: Date, now: Date): void {
 	if (fechaHora <= now) {
@@ -168,11 +195,16 @@ export function listMatches(pool: Pool, query: ListMatchesQuery, now: Date = new
 		// Through partido_equipo.equipo_id, which is indexed; "l.equipo_id = ? OR v.equipo_id = ?" scanned the table.
 		where.add('p.id IN (SELECT pe.partido_id FROM partido_equipo pe WHERE pe.equipo_id = ?)', query.equipoId);
 	}
-	if (query.estado) where.add('ep.codigo = ?', query.estado);
+	if (query.estado) {
+		const state = effectiveStateCondition(query.estado, now);
+		where.add(state.sql, ...state.params);
+	}
 	if (query.desde) where.add('p.fecha_hora >= ?', query.desde);
 	if (query.hasta) where.add('p.fecha_hora <= ?', query.hasta);
 	const order = proximityOrderBy('p.fecha_hora', 'p.id', now);
-	return pageOf(pool, { columns: COLUMNS, from: FROM, where, orderBy: order.sql, orderParams: order.params }, query, toMatch);
+	return pageOf(pool, { columns: COLUMNS, from: FROM, where, orderBy: order.sql, orderParams: order.params }, query, (row) =>
+		toMatch(row, now),
+	);
 }
 
 export function getMatch(pool: Pool, id: number): Promise<Match> {
@@ -204,8 +236,8 @@ export async function createMatch(pool: Pool, ctx: AdminActionContext, input: Cr
  * `cancelado` match is locked (409 `MATCH_LOCKED`).
  *
  * - Jornada and venue: any time before that.
- * - Competition, teams or date: only while `programado` (409
- *   `MATCH_NOT_PROGRAMMED`).
+ * - Competition, teams or date: only while `programado`, i.e. before its
+ *   kick-off (409 `MATCH_NOT_PROGRAMMED`): a started match can't be postponed.
  * - Competition or teams: never once the match has bets (409
  *   `MATCH_HAS_BETS`, the bets are on those teams) or goals.
  * - Date: must stay in the future. With bets it can only move **later**
@@ -226,7 +258,7 @@ export async function updateMatch(
 ): Promise<Match> {
 	const now = (deps.now ?? (() => new Date()))();
 	const outcome = await runAdminAction<Match>(pool, ctx, 'editar', 'partido', async (conn) => {
-		const before = await findForUpdate(conn, id);
+		const before = await findForUpdate(conn, id, now);
 		if (before.estado === 'finalizado' || before.estado === 'cancelado') {
 			throw new HttpError(409, ErrorCode.MATCH_LOCKED, `El partido está ${before.estado}: ya no se puede modificar.`, {
 				estado: before.estado,
@@ -251,7 +283,7 @@ export async function updateMatch(
 			throw new HttpError(
 				409,
 				ErrorCode.MATCH_NOT_PROGRAMMED,
-				'La competición, los equipos y la fecha solo se cambian con el partido programado.',
+				'El partido ya empezó: no se pueden cambiar la competición, los equipos ni la fecha.',
 				{ estado: before.estado },
 			);
 		}
@@ -296,69 +328,27 @@ export async function updateMatch(
 		]);
 		if (teamsChange) await insertSides(conn, id, target.competicionId, target.localId, target.visitaId);
 
-		return { id, before, after: await find(conn, id) };
+		return { id, before, after: await find(conn, id, now) };
 	});
 	return outcome.after!;
 }
 
 /**
- * BR-012 transitions available to the admin here:
- *
- * - `programado` → `en_curso`: once betting has closed
- *   (`ahora >= fechaHora - 24 h`). Earlier, the betting window would end
- *   before BR-014 says it should; move the date first.
- * - `en_curso` → `programado`: to undo a start by mistake or a suspended
- *   kick-off, while the match has no goals. Betting stays closed unless the
- *   date is then postponed past 24 h from now.
- *
- * `finalizado` only comes from confirming the result (T-12) and `cancelado`
- * from the cancellation with refunds (T-16): anything else is 409
- * `INVALID_STATE_TRANSITION`.
- */
-export async function changeMatchState(
-	pool: Pool,
-	ctx: AdminActionContext,
-	id: number,
-	estado: MatchState,
-	deps: MatchDeps,
-): Promise<Match> {
-	const now = (deps.now ?? (() => new Date()))();
-	const outcome = await runAdminAction<Match>(pool, ctx, 'cambiar_estado', 'partido', async (conn) => {
-		const before = await findForUpdate(conn, id);
-		const invalid = (reason: string) =>
-			new HttpError(409, ErrorCode.INVALID_STATE_TRANSITION, reason, { desde: before.estado, hacia: estado });
-
-		if (estado === 'finalizado') throw invalid('Un partido solo se finaliza al confirmar su resultado.');
-		if (estado === 'cancelado') throw invalid('Un partido solo se cancela con la cancelación que anula y devuelve sus apuestas.');
-
-		if (before.estado === 'programado' && estado === 'en_curso') {
-			const cierre = bettingCloseTime(before.fechaHora);
-			if (isBeforeBettingClose(before.fechaHora, now)) {
-				throw invalid(`Todavía se puede apostar a este partido hasta ${cierre.toISOString()}: no puede empezar antes.`);
-			}
-		} else if (before.estado === 'en_curso' && estado === 'programado') {
-			const goals = await countGoals(conn, id);
-			if (goals > 0) throw invalid('El partido ya tiene goles registrados: no puede volver a programado.');
-		} else {
-			throw invalid(`No se puede pasar de ${before.estado} a ${estado}.`);
-		}
-
-		await conn.query('UPDATE partido SET estado_partido_id = ? WHERE id = ?', [await stateId(conn, estado), id]);
-		return { id, before, after: await find(conn, id) };
-	});
-	return outcome.after!;
-}
-
-/**
- * Only a match that isn't `finalizado` (409 `MATCH_LOCKED`) and has no bets
- * (409 `MATCH_HAS_BETS`) or goals (409 `MATCH_HAS_GOALS`). Its two
+ * Only a match that hasn't started (`programado`) or was cancelled, with no
+ * bets (409 `MATCH_HAS_BETS`), goals (409 `MATCH_HAS_GOALS`) or loaded result
+ * (409 `MATCH_HAS_RESULT`). A `finalizado` one is 409 `MATCH_LOCKED`; one in
+ * progress (its kick-off came) is 409 `MATCH_NOT_PROGRAMMED`. Its two
  * `partido_equipo` rows go in the same transaction.
  */
 export async function deleteMatch(pool: Pool, ctx: AdminActionContext, id: number, deps: MatchDeps): Promise<void> {
+	const now = (deps.now ?? (() => new Date()))();
 	await runAdminAction<Match>(pool, ctx, 'borrar', 'partido', async (conn) => {
-		const before = await findForUpdate(conn, id);
+		const before = await findForUpdate(conn, id, now);
 		if (before.estado === 'finalizado') {
 			throw new HttpError(409, ErrorCode.MATCH_LOCKED, 'El partido está finalizado: no se puede borrar.', { estado: before.estado });
+		}
+		if (before.estado === 'en_curso') {
+			throw new HttpError(409, ErrorCode.MATCH_NOT_PROGRAMMED, 'El partido ya empezó: no se puede borrar.', { estado: before.estado });
 		}
 		const bets = await deps.countBets(conn, id);
 		const goals = await countGoals(conn, id);
@@ -374,6 +364,7 @@ export async function deleteMatch(pool: Pool, ctx: AdminActionContext, id: numbe
 				goles: goals,
 			});
 		}
+		if (hasLoadedScore(before)) throw resultLoaded(before);
 		await conn.query('DELETE FROM partido_equipo WHERE partido_id = ?', [id]);
 		await conn.query('DELETE FROM partido WHERE id = ?', [id]);
 		return { id, before, after: null };

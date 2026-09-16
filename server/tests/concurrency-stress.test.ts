@@ -1,19 +1,22 @@
 import type { Express } from 'express';
-import mysql, { type Pool, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
+import { randomUUID } from 'node:crypto';
+import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { transactionStats, withTransaction } from '../src/db/transaction.js';
 import { evaluateTicketInTransaction } from '../src/services/betting.service.js';
-import { debitSelections } from '../src/services/coins.service.js';
 import { createTestApp, env } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertMatch, teamBody } from './helpers/catalog.js';
 import { resetDatabase } from './helpers/db.js';
 
 /**
- * T-09 follow-up: tickets (T-09's locked evaluation plus what T-10 will do:
- * insert the ticket and its selections, debit the coins) running in parallel
- * with the admin writes that lock the same rows: postponing and advancing a
- * match, starting it (en_curso) and back, and flipping permite_empate.
+ * T-09 follow-up, extended in T-10: real ticket confirmations
+ * (POST /apuestas/tickets, including the same Idempotency-Key sent three
+ * times at once) and locked evaluations running in parallel with the admin
+ * writes that lock the same rows: postponing and advancing a match, editing
+ * matches whose betting closed (T-07 had manual state changes until T-13),
+ * flipping permite_empate, and (T-12) loading and confirming a result.
  *
  * Before the fix the ticket locked through a joined query with no fixed plan
  * and deadlocked with changeMatchState (6 deadlocks in 8 rounds). Now every
@@ -56,7 +59,10 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 		open: [] as number[],
 		closed: [] as number[],
 		otherSport: [] as number[],
+		/** Programado with a past date: each round loads and confirms one (T-12). */
+		past: [] as number[],
 		bettors: [] as number[],
+		sessions: [] as Array<Awaited<ReturnType<typeof signedInUser>>>,
 	};
 
 	beforeAll(async () => {
@@ -76,6 +82,7 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 				// About 45 matches, as in the tester's run: open ones and ones whose betting already closed.
 				for (let i = 0; i < 30; i++) s.open.push(await insertMatch(pool, comp, home, away, 'programado', wholeSeconds(now + 3 * DAY + i * HOUR)));
 				for (let i = 0; i < 15; i++) s.closed.push(await insertMatch(pool, comp, home, away, 'programado', wholeSeconds(now + HOUR + i * MINUTE)));
+				for (let i = 0; i < ROUNDS; i++) s.past.push(await insertMatch(pool, comp, home, away, 'programado', wholeSeconds(now - DAY - i * MINUTE)));
 			} else {
 				for (let i = 0; i < 6; i++) s.otherSport.push(await insertMatch(pool, comp, home, away, 'programado', wholeSeconds(now + 4 * DAY + i * HOUR)));
 			}
@@ -84,6 +91,7 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			const bettor = await signedInUser(app, pool, { estado: 'validado' });
 			await pool.query('UPDATE usuario SET saldo_monedas = 60000 WHERE id = ?', [bettor.user.id]);
 			s.bettors.push(bettor.user.id);
+			s.sessions.push(bettor);
 		}
 	});
 
@@ -94,32 +102,30 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 
 	const ROLLBACK = Symbol('solo evaluar');
 
-	/** T-09's evaluation plus T-10's writes, in one transaction. `evaluateOnly` rolls back after evaluating. */
-	function ticket(userId: number, matchIds: number[], evaluateOnly: boolean) {
+	/** T-09's locked evaluation alone, rolled back after holding the locks a little. */
+	function evaluateOnly(userId: number, matchIds: number[]) {
 		return withTransaction(pool, async (conn) => {
 			await sleep(Math.random() * 80); // spread the start, so it overlaps the admin writes at different points
 			const selecciones = matchIds.map((partidoId) => ({ partidoId, tipo: 'resultado_general' as const, pronostico: 'local_gana' as const }));
-			const evaluation = await evaluateTicketInTransaction(conn, userId, selecciones);
-			await sleep(5 + Math.random() * 15); // hold the locks a little, like a real confirmation would
-			if (evaluateOnly) throw ROLLBACK;
-			if (!evaluation.valido) return 'invalido';
-			const [t] = await conn.query<ResultSetHeader>('INSERT INTO ticket (usuario_id, creado_en) VALUES (?, UTC_TIMESTAMP())', [userId]);
-			const ids: number[] = [];
-			for (const partidoId of matchIds) {
-				const [sel] = await conn.query<ResultSetHeader>(
-					`INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id, estado_seleccion_id)
-					SELECT ?, ?, ta.id, rg.id, es.id FROM tipo_apuesta ta, resultado_general rg, estado_seleccion es
-					WHERE ta.codigo = 'resultado_general' AND rg.codigo = 'local_gana' AND es.codigo = 'pendiente'`,
-					[t.insertId, partidoId],
-				);
-				ids.push(sel.insertId);
-			}
-			await debitSelections(conn, userId, ids);
-			return 'confirmado';
+			await evaluateTicketInTransaction(conn, userId, selecciones);
+			await sleep(5 + Math.random() * 15);
+			throw ROLLBACK;
 		}).catch((error) => {
 			if (error === ROLLBACK) return 'evaluado';
 			throw error;
 		});
+	}
+
+	/** T-10's real confirmation over HTTP, started at a random moment. */
+	async function confirm(bettor: number, matchIds: number[], key: string) {
+		await sleep(Math.random() * 80);
+		const who = s.sessions[bettor]!;
+		return request(app)
+			.post('/apuestas/tickets')
+			.set('Cookie', who.cookie)
+			.set('X-CSRF-Token', who.csrfToken)
+			.set('Idempotency-Key', key)
+			.send({ selecciones: matchIds.map((partidoId) => ({ partidoId, tipo: 'resultado_general', pronostico: 'local_gana' })) });
 	}
 
 	async function shift(matchId: number, deltaMs: number) {
@@ -142,20 +148,36 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			const [postponed, advanced] = pick(s.open, 2) as [number, number];
 			const [starting, stopping] = pick(s.closed, 2) as [number, number];
 			const other = pick(s.otherSport, 1)[0]!;
+			const finishing = s.past[round]!;
+			const betting = [postponed, advanced, ...pick(s.open, 1)]; // all open: it is confirmed
+			const key = randomUUID();
 			const work: Array<Promise<unknown>> = [
-				// Ticket 0 bets; ticket 1 is refused; ticket 2 only evaluates (so the other sport keeps no bets and its draw rule can flip).
-				ticket(s.bettors[0]!, [postponed, advanced, ...pick(s.open, 1)], false), // all open: it bets
-				ticket(s.bettors[1]!, [starting, stopping, postponed], false), // closed ones: refused, but it locks them
-				ticket(s.bettors[2]!, [other, starting, stopping, postponed], true),
+				// Bettor 0 confirms, the same key three times at once (one ticket); bettor 1 is refused
+				// (closed matches) but locks them; bettor 2 only evaluates, so the other sport keeps
+				// no bets and its draw rule can flip.
+				confirm(0, betting, key),
+				confirm(0, betting, key),
+				confirm(0, betting, key),
+				confirm(1, [starting, stopping, postponed, finishing], randomUUID()),
+				evaluateOnly(s.bettors[2]!, [other, starting, stopping, postponed]),
 				shift(postponed, HOUR),
 				shift(advanced, -MINUTE), // 409 once it has bets
 				shift(other, HOUR),
-				api.post(`/partidos/${starting}/estado`, { estado: 'en_curso' }),
-				api.post(`/partidos/${stopping}/estado`, { estado: 'programado' }),
+				(async () => {
+					await sleep(Math.random() * 40);
+					const goles = { golesLocal: round % 4, golesVisitante: 1 };
+					const loaded = await api.put(`/partidos/${finishing}/resultado`, goles);
+					if (loaded.status !== 200) return loaded;
+					return api.post(`/partidos/${finishing}/resultado/confirmar`, { confirmar: true, ...goles });
+				})(),
+				api.patch(`/partidos/${starting}`, { jornada: 1 + (round % 30) }),
+				api.patch(`/partidos/${stopping}`, { sede: `Sede ${round}` }),
 				api.patch(`/deportes/${s.sports[1]}`, { permiteEmpate: !flip }),
 				api.patch(`/deportes/${s.sports[0]}`, { permiteEmpate: flip }),
 			];
 			const settled = await Promise.allSettled(work);
+			const created = settled.filter((r) => r.status === 'fulfilled' && (r.value as { status?: number }).status === 201);
+			expect(created, 'la misma clave tres veces crea un solo ticket').toHaveLength(1);
 
 			for (const result of settled) {
 				if (result.status === 'rejected') {
@@ -169,9 +191,9 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 				const key = `${value.status}${value.body.error ? `:${value.body.error.code}` : ''}`;
 				count(key);
 				expect(value.status, key).not.toBe(500);
-				expect([200, 409], key).toContain(value.status);
+				expect([200, 201, 409], key).toContain(value.status);
 				if (value.status === 409) {
-					expect(['MATCH_HAS_BETS', 'INVALID_STATE_TRANSITION', 'DRAW_RULE_LOCKED', 'MATCH_NOT_PROGRAMMED'], key).toContain(
+					expect(['MATCH_HAS_BETS', 'INVALID_STATE_TRANSITION', 'DRAW_RULE_LOCKED', 'MATCH_NOT_PROGRAMMED', 'TICKET_REJECTED', 'MATCH_HAS_RESULT'], key).toContain(
 						value.body.error!.code,
 					);
 				}
@@ -179,8 +201,17 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 		}
 
 		// Real contention happened: bets were placed and admin writes went through.
-		expect(outcomes['ticket:confirmado'] ?? 0, JSON.stringify(outcomes)).toBeGreaterThan(0);
+		expect(outcomes['201'], JSON.stringify(outcomes)).toBe(ROUNDS);
+		expect(outcomes['409:TICKET_REJECTED'], JSON.stringify(outcomes)).toBe(ROUNDS);
+		const [[mine]] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS n FROM ticket WHERE usuario_id = ?', [s.bettors[0]]);
+		expect(Number(mine!.n)).toBe(ROUNDS);
 		expect(outcomes['200'] ?? 0, JSON.stringify(outcomes)).toBeGreaterThan(0);
+		// Every round's result was confirmed.
+		const [[finished]] = await pool.query<RowDataPacket[]>(
+			"SELECT COUNT(*) AS n FROM partido p JOIN estado_partido ep ON ep.id = p.estado_partido_id WHERE ep.codigo = 'finalizado' AND p.id IN (?)",
+			[s.past],
+		);
+		expect(Number(finished!.n)).toBe(ROUNDS);
 		// Not a single deadlock, not even one that the retry absorbed.
 		expect(transactionStats.deadlockRetries - statsBefore.deadlockRetries, JSON.stringify(outcomes)).toBe(0);
 		expect(transactionStats.deadlocksExhausted - statsBefore.deadlocksExhausted).toBe(0);

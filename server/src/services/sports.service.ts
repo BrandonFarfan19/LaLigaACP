@@ -2,6 +2,7 @@ import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { TransactionConnection } from '../db/transaction.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
+import { effectiveStateCondition } from '../lib/match-state.js';
 import { slugify } from '../lib/slug.js';
 import type { CreateSportBody, ListSportsQuery, UpdateSportBody } from '../schemas/catalog.schema.js';
 import type { Page } from '../schemas/common.schema.js';
@@ -97,12 +98,14 @@ export async function updateSport(
 
 		if (input.permiteEmpate !== undefined && input.permiteEmpate !== before.permiteEmpate) {
 			const reasons: string[] = [];
+			// "Left programado" with the effective state: a match whose kick-off came counts as started.
+			const notStarted = effectiveStateCondition('programado', new Date());
 			const [[started]] = await conn.query<RowDataPacket[]>(
 				`SELECT COUNT(*) AS n FROM partido p
 				JOIN competicion c ON c.id = p.competicion_id
 				JOIN estado_partido ep ON ep.id = p.estado_partido_id
-				WHERE c.deporte_id = ? AND ep.codigo <> 'programado'`,
-				[id],
+				WHERE c.deporte_id = ? AND NOT ${notStarted.sql}`,
+				[id, ...notStarted.params],
 			);
 			if (Number(started?.n) > 0) reasons.push(`tiene ${started!.n} partido(s) en curso, finalizados o cancelados`);
 			for (const guard of guards) {

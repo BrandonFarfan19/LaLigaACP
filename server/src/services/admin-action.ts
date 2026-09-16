@@ -9,8 +9,10 @@ import { type TransactionConnection, withTransaction } from '../db/transaction.j
  * the action back.
  */
 
-export type CatalogEntity = 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'partido';
-export type CatalogVerb = 'crear' | 'editar' | 'borrar' | 'cambiar_estado';
+/** `gol` and `multimedia` (a match's image or video) since T-13. */
+export type CatalogEntity = 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'partido' | 'gol' | 'multimedia';
+/** `registrar_resultado` and `confirmar_resultado` (T-12) only apply to `partido`. */
+export type CatalogVerb = 'crear' | 'editar' | 'borrar' | 'registrar_resultado' | 'confirmar_resultado';
 
 export interface AdminActionOutcome<T = unknown> {
 	/** e.g. `crear_deporte`, `editar_equipo`, `borrar_plantel`. */

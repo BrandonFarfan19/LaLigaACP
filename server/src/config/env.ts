@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import { loadRootEnvFile } from './load-root-env.js';
 
@@ -116,6 +117,16 @@ const schema = z
 		// Public read-only API (T-08), per IP: its own, roomier limit instead of the global one.
 		PUBLIC_RATE_LIMIT_WINDOW_MS: windowMs(60 * 1000),
 		PUBLIC_RATE_LIMIT_MAX: maxRequests(120),
+		// T-13: uploaded images. A directory outside the code (a Docker volume in
+		// compose.yaml); relative paths resolve against the process's working directory.
+		UPLOADS_DIR: z.string().trim().min(1).default('.data/uploads'),
+		// Largest upload accepted, in bytes (5 MiB by default, 20 MiB at most).
+		UPLOAD_MAX_BYTES: z.coerce.number().int().positive().max(20 * 1024 * 1024).default(5 * 1024 * 1024),
+		// Largest image accepted, in pixels (width × height): stops decompression bombs.
+		UPLOAD_MAX_PIXELS: z.coerce.number().int().positive().max(100_000_000).default(24_000_000),
+		// Uploads per IP, on top of the global limit.
+		UPLOAD_RATE_LIMIT_WINDOW_MS: windowMs(15 * 60 * 1000),
+		UPLOAD_RATE_LIMIT_MAX: maxRequests(60),
 		// Off by default: req.ip is the socket's address. See parseTrustProxy.
 		TRUST_PROXY: z.string().default('false').transform(parseTrustProxy),
 	})
@@ -156,6 +167,17 @@ export interface Env {
 	};
 	/** Applied as Express's `trust proxy` setting in app.ts. */
 	readonly trustProxy: TrustProxy;
+	/** T-13: where uploaded images live, and how big they may be. */
+	readonly uploads: {
+		/** Absolute. */
+		readonly dir: string;
+		readonly maxBytes: number;
+		readonly maxPixels: number;
+	};
+	readonly uploadRateLimit: {
+		readonly windowMs: number;
+		readonly max: number;
+	};
 	readonly session: {
 		readonly secret: string;
 		readonly ttlMs: number;
@@ -227,6 +249,15 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
 			max: raw.REGISTER_RATE_LIMIT_MAX,
 		},
 		trustProxy: raw.TRUST_PROXY,
+		uploads: {
+			dir: resolve(raw.UPLOADS_DIR),
+			maxBytes: raw.UPLOAD_MAX_BYTES,
+			maxPixels: raw.UPLOAD_MAX_PIXELS,
+		},
+		uploadRateLimit: {
+			windowMs: raw.UPLOAD_RATE_LIMIT_WINDOW_MS,
+			max: raw.UPLOAD_RATE_LIMIT_MAX,
+		},
 		session: {
 			secret: raw.SESSION_SECRET,
 			ttlMs: raw.SESSION_TTL_HOURS * 60 * 60 * 1000,

@@ -14,6 +14,7 @@ import {
 import { COSTO_POR_SELECCION } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { proximityOrderBy } from '../lib/match-order.js';
+import { effectiveStateCondition } from '../lib/match-state.js';
 import type { SelectionInput } from '../schemas/betting.schema.js';
 import type { Page } from '../schemas/common.schema.js';
 import { pageOf, Where } from './catalog-query.js';
@@ -56,7 +57,7 @@ function admittedForecasts(permiteEmpate: boolean): AdmittedForecasts {
 }
 
 function bettingMatchFrom(row: RowDataPacket, now: Date): BettingMatch {
-	const match = matchFrom(row);
+	const match = matchFrom(row, now);
 	return {
 		...match,
 		apuesta: {
@@ -93,11 +94,16 @@ export function listBettingMatches(pool: Pool, query: ListBettingMatchesFilters,
 		case 'disponible':
 			where.add("ep.codigo = 'programado' AND p.fecha_hora > ?", openKickoffsAfter(now));
 			break;
-		case 'cerrada':
-			where.add("ep.codigo = 'programado' AND p.fecha_hora <= ?", openKickoffsAfter(now));
+		case 'cerrada': {
+			// Closed for bets but not started yet: once the kick-off comes it is en_curso.
+			const notStarted = effectiveStateCondition('programado', now);
+			where.add(`${notStarted.sql} AND p.fecha_hora <= ?`, ...notStarted.params, openKickoffsAfter(now));
 			break;
-		default:
-			where.add('ep.codigo = ?', query.estadoApuesta);
+		}
+		default: {
+			const state = effectiveStateCondition(query.estadoApuesta, now);
+			where.add(state.sql, ...state.params);
+		}
 	}
 	const order = proximityOrderBy('p.fecha_hora', 'p.id', now);
 	return pageOf(
@@ -255,7 +261,14 @@ async function readMatchesLocked(conn: PoolConnection, locked: readonly RowDataP
 async function lockAndReadMatches(conn: PoolConnection, userId: number, ids: readonly number[]): Promise<Loaded> {
 	const [user] = await lockByPrimaryKey(conn, 'usuario', [userId], 'UPDATE', 'id, saldo_monedas');
 	const saldo = Number(user?.saldo_monedas ?? 0);
-	const matches = await lockByPrimaryKey(conn, 'partido', ids, 'SHARE', 'id, competicion_id');
+	// Only ids that exist: locking a missing id takes a gap lock on partido's
+	// PRIMARY (up to the supremum for an id past the last one), which would
+	// block createMatch until this transaction ends. A match deleted between
+	// this read and the lock can still leave one; deleteMatch is rare and
+	// refuses matches with bets.
+	const [existing] = await conn.query<RowDataPacket[]>('SELECT id FROM partido WHERE id IN (?)', [ids]);
+	const existingIds = existing.map((row) => Number(row.id)).sort((a, b) => a - b);
+	const matches = await lockByPrimaryKey(conn, 'partido', existingIds, 'SHARE', 'id, competicion_id');
 	const competitionIds = [...new Set(matches.map((m) => Number(m.competicion_id)))].sort((a, b) => a - b);
 	const competitions = await lockByPrimaryKey(conn, 'competicion', competitionIds, 'SHARE', 'id, deporte_id');
 	const sportIds = [...new Set(competitions.map((c) => Number(c.deporte_id)))].sort((a, b) => a - b);

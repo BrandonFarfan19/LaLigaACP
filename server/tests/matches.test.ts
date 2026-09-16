@@ -6,9 +6,6 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { compareByProximity } from '../src/lib/match-order.js';
-import type { AdminActionOutcome } from '../src/services/admin-action.js';
-import { countBetsOnMatch } from '../src/services/bets-match-probe.service.js';
-import { changeMatchState } from '../src/services/matches.service.js';
 import { createTestApp } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertDrawBet, insertGoal, insertMatch, teamBody } from './helpers/catalog.js';
@@ -37,7 +34,6 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 		...overrides,
 	});
 	const createMatch = (overrides: Record<string, unknown> = {}) => created<{ id: number }>(api.post('/partidos', matchBody(overrides)));
-	const setState = (id: number, estado: string) => api.post(`/partidos/${id}/estado`, { estado });
 
 	async function sides(matchId: number) {
 		const [rows] = await pool.query<RowDataPacket[]>(
@@ -235,85 +231,32 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 		});
 	});
 
-	describe('states (BR-012)', () => {
-		it('programado -> en_curso once betting closed, and back while it has no goals', async () => {
+	describe('states (BR-012, T-13: no manual changes)', () => {
+		it('there is no route to change the state by hand: POST /estado is 404, for any state', async () => {
 			const { id } = await createMatch({ fechaHora: inMs(HOUR) });
-
-			const started = await setState(id, 'en_curso');
-			expect(started.status).toBe(200);
-			expect(started.body.data.estado).toBe('en_curso');
-
-			const back = await setState(id, 'programado');
-			expect(back.status).toBe(200);
-			expect(back.body.data.estado).toBe('programado');
+			for (const estado of ['en_curso', 'programado', 'finalizado', 'cancelado']) {
+				const res = await api.post(`/partidos/${id}/estado`, { estado });
+				expect(res.status).toBe(404);
+				expect(res.body.error.code).toBe('NOT_FOUND');
+			}
+			expect((await api.get(`/partidos/${id}`)).body.data.estado).toBe('programado');
 		});
 
-		it('programado -> en_curso while betting is still open -> 409', async () => {
-			const { id } = await createMatch({ fechaHora: inMs(3 * DAY) });
+		it('a programado match whose kick-off came is en_curso in every admin answer and filter', async () => {
+			const kickedOff = await insertMatch(pool, ids.comp, ids.a, ids.b, 'programado', new Date(Date.now() - 1000));
+			const upcoming = (await createMatch({ fechaHora: inMs(HOUR), localId: ids.b, visitaId: ids.c })).id;
 
-			const res = await setState(id, 'en_curso');
-
-			expect(res.status).toBe(409);
-			expect(res.body.error).toMatchObject({ code: 'INVALID_STATE_TRANSITION', details: { desde: 'programado', hacia: 'en_curso' } });
+			expect((await api.get(`/partidos/${kickedOff}`)).body.data.estado).toBe('en_curso');
+			const list = async (q: string) => (await api.get(`/partidos?${q}`)).body.data.items.map((m: { id: number }) => m.id);
+			expect(await list('estado=en_curso')).toEqual([kickedOff]);
+			expect(await list('estado=programado')).toEqual([upcoming]);
 		});
 
-		it.each([
-			['programado', 'finalizado'],
-			['programado', 'cancelado'],
-			['programado', 'programado'],
-			['en_curso', 'finalizado'],
-			['en_curso', 'cancelado'],
-			['en_curso', 'en_curso'],
-			['finalizado', 'en_curso'],
-			['finalizado', 'programado'],
-			['cancelado', 'programado'],
-			['cancelado', 'en_curso'],
-		] as const)('%s -> %s is rejected with 409 and nothing changes', async (desde, hacia) => {
-			const id = await insertMatch(pool, ids.comp, ids.a, ids.b, desde, new Date(Date.now() + HOUR));
-
-			const res = await setState(id, hacia);
-
-			expect(res.status).toBe(409);
-			expect(res.body.error).toMatchObject({ code: 'INVALID_STATE_TRANSITION', details: { desde, hacia } });
-			expect((await api.get(`/partidos/${id}`)).body.data.estado).toBe(desde);
-		});
-
-		it('en_curso with goals cannot go back to programado', async () => {
-			const id = await insertMatch(pool, ids.comp, ids.a, ids.b, 'en_curso', new Date(Date.now() - HOUR));
-			await insertGoal(pool, id, ids.a, (await enrollmentIn(ids.a)).id);
-
-			expect(code(await setState(id, 'programado'))).toBe('INVALID_STATE_TRANSITION');
-		});
-
-		it('bad input: unknown state 400, unknown match 404, extra field 400', async () => {
-			const { id } = await createMatch();
-			expect((await setState(id, 'suspendido')).status).toBe(400);
-			expect(code(await setState(999999, 'en_curso'))).toBe('MATCH_NOT_FOUND');
-			expect((await api.post(`/partidos/${id}/estado`, { estado: 'en_curso', motivo: 'x' })).status).toBe(400);
-			expect((await api.post(`/partidos/${id}/estado?x=1`, { estado: 'en_curso' })).status).toBe(400);
-		});
-
-		it('the audit hook sees cambiar_estado_partido', async () => {
-			const { id } = await createMatch({ fechaHora: inMs(HOUR) });
-			const seen: AdminActionOutcome[] = [];
-
-			await changeMatchState(
-				pool,
-				{ actorId: api.admin.user.id, hooks: { inTransaction: async (_c, o) => void seen.push(o) } },
-				id,
-				'en_curso',
-				{ countBets: countBetsOnMatch },
-			);
-
-			expect(seen).toEqual([
-				expect.objectContaining({
-					action: 'cambiar_estado_partido',
-					entity: 'partido',
-					id,
-					before: expect.objectContaining({ estado: 'programado' }),
-					after: expect.objectContaining({ estado: 'en_curso' }),
-				}),
-			]);
+		it('a started match can no longer be postponed nor get other teams', async () => {
+			const kickedOff = await insertMatch(pool, ids.comp, ids.a, ids.b, 'programado', new Date(Date.now() - 1000));
+			expect(code(await api.patch(`/partidos/${kickedOff}`, { fechaHora: inMs(DAY) }))).toBe('MATCH_NOT_PROGRAMMED');
+			expect(code(await api.patch(`/partidos/${kickedOff}`, { localId: ids.c }))).toBe('MATCH_NOT_PROGRAMMED');
+			expect((await api.patch(`/partidos/${kickedOff}`, { sede: 'Otra' })).status).toBe(200);
 		});
 	});
 
@@ -448,7 +391,7 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 			await insertDrawBet(app, pool, withBets);
 			expect((await api.del(`/partidos/${withBets}`)).body.error).toMatchObject({ code: 'MATCH_HAS_BETS', details: { apuestas: 1, goles: 0 } });
 
-			const withGoals = await insertMatch(pool, ids.comp, ids.a, ids.c, 'en_curso', new Date(Date.now() - HOUR));
+			const withGoals = await insertMatch(pool, ids.comp, ids.a, ids.c, 'programado', new Date(Date.now() + 2 * DAY));
 			await insertGoal(pool, withGoals, ids.a, (await enrollmentIn(ids.a)).id);
 			expect((await api.del(`/partidos/${withGoals}`)).body.error).toMatchObject({ code: 'MATCH_HAS_GOALS', details: { goles: 1 } });
 
@@ -456,6 +399,15 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 			expect((await api.del(`/partidos/${finished}`)).body.error).toMatchObject({ code: 'MATCH_LOCKED' });
 
 			for (const id of [withBets, withGoals, finished]) expect((await sides(id)).length).toBe(2);
+		});
+
+		it('refuses one that already started (409 MATCH_NOT_PROGRAMMED), even if still stored as programado', async () => {
+			const stored = await insertMatch(pool, ids.comp, ids.a, ids.b, 'en_curso', new Date(Date.now() - HOUR));
+			const kickedOff = await insertMatch(pool, ids.comp, ids.b, ids.c, 'programado', new Date(Date.now() - 1000));
+			for (const id of [stored, kickedOff]) {
+				expect((await api.del(`/partidos/${id}`)).body.error).toMatchObject({ code: 'MATCH_NOT_PROGRAMMED', details: { estado: 'en_curso' } });
+				expect((await sides(id)).length).toBe(2);
+			}
 		});
 
 		it('a cancelled match without bets can be deleted', async () => {
@@ -472,7 +424,6 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 				request(app).get('/admin/partidos'),
 				request(app).post('/admin/partidos').send(matchBody()),
 				request(app).patch(`/admin/partidos/${id}`).send({ sede: 'X' }),
-				request(app).post(`/admin/partidos/${id}/estado`).send({ estado: 'en_curso' }),
 				request(app).delete(`/admin/partidos/${id}`),
 			]) {
 				expect((await req).status).toBe(401);
@@ -482,7 +433,7 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 			const res = await request(app).get('/admin/partidos').set('Cookie', user.cookie);
 			expect(res.status).toBe(403);
 
-			const noCsrf = await request(app).post(`/admin/partidos/${id}/estado`).set('Cookie', api.admin.cookie).send({ estado: 'en_curso' });
+			const noCsrf = await request(app).patch(`/admin/partidos/${id}`).set('Cookie', api.admin.cookie).send({ sede: 'X' });
 			expect(noCsrf.status).toBe(403);
 			expect(code(noCsrf)).toBe('CSRF_FAILED');
 		});
@@ -510,14 +461,6 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 			expect(final.every((s) => s.competicionId === ids.comp)).toBe(true);
 		});
 
-		it('parallel starts: exactly one passes', async () => {
-			const { id } = await createMatch({ fechaHora: inMs(HOUR) });
-
-			const statuses = (await Promise.all(Array.from({ length: 5 }, () => setState(id, 'en_curso')))).map((r) => r.status).sort();
-
-			expect(statuses).toEqual([200, 409, 409, 409, 409]);
-		});
-
 		it('an edit and a new bet do not interleave: postponing sees the bet or the bet comes after', async () => {
 			const { id } = await createMatch({ fechaHora: inMs(3 * DAY) });
 
@@ -532,8 +475,8 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 
 	it('Informativo does not import Polla: the bets probe is injected', () => {
 		const src = resolve(dirname(fileURLToPath(import.meta.url)), '../src/services');
-		for (const file of ['matches.service.ts', 'sports.service.ts']) {
-			expect(readFileSync(resolve(src, file), 'utf8')).not.toMatch(/from '\.\/bets-/);
+		for (const file of ['matches.service.ts', 'sports.service.ts', 'results.service.ts', 'goals.service.ts', 'match-media.service.ts', 'media-storage.ts', 'public.service.ts']) {
+			expect(readFileSync(resolve(src, file), 'utf8'), file).not.toMatch(/from '\.\/(bets-|betting|tickets|bet-history|coin)/);
 		}
 	});
 });

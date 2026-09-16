@@ -63,7 +63,7 @@ export async function addSettledSelections(pool: Pool, userId: number, puntos: A
 		"INSERT INTO partido (competicion_id, estado_partido_id, jornada, fecha_hora, sede) SELECT ?, id, 1, UTC_TIMESTAMP(), 'Cancha' FROM estado_partido WHERE codigo = 'finalizado'",
 		[competicionId],
 	);
-	const ticketId = await insert('INSERT INTO ticket (usuario_id, creado_en) VALUES (?, UTC_TIMESTAMP())', [userId]);
+	const ticketId = await insert('INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES (?, UTC_TIMESTAMP(), UUID(), SHA2(UUID(), 256))', [userId]);
 
 	for (const value of puntos) {
 		await pool.query(

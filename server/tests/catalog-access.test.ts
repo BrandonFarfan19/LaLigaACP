@@ -121,7 +121,7 @@ describe('sports catalog: access, strict input, MySQL errors and audit hook', ()
 		it.each([
 			['1062 on a known UNIQUE', "INSERT INTO deporte (nombre, slug, permite_empate) VALUES ('A', 'dup', 1), ('B', 'dup', 1)", 409, 'SLUG_TAKEN'],
 			['1452 on a known FK', "INSERT INTO competicion (deporte_id, nombre, slug) VALUES (999999, 'X', 'x')", 404, 'SPORT_NOT_FOUND'],
-			['1452 on an unmapped FK', 'INSERT INTO ticket (usuario_id, creado_en) VALUES (999999, UTC_TIMESTAMP())', 409, 'INVALID_REFERENCE'],
+			['1452 on an unmapped FK', 'INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES (999999, UTC_TIMESTAMP(), UUID(), SHA2(UUID(), 256))', 409, 'INVALID_REFERENCE'],
 			['1406 value too long', "INSERT INTO deporte (nombre, slug, permite_empate) VALUES (REPEAT('x', 300), 'largo', 1)", 400, 'VALIDATION_ERROR'],
 		])('%s', async (_label, sql, status, code) => {
 			const translated = translateDbError(await mysqlError(sql));

@@ -38,6 +38,12 @@ const DUPLICATES: Record<string, Answer> = {
 	),
 	uq_plantel_equipo_camiseta: conflict(ErrorCode.SHIRT_NUMBER_TAKEN, 'Ese número de camiseta ya está en uso en el equipo.'),
 	uq_partido_equipo_equipo: { status: 400, code: ErrorCode.SAME_TEAM, message: 'Un equipo no puede jugar contra sí mismo.' },
+	uq_ticket_usuario_clave: conflict(
+		ErrorCode.IDEMPOTENCY_KEY_REUSED,
+		'Esa clave de idempotencia ya se usó para otro ticket. Reintentá con la misma clave para recibirlo, o usá una nueva.',
+	),
+	uq_gol_imagen: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese archivo ya está asociado a otro gol.'),
+	uq_multimedia_imagen: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese archivo ya está asociado a otra imagen.'),
 	uq_partido_equipo_lado: conflict(ErrorCode.DUPLICATE_ENTRY, 'El partido ya tiene ese lado (local o visita).'),
 };
 
@@ -90,6 +96,10 @@ const FOREIGN_KEYS: Record<string, { missing: Answer; inUse: Answer }> = {
 	fk_gol_partido_equipo: {
 		missing: conflict(ErrorCode.INVALID_REFERENCE, 'El lado del partido no existe o no es de ese equipo.'),
 		inUse: conflict(ErrorCode.MATCH_HAS_GOALS, 'El partido tiene goles registrados.'),
+	},
+	fk_multimedia_partido: {
+		missing: notFound(ErrorCode.MATCH_NOT_FOUND, 'No existe ese partido.'),
+		inUse: conflict(ErrorCode.MATCH_HAS_MEDIA, 'El partido tiene imágenes o videos.'),
 	},
 	fk_gol_equipo: {
 		missing: notFound(ErrorCode.TEAM_NOT_FOUND, 'No existe ese equipo.'),

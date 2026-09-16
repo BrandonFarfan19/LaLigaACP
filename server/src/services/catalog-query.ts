@@ -28,21 +28,22 @@ export class Where {
 
 /**
  * Count + one page of rows for `SELECT <columns> <from> <where> ORDER BY <order>`.
- * `orderParams` fill the placeholders of `orderBy`, if any.
+ * `fromParams` fill the placeholders of `from` (a derived table, for example)
+ * and `orderParams` those of `orderBy`, if any.
  */
 export async function pageOf<T>(
 	db: Db,
-	parts: { columns: string; from: string; where: Where; orderBy: string; orderParams?: unknown[] },
+	parts: { columns: string; from: string; fromParams?: unknown[]; where: Where; orderBy: string; orderParams?: unknown[] },
 	query: PaginationQuery,
 	map: (row: RowDataPacket) => T,
 ): Promise<Page<T>> {
 	const [[counted]] = await db.query<RowDataPacket[]>(
 		`SELECT COUNT(*) AS total ${parts.from} ${parts.where.sql}`,
-		parts.where.params,
+		[...(parts.fromParams ?? []), ...parts.where.params],
 	);
 	const [rows] = await db.query<RowDataPacket[]>(
 		`SELECT ${parts.columns} ${parts.from} ${parts.where.sql} ORDER BY ${parts.orderBy} LIMIT ? OFFSET ?`,
-		[...parts.where.params, ...(parts.orderParams ?? []), query.pageSize, (query.page - 1) * query.pageSize],
+		[...(parts.fromParams ?? []), ...parts.where.params, ...(parts.orderParams ?? []), query.pageSize, (query.page - 1) * query.pageSize],
 	);
 	return toPage(rows.map(map), Number(counted?.total ?? 0), query);
 }

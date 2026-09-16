@@ -590,6 +590,35 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 			},
 		);
 
+		it.skipIf(!canInspectLocks)('a missing match id takes no gap lock, and a new match can be created meanwhile', async () => {
+			const other = await pool.getConnection();
+			try {
+				await withTransaction(pool, async (conn) => {
+					await evaluateTicketInTransaction(conn, bettor.user.id, [...sel(), { partidoId: s.missing, tipo: 'resultado_general', pronostico: 'empate' }]);
+					const [[me]] = await conn.query<RowDataPacket[]>('SELECT CONNECTION_ID() AS id');
+					const held = await locksHeldBy(Number(me!.id));
+					const records = held.filter((l) => l.tipo === 'RECORD');
+					expect(records.filter((l) => l.tabla === 'partido').map((l) => `${l.dato} ${l.modo}`)).toEqual([`${s.match.open} S,REC_NOT_GAP`]);
+					expect(records.some((l) => /GAP/.test(l.modo) && !/REC_NOT_GAP/.test(l.modo)), JSON.stringify(records)).toBe(false);
+					expect(records.some((l) => String(l.dato).includes('supremum')), JSON.stringify(records)).toBe(false);
+
+					// Another transaction inserts a match (past the last id) without waiting.
+					await other.query('SET SESSION innodb_lock_wait_timeout = 1');
+					await other.beginTransaction();
+					const [[comp]] = await other.query<RowDataPacket[]>('SELECT competicion_id FROM partido WHERE id = ?', [s.match.open]);
+					await other.query(
+						`INSERT INTO partido (competicion_id, estado_partido_id, jornada, fecha_hora, sede)
+						SELECT ?, id, 1, UTC_TIMESTAMP(), 'Nuevo' FROM estado_partido WHERE codigo = 'programado'`,
+						[comp!.competicion_id],
+					);
+					await other.rollback();
+				});
+			} finally {
+				await other.query('SET SESSION innodb_lock_wait_timeout = DEFAULT');
+				other.release();
+			}
+		});
+
 		it('locks the user (for the debit) and the match and sport rows until the transaction ends', async () => {
 			const other = await pool.getConnection();
 			const tryLock = async (sql: string, id: number) => {

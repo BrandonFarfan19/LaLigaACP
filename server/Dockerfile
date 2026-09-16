@@ -20,6 +20,13 @@ RUN npm ci
 
 COPY . .
 
+# The process runs without root (the image's own "node" user). It only
+# writes uploaded images (T-13), under /data/uploads: the directory is
+# created here owned by node, and Docker copies that ownership into a new
+# named volume the first time it is mounted there (compose.yaml).
+RUN mkdir -p /data/uploads && chown node:node /data/uploads
+USER node
+
 EXPOSE 3001
 
 CMD ["npm", "run", "dev:docker"]
