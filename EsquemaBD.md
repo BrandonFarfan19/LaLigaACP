@@ -129,7 +129,7 @@ Una sesión iniciada (NFR-005, D18).
 | id | PK | |
 | nombre | VARCHAR | Fútbol, Vóley… (BR-001, BR-048). |
 | slug | VARCHAR, único | Para filtrar/enrutar por deporte. |
-| permite_empate | BOOLEAN | Condiciona si `resultado_general` ofrece "Empate" para partidos de este deporte (BR-015). |
+| permite_empate | BOOLEAN | Condiciona si `resultado_general` ofrece "Empate" para partidos de este deporte (BR-015). **Backend (T-06):** solo cambia si ningún partido del deporte salió de `programado` y no hay selecciones sobre sus partidos. |
 
 ### competicion — "Competición o torneo" de BR-011
 | Campo | Tipo | Notas |
@@ -148,8 +148,8 @@ Una sesión iniciada (NFR-005, D18).
 | competicion_id | FK → competicion | D1. |
 | nombre | VARCHAR | |
 | nombre_corto | VARCHAR | No lo pide ninguna BR; se mantiene por continuidad con la landing informativa. |
-| escudo | VARCHAR | Ruta o URL del asset. Ídem. |
-| color_acento | VARCHAR | Ídem. |
+| escudo | VARCHAR | Ruta o URL del asset. Ídem. **Backend (T-06):** una URL `https://` o una ruta relativa a una imagen (`escudos/boca.webp`), hasta 255 caracteres; sin subida de archivos hasta T-13. |
+| color_acento | VARCHAR | Ídem. **Backend (T-06):** `#rrggbb`, guardado en minúsculas. |
 
 `UNIQUE(id, competicion_id)`: permite FKs compuestas que garantizan la competición en otras tablas.
 
@@ -158,7 +158,7 @@ Una sesión iniciada (NFR-005, D18).
 |---|---|---|
 | id | PK | |
 | nombre | VARCHAR | |
-| foto | VARCHAR, opcional | |
+| foto | VARCHAR, opcional | **Backend (T-06):** mismo formato que `equipo.escudo`. |
 
 ### plantel — la persona inscrita en un equipo
 | Campo | Tipo | Notas |
@@ -167,12 +167,15 @@ Una sesión iniciada (NFR-005, D18).
 | jugador_id | FK → jugador | |
 | equipo_id | FK → equipo | |
 | competicion_id | FK → competicion | Copia de la del equipo, para aplicar D2. |
-| numero_camiseta | SMALLINT UNSIGNED | No lo pide ninguna BR; se mantiene por continuidad con la plantilla informativa. |
+| numero_camiseta | SMALLINT UNSIGNED | No lo pide ninguna BR; se mantiene por continuidad con la plantilla informativa. **Backend (T-06):** de 1 a 99. |
 
 - `FK(equipo_id, competicion_id) → equipo(id, competicion_id)`: la copia no puede contradecir al equipo.
 - `UNIQUE(jugador_id, competicion_id)`: un equipo por competición (D2) y sin cambios de equipo (D4).
 - `UNIQUE(equipo_id, numero_camiseta)`.
 - `UNIQUE(id, equipo_id)`: para la FK compuesta de `gol`.
+- **Backend (T-06):** `competicion_id` sale siempre del equipo; el cliente no lo elige, y si lo manda debe coincidir. Una inscripción solo cambia su número de camiseta (D4: sin transferencias).
+
+**Borrado (T-06).** No hay borrado en cascada ni borrado lógico: el catálogo solo se corrige mientras nada lo usa. El backend rechaza borrar (409, con las cantidades) un deporte con competiciones; una competición con equipos, partidos o jugadores inscritos; un equipo con partidos, jugadores inscritos o goles; un jugador inscrito; o una inscripción con goles. Mover un equipo de competición o una competición de deporte sigue la misma idea: solo mientras nada los ata al lugar actual.
 
 ### estado_partido — catálogo
 | Campo | Tipo | Notas |
@@ -192,6 +195,17 @@ Una sesión iniciada (NFR-005, D18).
 | sede | VARCHAR | No lo pide ninguna BR; se mantiene por continuidad. |
 
 `UNIQUE(id, competicion_id)`: para la FK compuesta de `partido_equipo`.
+
+Índice `idx_partido_fecha_hora (fecha_hora)` (T-07): los filtros por rango de fechas y el orden por proximidad (BR-013) de todas las vistas de partidos.
+
+Índice `idx_partido_jornada (jornada)` (T-08): el fixture público filtrado solo por jornada (`GET /public/partidos?jornada=`). Sin él, MySQL recorría todos los partidos; con 20 competiciones y 3800 partidos lee unos 100. El filtro por deporte no necesita índice propio: pasa por `uq_competicion_deporte_slug` y `fk_partido_competicion` (un `deporte_id` en `partido` duplicaría el dato, ver la regla de arriba).
+
+**Backend (T-07):**
+
+- Alta siempre en `programado`, con sus dos `partido_equipo` en la misma transacción.
+- Transiciones: `programado` ↔ `en_curso` desde la API de partidos; `finalizado` solo en T-12 y `cancelado` solo en T-16.
+- `finalizado` y `cancelado` bloquean la fila.
+- Cambiar la competición o los equipos borra y recrea las dos filas de `partido_equipo`, porque su FK compuesta apunta a `(partido.id, competicion_id)`. Solo se permite sin apuestas ni goles.
 
 ### partido_equipo — local y visita, con sus goles
 | Campo | Tipo | Notas |
@@ -224,7 +238,7 @@ Una sesión iniciada (NFR-005, D18).
 - Reemplaza a las viejas `partido_jugador`, `estadistica_tipo` y `partido_jugador_estadistica`: ninguna BR pide un sistema genérico de estadísticas por disciplina, y las estadísticas del radar de jugador del frontend (`PlayerStats`) son datos aleatorios de `src/data/`, sin relación con estas tablas (ver `CLAUDE.md`).
 
 ### Calculado, no guardado
-- **Tabla de posiciones:** a partir de `partido_equipo.goles` en partidos `finalizado`, con 3/1/0 (D8).
+- **Tabla de posiciones:** a partir de `partido_equipo.goles` en partidos `finalizado`, con 3/1/0 (D8). **Backend (T-08):** `GET /public/competiciones/:id/posiciones`; orden y columnas en BR-050. Usa `fk_equipo_competicion`, el índice por equipo de `partido_equipo` y `uq_partido_equipo_lado` (revisado con `EXPLAIN`).
 - **Goleadores:** `COUNT(*)` de `gol` por jugador.
 - **Resultado general de un partido:** comparando los `goles` de sus dos filas de `partido_equipo` (D7, BR-029).
 
@@ -306,7 +320,8 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 - `UNIQUE(usuario_id, tipo_movimiento_id, sin_seleccion)`: como mucho **un** movimiento sin selección por usuario y tipo. Es la barrera de base de datos de BR-008: un usuario no puede recibir dos veces el `validacion` de +10 aunque el backend fallara (D19). A los tipos que siempre llevan selección no los afecta, porque ahí `sin_seleccion` es NULL y MySQL no compara NULL en un índice único.
   - **Límites conocidos de D19** (observados en T-04, sin cambiar el esquema todavía): (1) un movimiento `validacion` con `seleccion_id` cargado a mano esquiva la barrera, porque ahí `sin_seleccion` es NULL; (2) dos movimientos del **mismo tipo** sin selección para el mismo usuario chocan con la UNIQUE aunque sean legítimos. La regla del backend: `seleccion_confirmada` y `devolucion_cancelacion` siempre llevan `seleccion_id`, y `validacion` nunca (ver notas de T-10 y T-16 en `docs/plan-polla.md`).
 - `CHECK (cantidad <> 0)`.
-- **Backend:** mantener `usuario.saldo_monedas` sincronizado con la suma de sus movimientos, en la misma transacción que cada inserción (D12, BR-053, BR-055).
+- Índice `idx_movimiento_usuario_fecha (usuario_id, creado_en, id)` (T-05): el historial propio, del más reciente al más antiguo, y la suma por usuario de la comprobación de consistencia.
+- **Backend:** mantener `usuario.saldo_monedas` sincronizado con la suma de sus movimientos, en la misma transacción que cada inserción (D12, BR-053, BR-055). Desde T-05 hay un único punto que escribe ambos: `server/src/services/coins.service.ts`. Bloquea la fila del usuario, no deja el saldo negativo, inserta los movimientos y fija el saldo nuevo. `npm run coins:check` compara cada saldo con `SUM(cantidad)` y lista los descuadres sin corregirlos.
 
 ---
 

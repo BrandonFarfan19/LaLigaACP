@@ -160,6 +160,8 @@ CREATE TABLE estado_partido (
 -- BR-011: competición, equipos, fecha, hora (fecha_hora combinada, ver
 -- EsquemaBD.md), estado. "Resultado" y los goles por equipo se resuelven en
 -- partido_equipo, nunca aquí (ver decisión).
+-- idx_partido_fecha_hora (T-07): rangos de fechas y orden por proximidad (BR-013).
+-- idx_partido_jornada (T-08): el fixture filtrado solo por jornada (sin él, recorre la tabla).
 CREATE TABLE partido (
   id                BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
   competicion_id    BIGINT UNSIGNED   NOT NULL,
@@ -169,6 +171,8 @@ CREATE TABLE partido (
   sede              VARCHAR(150)      NOT NULL,
   PRIMARY KEY (id),
   CONSTRAINT uq_partido_id_competicion UNIQUE (id, competicion_id),
+  INDEX idx_partido_fecha_hora (fecha_hora),
+  INDEX idx_partido_jornada (jornada),
   CONSTRAINT fk_partido_competicion FOREIGN KEY (competicion_id) REFERENCES competicion (id),
   CONSTRAINT fk_partido_estado FOREIGN KEY (estado_partido_id) REFERENCES estado_partido (id),
   CONSTRAINT ck_partido_jornada CHECK (jornada >= 1)
@@ -309,6 +313,8 @@ CREATE TABLE tipo_movimiento (
 -- uq_movimiento_sin_seleccion permite un único movimiento sin selección por
 -- usuario y tipo: una sola asignación de +10 aunque el backend fallara. Los
 -- tipos con selección no se ven afectados (NULL no choca en un UNIQUE).
+-- idx_movimiento_usuario_fecha (T-05): historial propio, del más reciente al
+-- más antiguo, y la suma por usuario de la comprobación de consistencia.
 CREATE TABLE movimiento_moneda (
   id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   usuario_id         BIGINT UNSIGNED NOT NULL,
@@ -322,6 +328,7 @@ CREATE TABLE movimiento_moneda (
   PRIMARY KEY (id),
   CONSTRAINT uq_movimiento_seleccion_tipo UNIQUE (seleccion_id, tipo_movimiento_id),
   CONSTRAINT uq_movimiento_sin_seleccion UNIQUE (usuario_id, tipo_movimiento_id, sin_seleccion),
+  INDEX idx_movimiento_usuario_fecha (usuario_id, creado_en, id),
   CONSTRAINT fk_movimiento_usuario FOREIGN KEY (usuario_id) REFERENCES usuario (id),
   CONSTRAINT fk_movimiento_tipo FOREIGN KEY (tipo_movimiento_id) REFERENCES tipo_movimiento (id),
   CONSTRAINT fk_movimiento_seleccion FOREIGN KEY (seleccion_id) REFERENCES seleccion (id),

@@ -213,3 +213,300 @@ Entradas en orden cronológico, la más reciente al final. Formato de cada entra
 - **Observaciones:**
   - **Detalles menores de los mensajes:** `page=` (vacío) responde «page debe ser 1 o mayor». Un número más allá del rango seguro, como `9007199254740993`, trae dos detalles («entero» y «mayor que 100000»). Los dos casos dan 400.
   - **D19 (ya documentado):** un movimiento `validacion` con `seleccion_id` esquiva la barrera de unicidad, y dos movimientos del mismo tipo sin selección chocan.
+
+## 2026-09-16 — T-05 · Saldo y movimientos (backend)
+
+- **Cambio:** saldo y movimientos de monedas (BR-009, BR-010, BR-020 a BR-022, BR-046, BR-047, BR-055, tablas 27 y 28).
+  - **Un único punto que mueve monedas:** `services/coins.service.ts`. Su función principal es `applyCoinMovements(conn, usuario, movimientos)` y tiene tres atajos:
+    - `grantValidationCoins`, que T-04 ya usa;
+    - `debitSelections`, para T-10;
+    - `refundSelections`, para T-16.
+  - **Qué hace en la transacción del llamador:**
+    - Bloquea la fila del usuario y rechaza el saldo negativo con 409 `INSUFFICIENT_BALANCE`, sin efectos.
+    - Comprueba D19 y que cada selección sea del usuario.
+    - Exige que cada devolución tenga su débito y ninguna devolución previa: si no, responde 409 `SELECTION_NOT_DEBITED` o `MOVEMENT_ALREADY_APPLIED` con `details.selecciones`.
+    - Inserta los movimientos y fija el saldo.
+  - **Tipos y montos:** los tipos se buscan por código con `Object.hasOwn`; los montos están en `lib/coins.ts`.
+  - **Contrato de transacción exigido:** las funciones reciben `TransactionConnection`, que solo entrega `withTransaction`. Llamarlas con una conexión común no compila y, si se fuerza, se rechaza en ejecución antes de escribir.
+  - **Rutas:**
+    - `GET /monedas/saldo` y `GET /monedas/movimientos` (paginado, del más reciente al más antiguo) usan `requireParticipant`: un admin recibe 403 `NOT_A_PARTICIPANT`.
+    - `GET /admin/monedas/consistencia` es de solo lectura.
+  - **Consistencia:** `npm run coins:check` sale con 0 si todo cuadra, 1 si hay descuadres o admins con monedas, y 2 si no pudo correr.
+  - **Esquema:** índice nuevo `idx_movimiento_usuario_fecha`.
+  - **Reglas:** BR-009 y BR-046 precisados.
+- **Archivos:**
+  - **Servicios:** `server/src/services/coins.service.ts`, `coin-history.service.ts`, `coins-consistency.service.ts`, `participant-validation.service.ts`.
+  - **Base y utilidades:** `server/src/db/transaction.ts`; `server/src/lib/coins.ts`, `error-codes.ts`.
+  - **CLI, rutas y middleware:** `server/src/cli/coins-check.ts`; `server/src/routes/coins.route.ts`, `admin.route.ts`, `index.ts`; `server/src/controllers/coins.controller.ts`; `server/src/middleware/auth.ts`.
+  - **Esquemas:** `server/src/schemas/common.schema.ts`, `participants.schema.ts`.
+  - **Pruebas:** `server/tests/coins-service.test.ts`, `coins-routes.test.ts`, `helpers/participants.ts`.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md`, `docs/plan-polla.md` (notas en T-10 y T-16), `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`, `package.json`, `server/package.json`.
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 286/286 pruebas dos veces seguidas; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Reprobación:** en el primer test, `refundSelections` devolvía una selección que nunca se había debitado (el saldo pasó de 10 a 11). Además, los nombres del prototipo (`toString`, `constructor`, `__proto__`) pasaban la validación de tipo, y el contrato de transacción no se exigía: en autocommit, un lote con una selección repetida dejaba 2 movimientos sin tocar el saldo. Las tres cosas están corregidas.
+  - **Devoluciones (pruebas propias):**
+    - **Rechazos sin efectos:**
+      - Una selección nunca debitada da 409 `SELECTION_NOT_DEBITED` con `details.selecciones`, sin datos personales.
+      - Un lote mixto se rechaza entero.
+      - Una devolución repetida, duplicada en el lote o seguida de un nuevo débito da 409 `MOVEMENT_ALREADY_APPLIED`.
+      - Débito y devolución de la misma selección en un mismo lote se rechazan.
+      - Un débito cargado a nombre de otro usuario no cuenta.
+    - **Concurrencia:**
+      - 12 devoluciones paralelas de la misma selección: pasa una.
+      - Devolución contra débito de la misma selección (10 rondas): el saldo queda en 9 o 10, sin errores 500.
+      - Mezcla de 30 operaciones: 10 débitos y 8 devoluciones, saldo igual a la suma y ninguna devolución huérfana en la base.
+  - **Tipos:** `toString`, `constructor`, `__proto__`, `hasOwnProperty`, `valueOf`, `isPrototypeOf`, un número y `undefined` dan el mismo error de tipo desconocido, sin efectos.
+  - **Contrato de transacción:**
+    - Un archivo temporal con conexiones comunes (incluida una con `beginTransaction` manual) falla el typecheck exactamente en las 5 llamadas y en el tipo `bono`.
+    - Forzado en ejecución, en autocommit, con transacción manual o con una conexión que quedó de una `withTransaction` ya cerrada, se rechaza sin escribir.
+    - `withTransaction` deshace todo ante un `TypeError`, un string lanzado, un error SQL o `undefined`. Tras 40 fallos seguidos el pool sigue disponible.
+  - **Repaso de lo aprobado en el primer test (sigue pasando):**
+    - **Escritura:** ninguna otra parte de `server/src` escribe monedas.
+    - **Débitos:** saldo insuficiente sin efectos; lotes atómicos; 25 débitos paralelos sobre 10 monedas dejan pasar 10; débitos contra devoluciones y validación contra débitos sin errores 500 ni bloqueos mutuos.
+    - **T-04:** da +10 una sola vez; revalidar tras un reset manual da 409.
+    - **Rutas:** 401, 403, 400 de query estricta, pendiente con saldo 0, orden, fechas UTC, paginación, coherencia con `/auth/me`; la consistencia de admin es solo de lectura.
+    - **`coins:check`:** 0 con la base sana, 1 con un descuadre provocado y un admin con monedas, 2 con la base caída, un host inalcanzable o una configuración inválida.
+    - **Esquema:** base desde cero con 23 tablas, y `EXPLAIN` usa el índice nuevo.
+  - **Reglas:** BR-046 precisado es coherente con BR-045, BR-047 y BR-055.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones:**
+  - En la segunda corrida del primer test hubo un cuelgue aislado de Vitest: en `coins-routes.test.ts`, el `beforeEach` (`resetDatabase`) superó el tiempo límite tras 103 s. No se repitió en las tres corridas completas siguientes.
+  - Una selección duplicada dentro del lote responde «Esa selección ya se había devuelto» aunque no se hubiera devuelto antes. El código 409 es correcto; el texto es impreciso.
+
+## 2026-09-16 — T-06 · Catálogo deportivo (backend)
+
+- **Cambio:** CRUD de administración de deportes, competiciones, equipos, jugadores y planteles (BR-001, BR-011, BR-015, BR-048 a BR-050).
+  - **Operaciones:** bajo `/admin/{deportes,competiciones,equipos,jugadores,planteles}` hay lista paginada con filtros, ver, crear (201), `PATCH` parcial y borrar. Body y query se validan con zod estricto.
+  - **Slugs:**
+    - Se generan del nombre y se normalizan.
+    - Son únicos globalmente en deportes y únicos por deporte en competiciones, igual que en el esquema.
+    - Un slug repetido da 409 `SLUG_TAKEN`.
+    - Renombrar no cambia el slug; un `PATCH` con slug explícito sí lo cambia.
+  - **Plantel:**
+    - La competición sale del equipo; si el cliente manda otra, 409 `COMPETITION_MISMATCH`.
+    - Un jugador por competición (409 `PLAYER_ALREADY_ENROLLED`).
+    - Camiseta de 1 a 99, única por equipo (409 `SHIRT_NUMBER_TAKEN`).
+    - Sin transferencias (409 `TRANSFER_NOT_ALLOWED`).
+  - **Mover entre competiciones o deportes:**
+    - Un equipo solo cambia de competición si no tiene partidos, inscritos ni goles.
+    - Una competición solo cambia de deporte si no tiene partidos.
+  - **Borrado:** solo si nada usa el registro; si no, 409 `*_IN_USE` con las cantidades. No hay cascada ni borrado lógico.
+  - **`permite_empate` (BR-015 precisado):** solo cambia si ningún partido del deporte salió de `programado` y no hay apuestas; si no, 409 `DRAW_RULE_LOCKED`. La parte de apuestas es un `DrawRuleGuard` del módulo Polla, inyectado desde `routes/index.ts`, así que Informativo no importa Polla.
+  - **Escudo, foto y color:** escudo y foto aceptan una URL `https://` o una ruta relativa a una imagen, de hasta 255 caracteres; el color es `#rrggbb` y se guarda en minúsculas.
+  - **Errores de MySQL:** 1062, 1451, 1452, 1406, 1264 y 1366 se traducen en `lib/db-errors.ts` (nunca 500 ni el mensaje del driver).
+  - **Escrituras:** pasan por `runAdminAction`, que deja el gancho para la auditoría de T-17.
+  - **Corrección de T-05:** el duplicado dentro de un lote de devoluciones tiene su propio mensaje.
+- **Archivos:**
+  - **Servicios:** `server/src/services/sports.service.ts`, `competitions.service.ts`, `teams.service.ts`, `players.service.ts`, `enrollments.service.ts`, `bets-sport-guard.service.ts`, `admin-action.ts`, `catalog-query.ts`, `coins.service.ts`.
+  - **Esquemas y utilidades:** `server/src/schemas/catalog.schema.ts`, `common.schema.ts`; `server/src/lib/db-errors.ts`, `slug.ts`, `error-codes.ts`.
+  - **Controladores, rutas y middleware:** `server/src/controllers/catalog.controller.ts`; `server/src/routes/catalog.route.ts`, `admin.route.ts`, `index.ts`; `server/src/middleware/error-handler.ts`.
+  - **Pruebas:** `server/tests/catalog-access.test.ts`, `catalog-sports.test.ts`, `catalog-competitions-teams.test.ts`, `catalog-players-enrollments.test.ts`, `helpers/catalog.ts` y la de servicio de monedas.
+  - **Documentación:** `server/README.md`, `EsquemaBD.md`, `docs/business-rules.md` (BR-015), `docs/plan-polla.md` (notas en T-08, T-09, T-13 y T-17), `CLAUDE.md`, `AGENTS.md`. Sin cambio de esquema.
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 383/383 pruebas dos veces seguidas; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos; base creada desde cero (23 tablas) sin errores.
+  - **Pruebas propias (12 casos, dos corridas sin fallos):**
+    - **CRUD de las cinco entidades:**
+      - **Operaciones:** crear, ver, listar (orden por nombre y luego id, paginación), filtros (`q` con `%` y `_` literales, `permiteEmpate`, `deporteId`, `competicionId`, `equipoId`, `jugadorId`), `PATCH` parcial y `foto: null`.
+      - **Borrado:** da `{ id }` y después 404.
+      - **Rechazos:** ids inválidos (`abc`, `0`, `-1`, `1.5`, `1e3`, `01`, 17 dígitos) dan 400; inexistentes, 404. Campos o query desconocidos, `PATCH {}`, tipos incorrectos, arrays, `null` y ids en texto dan 400, sin efectos.
+      - **Respuestas:** sin datos de otros módulos.
+    - **Slugs:**
+      - **Generación:** acentos, ñ, espacios y símbolos se normalizan. Un nombre sin letras ni números (cirílico, emojis, `¡¡¡`, `---`) da 400 pidiendo un slug explícito. Con 100 caracteres, el slug queda dentro de 100.
+      - **Unicidad:** mayúsculas, acentos, espacios o guion bajo repetidos dan 409 `SLUG_TAKEN`. Un slug explícito inválido da 400.
+      - **Cambios:** renombrar conserva el slug y un `PATCH` con slug lo cambia; si choca, 409 sin efectos.
+      - **Competiciones:** el mismo slug se puede repetir en distintos deportes. Mover una competición a un deporte donde su slug ya existe da 409.
+      - **Concurrencia:** 8 `POST` paralelos con el mismo nombre dan un 201 y siete 409.
+    - **Plantel:**
+      - **Rechazos:** `COMPETITION_MISMATCH` (otra competición o una inexistente); `PLAYER_ALREADY_ENROLLED` (en el mismo equipo o en otro); `SHIRT_NUMBER_TAKEN`. Camiseta 0, 100, 1.5, `"7"`, `null`, −1 o 1000 da 400.
+      - **Transferencias:** cambiar equipo o jugador da 409 `TRANSFER_NOT_ALLOWED`; mandar el mismo equipo con otra camiseta está permitido.
+      - **Concurrencia:** 6 inscripciones paralelas con la misma camiseta dan un 201; el mismo jugador en 5 equipos a la vez, uno.
+    - **Mover equipos y competiciones:**
+      - Un equipo con plantel o con partidos da 409 `TEAM_IN_USE` con las cantidades. Hacia una competición inexistente, 404. Un equipo libre se mueve.
+      - Un `UPDATE` directo en la base se frena por las FKs compuestas y se traduce a 409.
+      - Una competición con partidos no cambia de deporte (409); sin partidos, sí.
+    - **Errores de MySQL provocados a mano:** todos se traducen:
+      - **1062:** slug, camiseta y jugador;
+      - **1451:** deporte, competición y jugador;
+      - **1452:** equipo, competición y plantel de otra competición;
+      - **1406, 1264 y 1366:** dan 400.
+      - Un error que no es de MySQL no se traduce. Nombres con caracteres raros nunca dan 500.
+    - **Borrado en uso:** con partidos y goles insertados a mano, las cantidades son exactas:
+      - deporte: 2 competiciones;
+      - competición: 3 equipos, 2 partidos y 2 inscritos;
+      - equipo: 2 partidos, 2 inscritos y 2 goles;
+      - jugador: 1 inscripción y 2 goles;
+      - plantel: 2 goles.
+      - Sin dependencias, el borrado responde 200. Borrar el padre mientras se crea un hijo (8 rondas por tipo) no dio errores 500 ni dejó huérfanos.
+    - **`permite_empate`:**
+      - **Libre:** con partidos programados se puede cambiar.
+      - **Bloqueos:** con un partido en curso, finalizado o cancelado da 409 `DRAW_RULE_LOCKED` sin aplicar el resto del `PATCH`; con una apuesta en un partido programado, también (con los dos motivos a la vez si coinciden).
+      - **Sin bloqueo:** otro deporte no se ve afectado, y cambiar solo el nombre está permitido.
+      - **Módulos:** Informativo no importa Polla (revisé los imports y las consultas).
+      - **Guard:** sin guard no hay error. Un guard o un gancho de auditoría que falla deshace la transacción.
+    - **Escudo, foto y color:**
+      - **Aceptados:** `https://`, rutas relativas con extensión de imagen, 255 caracteres, espacios recortados.
+      - **Rechazados:** `http:`, `javascript:`, `data:`, `ftp:`, `file:`, `..`, `%2f`, `/` inicial, `//`, `\`, `?`, extensión no imagen, `.png.exe`, usuario y clave en la URL, 256 caracteres y vacío.
+      - **Colores:** `#fff`, `#GGGGGG`, `rgb()`, `red`, vacío, `null` y un número dan 400; ` #A1B2C3 ` se guarda como `#a1b2c3`.
+    - **Seguridad:** en las cinco rutas, el anónimo recibe 401 y el apostador validado 403. Sin token, con token ajeno u Origin ajeno se responde 403 `CSRF_FAILED`, sin efectos. El rate limit general corta con 429.
+  - **Otros:**
+    - BR-015 precisado es coherente, y las notas del plan y `server/README.md` están al día.
+    - El mensaje de T-05 para el duplicado dentro del lote quedó corregido.
+    - El server de Docker sirve las rutas nuevas.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Escudo y foto:** aceptan cualquier host `https` (incluidos `localhost` y `169.254.169.254`), URLs sin extensión de imagen, fragmentos con `"><script>` (se guardan tal cual) y SVG en rutas relativas. Hoy no hay riesgo, porque el server nunca descarga esas URLs y React escapa el texto. Pero T-13 no debería descargarlas del lado del servidor sin una lista de hosts permitidos, y el front debería mostrarlas solo con `<img>`.
+  - **Nombres:** se aceptan caracteres de control (`\u0000`) y surrogates sueltos.
+  - **Slugs:** `ß` queda como separador (`Straße` → `stra-e`), y `Ł`, `Æ` y `Ø` desaparecen.
+  - **Concurrencia de borrado:** en las carreras de borrar contra crear, el orden fue siempre el mismo. Las FKs garantizan que no queden huérfanos igual.
+
+## 2026-09-16 — T-07 · Partidos (backend)
+
+- **Cambio:** administración de partidos bajo `/admin/partidos` (BR-011 a BR-014, precisados), más las observaciones del tester en T-06.
+  - **CRUD y estado:** CRUD con zod estricto, más `POST /:id/estado`.
+  - **Alta:**
+    - Crea el partido y sus dos filas de `partido_equipo` (goles NULL) en una transacción, siempre en `programado`.
+    - La fecha es ISO con zona y segundos, se guarda en UTC y tiene que ser futura (400 `MATCH_DATE_IN_PAST`).
+    - Los equipos tienen que ser distintos (400 `SAME_TEAM`) y de la competición (409 `COMPETITION_MISMATCH`).
+  - **Listado:**
+    - Filtros por deporte, competición, equipo, estado y rango desde-hasta.
+    - Orden por proximidad en `lib/match-order.ts`, definido en BR-013: primero los próximos en orden ascendente, después los pasados en orden descendente, y a igual fecha por id.
+    - Cada partido trae `cierreApuestas` (`lib/betting.ts`, 24 h).
+  - **Estados:**
+    - Solo se permiten `programado` → `en_curso` (después del cierre de apuestas) y `en_curso` → `programado` (sin goles).
+    - `finalizado`, `cancelado` y cualquier otro cambio dan 409 `INVALID_STATE_TRANSITION`.
+  - **Edición:**
+    - Un partido finalizado o cancelado da 409 `MATCH_LOCKED`.
+    - Competición, equipos y fecha solo cambian en `programado` (409 `MATCH_NOT_PROGRAMMED`).
+    - Con apuestas no cambian equipos ni competición, y la fecha solo se posterga (409 `MATCH_HAS_BETS`); postergar reabre las apuestas hasta el nuevo cierre (BR-014 precisado).
+    - Con goles, los equipos no cambian.
+  - **Borrado:** solo sin apuestas, sin goles y no finalizado; las dos filas se borran en la misma transacción.
+  - **Bloqueos y módulos:**
+    - La fila del partido queda bloqueada `FOR UPDATE` en toda escritura.
+    - El conteo de apuestas es un `MatchBetsProbe` de Polla, inyectado desde `routes/index.ts`.
+  - **Esquema:** índice nuevo `idx_partido_fecha_hora`.
+  - **Observaciones de T-06 aplicadas:**
+    - Los nombres (y la sede) rechazan caracteres de control y surrogates sueltos.
+    - Los slugs transliteran (ß → ss, æ → ae, œ → oe, ø → o, ł → l, đ/ð → d, þ → th, ı → i, ħ → h).
+    - Hay notas en el plan para T-13, T-18, T-21 y T-22 sobre las URLs de imágenes.
+- **Archivos:**
+  - **Servicios:** `server/src/services/matches.service.ts`, `bets-match-probe.service.ts`, `catalog-query.ts`, `admin-action.ts`.
+  - **Utilidades:** `server/src/lib/match-order.ts`, `betting.ts`, `slug.ts`, `db-errors.ts`, `error-codes.ts`.
+  - **Esquemas:** `server/src/schemas/matches.schema.ts`, `catalog.schema.ts`.
+  - **Rutas:** `server/src/routes/catalog.route.ts`, `admin.route.ts`, `index.ts`.
+  - **Pruebas:** `server/tests/matches.test.ts`, `catalog-names.test.ts`, `helpers/catalog.ts` y ajustes en las pruebas del catálogo.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md` (BR-011 a BR-014), `docs/plan-polla.md` (notas para las tareas siguientes), `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 469/469 pruebas dos veces seguidas; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos; base creada desde cero (23 tablas) sin errores.
+  - **Pruebas propias (8 casos, dos corridas sin fallos):**
+    - **Observaciones de T-06:**
+      - Rechazados en las cinco entidades de nombre y en la sede, al principio, en medio y al final: NUL, TAB, LF, CR, ESC, DEL, U+0085, surrogate alto o bajo suelto, par invertido y medio emoji. También en `PATCH`.
+      - Aceptados: emojis, ñ y acentos combinados. TAB y LF en los bordes se recortan.
+      - Las 12 transliteraciones dan el slug esperado (`Straße Æ` → `strasse-ae`).
+    - **Alta:**
+      - Las dos filas quedan con local y visita correctos, goles NULL y la competición del partido. La fecha con `-05:00` se guarda en UTC (23:30) y `cierreApuestas` es 24 h antes.
+      - **Fechas rechazadas (400):** sin zona, con espacio, sin segundos, offset `+2:00`, `+25:00` o `+0200`, 30 de febrero, mes 13, hora 24, segundo 60, año 2100 o posterior, timestamp numérico, vacío, `null` y minúsculas.
+      - **Fechas aceptadas:** milisegundos y microsegundos (se truncan al segundo), `+14:00` y 2099-12-31. Las fechas pasadas dan 400 `MATCH_DATE_IN_PAST`.
+      - **Otros rechazos:** `SAME_TEAM`, `COMPETITION_MISMATCH` (visita, local o competición), equipo o competición inexistente (404), jornada 0, 1000, 1.5, `"1"` o −1, sede de 151 caracteres o vacía, `estado` o goles en el body, id en texto y cada campo faltante: todo sin efectos.
+      - **Límites y rollback:** jornada 999 y sede de 150 caracteres se aceptan. Si el gancho falla, la transacción se deshace y no queda ningún partido con menos de dos filas.
+    - **Listado:**
+      - **Orden exacto verificado:** uno en curso a +30 s, dos a +5 h (por id), +10 h, +100 h, y después los pasados de −2 h (dos, por id) y −50 h. Coincide con `compareByProximity` y con BR-013.
+      - **Borde de «ahora»:** con `now` igual a la fecha de un partido, ese partido queda primero entre los próximos; 1 ms después pasa a los pasados.
+      - **Filtros:** combinados funcionan.
+      - **Rango:** `desde` y `hasta` son inclusivos (también con `+00:00`) y un segundo de diferencia deja el partido afuera. El rango invertido da 400 con mensaje.
+      - **Paginación:** correcta.
+      - **Query estricta:** estados inválidos o en mayúsculas, fechas sin zona, parámetros repetidos y desconocidos dan 400.
+      - **Índice:** `EXPLAIN` del rango usa `idx_partido_fecha_hora`.
+    - **Estados:**
+      - `en_curso` a +25 h da 409; a +23 h, 200.
+      - Repetir el mismo estado da 409; `finalizado` y `cancelado` por la API, 409.
+      - `en_curso` → `programado` sin goles da 200 y con goles, 409.
+      - Desde `finalizado` o `cancelado` puestos a mano, las cuatro transiciones dan 409.
+      - Valores inválidos o con campo extra dan 400; un partido inexistente, 404.
+      - **Borde del cierre:** 1 ms antes da 409 y en el cierre exacto se permite. Usa `HORAS_CIERRE_APUESTAS` = 24 de `lib/betting.ts`.
+    - **Edición (sin efectos en cada rechazo):**
+      - **Body:** `{}`, goles, estado o `cierreApuestas` dan 400. Los mismos valores dan 200 sin cambios.
+      - **Equipos y competición:** intercambiar local y visita funciona. Cambiar a un mismo equipo da `SAME_TEAM`, y cambiar solo la competición da `COMPETITION_MISMATCH`. Cambiar competición y equipos juntos reescribe las dos filas con la competición nueva.
+      - **Fecha:** una fecha pasada da 400.
+      - **Con una apuesta a mano:** cambiar equipos, intercambiarlos, cambiar la competición o adelantar la fecha da 409 `MATCH_HAS_BETS`. Postergar da 200, con el cierre recalculado.
+      - **Con goles:** cambiar equipos da `MATCH_HAS_GOALS`; la fecha sí se cambia.
+      - **En curso:** fecha y equipos dan `MATCH_NOT_PROGRAMMED`; sede y jornada se cambian.
+      - **Finalizado o cancelado:** `MATCH_LOCKED`.
+      - Ninguna ruta escribe goles.
+    - **Borrado:**
+      - Con apuesta (también si está cancelado) da `MATCH_HAS_BETS`; con goles, `MATCH_HAS_GOALS`; finalizado, `MATCH_LOCKED`. Todos traen el motivo y las cantidades.
+      - Libre, o cancelado sin apuestas, da 200 y borra las dos filas.
+      - Un gancho que falla deshace la transacción.
+    - **Sin probe:** `deleteMatch` y `updateMatch` con cambio de fecha lanzan `TypeError` antes de escribir, y la transacción se deshace. Un cambio sin fecha ni equipos funciona. En la app el probe es obligatorio por tipos.
+    - **Concurrencia:** 6 rondas de 7 operaciones simultáneas (cambios de equipos, fecha, competición, estado y borrado) sin errores 500. Ningún partido quedó con un número de filas distinto de 2, ni con el mismo equipo de los dos lados o con competiciones distintas. De 10 `PATCH` de fecha paralelos, la fecha final es una de las enviadas.
+    - **Seguridad:** anónimo 401, apostador 403, y sin token, con token ajeno u Origin ajeno 403 `CSRF_FAILED`, sin efectos, incluido `/estado`.
+    - **Módulos:** Informativo (partidos) no importa Polla.
+  - **Documentación:** BR-011 a BR-014 son coherentes entre sí y con BR-028 a BR-032 y BR-045. Las notas del plan y `server/README.md` están al día. El server de Docker sirve `/admin/partidos`.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Apuesta contra adelanto de fecha:** en 5 de 5 carreras, una apuesta insertada a mano mientras se adelantaba la fecha no impidió el adelanto. Es esperable, porque el insert a mano no bloquea el partido. T-10 tiene que bloquear la fila del partido al apostar, como dice su nota.
+  - **Caracteres invisibles:** los nombres aceptan caracteres de formato como U+202E (inversión de texto) y U+200B (espacio de ancho cero).
+  - **Partidos con cierre ya pasado:** se puede crear un partido a menos de 24 h, que nace con las apuestas cerradas.
+  - **Ordenamiento:** el orden por proximidad no usa el índice (hace un sort); el índice sirve para el filtro por rango.
+
+## 2026-09-16 — T-08 · API pública (backend)
+
+- **Cambio:** lecturas públicas sin sesión bajo `/public`, solo del Módulo Informativo (BR-013, BR-014, BR-048 a BR-050; BR-014, BR-049 y BR-050 precisados).
+  - **Rutas:**
+    - `GET /public/deportes`.
+    - `GET /public/competiciones` (paginado, filtro por deporte), `/competiciones/:id`, `/competiciones/:id/equipos` y `/competiciones/:id/posiciones`.
+    - `GET /public/partidos`: fixture paginado con filtros por deporte, competición, equipo, estado, jornada y fechas, en el orden de `lib/match-order.ts`.
+    - `GET /public/partidos/:id` con goles, y `GET /public/equipos/:id` con plantel.
+  - **Goles y marcador:**
+    - Solo se muestran en partidos `finalizado` y con los dos lados cargados; si no, los dos lados son `null` y el detalle trae `goles: null`.
+    - Los cancelados se muestran con su estado.
+  - **Tabla de posiciones:**
+    - Se calcula en cada pedido, 3/1/0 (`lib/standings.ts`), y solo cuenta partidos finalizados con los dos goles.
+    - Los equipos sin partidos aparecen en cero.
+    - Orden: puntos, diferencia, goles a favor, nombre (sin mayúsculas ni acentos) e id.
+  - **Límite y caché:** rate limit público propio (`PUBLIC_RATE_LIMIT_*`) y `Cache-Control: public, max-age=30` en las respuestas exitosas. El resto de la API y todos los errores, incluido cualquier 429, van con `no-store`.
+  - **Parámetros mal codificados:** un `%` mal codificado en la URL da 400 `INVALID_URL_ENCODING` sin log.
+  - **Validación:** la query es estricta, los nombres más estrictos (invisibles y vacíos se rechazan) y hay topes para ventanas, máximos, puertos y pool en la configuración.
+  - **Esquema e índices:** índice nuevo `idx_partido_jornada`. El filtro por deporte se reescribió como `IN` sobre `competicion`, y el de equipo como `IN` sobre `partido_equipo` (también en `/admin/partidos`).
+  - **Documentación:** el mapeo a `src/types` para T-22 está en `server/README.md`, y hay notas en el plan para T-10, T-12, T-13 y T-22 (con los pendientes a, b y c del contrato).
+- **Archivos:**
+  - **Rutas, esquemas y servicios:** `server/src/routes/public.route.ts`, `index.ts`; `server/src/schemas/public.schema.ts`, `catalog.schema.ts`; `server/src/services/public.service.ts`, `matches.service.ts`.
+  - **Utilidades, middleware y configuración:** `server/src/lib/standings.ts`, `error-codes.ts`; `server/src/middleware/security.ts`, `error-handler.ts`; `server/src/app.ts`; `server/src/config/env.ts`.
+  - **Pruebas:** `server/tests/public-api.test.ts`, `url-encoding.test.ts`, `catalog-names.test.ts`, `rate-limit.test.ts` y otras actualizadas.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md`, `docs/plan-polla.md`, `server/README.md`, `.env.example`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers):**
+  - **Parte A, funcional (tester_liga), aprobada en la primera ronda.** Pruebas propias (7 casos, dos corridas sin fallos, en `la_liga_acp_test`):
+    - **Rutas:** las 8 dan formas exactas, fechas ISO en UTC con `Z`, orden por nombre y paginación. Los ids inexistentes dan 404 con `no-store`; los ids inválidos (`abc`, `0`, `01`, `1.5`, 17 dígitos) y la query desconocida dan 400 en todas. Otros métodos dan 404.
+    - **Fixture:**
+      - **Filtros:** cada uno funciona solo y combinado. Jornada 1 y 999 se aceptan; 0, 1000, `01` y repetida dan 400.
+      - **Fechas:** `desde` y `hasta` son inclusivos con `Z`, `+00:00` y `-05:00`; un rango invertido da 400.
+      - **Orden:** exacto, igual al de `/admin/partidos` y al de `compareByProximity` (BR-013).
+      - **Cancelados:** visibles con su estado.
+    - **Goles:** en `programado`, `en_curso` y `cancelado` no aparecen marcador, autores, minutos, imagen ni video por ninguna ruta. En `finalizado` salen ordenados por minuto y luego id, con autor, foto, equipo, imagen y video; sin goles, la lista está vacía.
+    - **Tabla:**
+      - Coincide con un cálculo independiente (7 equipos, resultados pseudoaleatorios, partidos no finalizados ignorados).
+      - Los desempates dirigidos (diferencia, goles a favor, nombre sin mayúsculas ni acentos, id) funcionan.
+      - Una diferencia negativa no desborda.
+      - Un equipo sin partidos queda en cero, otra competición no cuenta y una competición sin equipos da filas vacías.
+    - **Plantel:** ordenado por camiseta, con foto `null` o URL. Un equipo sin plantel da lista vacía, y un jugador de otra competición no se mezcla.
+    - **Privacidad:** con usuarios, saldo, apuestas, sesiones y auditoría en la base, ninguna respuesta contiene esas claves ni valores. La respuesta es idéntica sin sesión, con apostador y con admin, y no envía cookies. Solo aparecen claves esperadas.
+    - **Contrato para T-22:** faltaba decidir la competición de la landing, recorrer el fixture paginado y tratar 400 y 404 como «no encontrado»; quedaron como notas a, b y c del plan.
+    - **Detalle menor:** un finalizado con un solo lado cargado mostraba un marcador parcial.
+  - **Parte B, seguridad, rendimiento, nombres y regresión (tester_liga_2): la primera ronda se reprobó** por dos bloqueantes:
+    - un `%` mal codificado en los parámetros daba 500 y llenaba el log;
+    - el 429 del límite general no llevaba `no-store`.
+  - **Re-test de la parte A (tester_liga), aprobado:**
+    - **Marcador entero o null:** un finalizado con un solo lado cargado (2-null, null-2, 0-null) muestra `null` en los dos lados y en `goles` del detalle, en el fixture con y sin filtros. Ninguna ruta deja ver el lado cargado ni las imágenes de sus goles, y la tabla lo ignora. Con ambos lados (0-0, 2-2, 3-1) salen enteros y cuentan.
+    - **Documentación y regresión:** las notas a, b y c de T-22 están en el plan. La regresión funcional (incluidos el filtro por deporte con `IN` y la jornada con el índice nuevo) no cambió resultados. README y `CLAUDE.md` son coherentes, y `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Re-test de la parte B (tester_liga_2), aprobado:**
+    - **Codificación:** 12 codificaciones malas dan 400 `INVALID_URL_ENCODING` sin log, en rutas públicas y de admin. Solo se trata así el `URIError` del router; otros errores siguen siendo 500 con log.
+    - **Límites y configuración:** todos los 429 llevan `no-store`, y se verificaron los máximos de ventanas, MAX, puertos y pool.
+    - **Nombres:** se rechazan 34 invisibles o vacíos y se aceptan 27 razonables.
+    - **Índices:** jornada usa `idx_partido_jornada`; deporte y los filtros combinados, índices; entre 3 y 17 ms sobre 3800 partidos.
+    - **Suite y build:** 568/568 dos veces en `la_liga_acp_test_2`; build del front OK.
+  - **Estado final:** la base y el server de Docker siguen corriendo; la parte A no usó la base de desarrollo.
+- **Observaciones (no bloquean):**
+  - **README:** atribuye «marcador entero o nada» a BR-049 y BR-050, pero esas reglas no lo dicen explícitamente.
+  - **Caracteres de control literales:** `server/src/cli/read-secret.ts` y su prueba los tienen escritos tal cual. Funcionan, pero conviene escaparlos.
+  - **Banderas con tags:** los emojis de bandera con tags se rechazan en los nombres.
+  - **Invisibles que pasan:** algunos invisibles de categoría Mn y los espacios U+2000 a U+200A todavía se aceptan dentro de nombres con letras.
+  - **Consultas sin índice:** un rango de fechas amplio y el listado de admin filtrado por deporte recorren la tabla (17 ms).

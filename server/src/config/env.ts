@@ -68,13 +68,25 @@ function parseTrustProxy(raw: string, ctx: z.RefinementCtx): TrustProxy {
  * (the internal network alias `db` + MySQL's own fixed port 3306) — see
  * `compose.yaml` and `.env.example`.
  */
+/**
+ * Longest window a rate limiter accepts: it's a Node timer, and a delay above
+ * 2^31 - 1 ms (about 24.8 days) is silently treated as 1 ms by setTimeout,
+ * which would turn the limit off.
+ */
+const MAX_WINDOW_MS = 2_147_483_647;
+const windowMs = (defaultMs: number) =>
+	z.coerce.number().int().positive().max(MAX_WINDOW_MS, `como máximo ${MAX_WINDOW_MS} ms (unos 24 días)`).default(defaultMs);
+/** Requests per window: at least 1, and a sane ceiling that still means "limited". */
+const maxRequests = (defaultMax: number) => z.coerce.number().int().positive().max(1_000_000).default(defaultMax);
+const port = z.coerce.number().int().min(1).max(65_535);
+
 const schema = z
 	.object({
 		NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-		PORT: z.coerce.number().int().positive().default(3001),
+		PORT: port.default(3001),
 		CORS_ORIGIN: z.url(),
 		DB_HOST: z.string().min(1),
-		DB_PORT: z.coerce.number().int().positive(),
+		DB_PORT: port,
 		MYSQL_USER: z.string().min(1),
 		MYSQL_PASSWORD: z.string().min(1),
 		MYSQL_DATABASE: z.string().min(1),
@@ -85,9 +97,9 @@ const schema = z
 			.string()
 			.regex(/^[A-Za-z0-9_]+$/, 'solo letras, números y guion bajo')
 			.default('la_liga_acp_test'),
-		DB_POOL_SIZE: z.coerce.number().int().positive().default(10),
-		RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
-		RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+		DB_POOL_SIZE: z.coerce.number().int().positive().max(1000).default(10),
+		RATE_LIMIT_WINDOW_MS: windowMs(15 * 60 * 1000),
+		RATE_LIMIT_MAX: maxRequests(100),
 		// Signs the CSRF tokens (lib/csrf.ts). Rotating it invalidates every
 		// outstanding CSRF token, not the sessions themselves.
 		SESSION_SECRET: z
@@ -96,11 +108,14 @@ const schema = z
 			.superRefine(checkSessionSecret),
 		SESSION_TTL_HOURS: z.coerce.number().int().positive().max(24 * 30).default(12),
 		// Failed login attempts per IP + email, stricter than the global limit.
-		LOGIN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
-		LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+		LOGIN_RATE_LIMIT_WINDOW_MS: windowMs(15 * 60 * 1000),
+		LOGIN_RATE_LIMIT_MAX: maxRequests(5),
 		// New accounts per IP (BR-003), counting every attempt.
-		REGISTER_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60 * 60 * 1000),
-		REGISTER_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+		REGISTER_RATE_LIMIT_WINDOW_MS: windowMs(60 * 60 * 1000),
+		REGISTER_RATE_LIMIT_MAX: maxRequests(10),
+		// Public read-only API (T-08), per IP: its own, roomier limit instead of the global one.
+		PUBLIC_RATE_LIMIT_WINDOW_MS: windowMs(60 * 1000),
+		PUBLIC_RATE_LIMIT_MAX: maxRequests(120),
 		// Off by default: req.ip is the socket's address. See parseTrustProxy.
 		TRUST_PROXY: z.string().default('false').transform(parseTrustProxy),
 	})
@@ -128,6 +143,10 @@ export interface Env {
 		readonly max: number;
 	};
 	readonly loginRateLimit: {
+		readonly windowMs: number;
+		readonly max: number;
+	};
+	readonly publicRateLimit: {
 		readonly windowMs: number;
 		readonly max: number;
 	};
@@ -198,6 +217,10 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
 		loginRateLimit: {
 			windowMs: raw.LOGIN_RATE_LIMIT_WINDOW_MS,
 			max: raw.LOGIN_RATE_LIMIT_MAX,
+		},
+		publicRateLimit: {
+			windowMs: raw.PUBLIC_RATE_LIMIT_WINDOW_MS,
+			max: raw.PUBLIC_RATE_LIMIT_MAX,
 		},
 		registerRateLimit: {
 			windowMs: raw.REGISTER_RATE_LIMIT_WINDOW_MS,

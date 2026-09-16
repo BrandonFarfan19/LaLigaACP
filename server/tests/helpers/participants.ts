@@ -33,6 +33,17 @@ export async function setCreatedAt(pool: Pool, userId: number, date: Date): Prom
 	await pool.query('UPDATE usuario SET creado_en = ? WHERE id = ?', [date, userId]);
 }
 
+/** `count` unsettled selections in one new ticket of the user; their ids, in order. */
+export async function pendingSelections(pool: Pool, userId: number, count: number): Promise<number[]> {
+	const [[before]] = await pool.query<RowDataPacket[]>('SELECT COALESCE(MAX(id), 0) AS maxId FROM seleccion');
+	await addSettledSelections(pool, userId, Array.from({ length: count }, () => null));
+	const [rows] = await pool.query<RowDataPacket[]>(
+		'SELECT s.id FROM seleccion s JOIN ticket t ON t.id = s.ticket_id WHERE t.usuario_id = ? AND s.id > ? ORDER BY s.id',
+		[userId, before!.maxId],
+	);
+	return rows.map((row) => Number(row.id));
+}
+
 /**
  * Settled selections for a user, so the participant table's points come from
  * real `seleccion` rows: one match, one ticket, one selection per value.

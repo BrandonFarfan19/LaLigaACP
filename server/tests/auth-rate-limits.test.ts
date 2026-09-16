@@ -56,6 +56,7 @@ describe('auth rate limits', () => {
 			expect(blocked.status).toBe(429);
 			expect(blocked.body).toEqual(RATE_LIMITED);
 			expect(blocked.headers['set-cookie']).toBeUndefined();
+			expect(blocked.headers['cache-control']).toBe('no-store');
 			// Same key whatever the case of the email.
 			expect((await attempt(body.email.toUpperCase(), PASSWORD)).status).toBe(429);
 		});
@@ -131,6 +132,7 @@ describe('auth rate limits', () => {
 			expect(blocked.status).toBe(429);
 			expect(blocked.body).toEqual(RATE_LIMITED);
 			expect(blocked.headers['ratelimit-remaining']).toBe('0');
+			expect(blocked.headers['cache-control']).toBe('no-store');
 		});
 
 		it('counts failed attempts too (invalid data, duplicate email)', async () => {

@@ -13,7 +13,8 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
-    "admin:create": "tsx src/cli/create-admin.ts"
+    "admin:create": "tsx src/cli/create-admin.ts",
+    "coins:check": "tsx src/cli/coins-check.ts"
   },
   "dependencies": {
     "argon2": "^0.45.1",

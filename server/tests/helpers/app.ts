@@ -11,7 +11,7 @@ export const env: Env = loadEnv();
 
 /**
  * The real app, wired to the test database. `overrides` tweaks config (e.g. a
- * tiny rate limit). The global, login and registration limits default to generous
+ * tiny rate limit). The global, login, registration and public limits default to generous
  * values here, because most files register and log in many users from the
  * same address; the files that test those limits set them explicitly.
  */
@@ -21,6 +21,7 @@ export function createTestApp(overrides: Partial<Env> = {}) {
 		rateLimit: { ...env.rateLimit, max: 10_000 },
 		loginRateLimit: { ...env.loginRateLimit, max: 1000 },
 		registerRateLimit: { ...env.registerRateLimit, max: 1000 },
+		publicRateLimit: { ...env.publicRateLimit, max: 10_000 },
 		...overrides,
 	};
 	const pool = createPool(testEnv);

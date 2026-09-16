@@ -44,6 +44,22 @@ export function requireRole(role: RolCodigo): RequestHandler {
 }
 
 /**
+ * Guard for the user's own pool data (balance, movements, later their bets
+ * and points): only an `apostador`, validated or not. An admin gets 403
+ * `NOT_A_PARTICIPANT` rather than an empty answer: admins have no coins
+ * (BR-001), and a "0" would let the frontend show them a coin counter.
+ */
+export const requireParticipant: RequestHandler = (req, _res, next) => {
+	if (authUser(req).rol !== 'apostador') {
+		throw HttpError.forbidden(
+			'Los administradores no participan en la polla: no tienen monedas ni apuestas.',
+			ErrorCode.NOT_A_PARTICIPANT,
+		);
+	}
+	next();
+};
+
+/**
  * Guard for every betting route (T-09 on). Only a **validated `apostador`**
  * passes:
  *

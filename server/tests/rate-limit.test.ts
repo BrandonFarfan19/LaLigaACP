@@ -51,6 +51,19 @@ describe('rate limit', () => {
 
 		expect(res.status).toBe(429);
 		expect(res.body).toEqual({ error: { code: 'RATE_LIMITED', message: expect.any(String) } });
+		expect(res.headers['cache-control']).toBe('no-store');
+	});
+
+	it('the 429 is never cacheable, on any route kind (T-08 follow-up)', async () => {
+		for (const [method, path] of [['get', '/health/extra'], ['get', '/auth/me'], ['get', '/admin/deportes'], ['get', '/monedas'], ['post', '/auth/logout']] as const) {
+			const app = tinyLimitApp();
+			await request(app)[method](path);
+			const res = await request(app)[method](path);
+			expect(res.status, path).toBe(429);
+			expect(res.headers['cache-control'], path).toBe('no-store');
+			await pool?.end();
+			pool = undefined;
+		}
 	});
 
 	it('counts a request before its body is parsed', async () => {

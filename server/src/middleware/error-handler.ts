@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
+import { translateDbError } from '../lib/db-errors.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { errorBody } from '../lib/response.js';
@@ -22,6 +23,21 @@ function isClientError(err: unknown): err is ClientError {
 	if (typeof err !== 'object' || err === null) return false;
 	const { status, expose } = err as Record<string, unknown>;
 	return typeof status === 'number' && status >= 400 && status < 500 && expose === true;
+}
+
+/**
+ * Express's router couldn't decode a `:param` (`/equipos/%zz`, `/equipos/%C0%AF`):
+ * it rethrows the `URIError` from `decodeURIComponent` with `status = 400`
+ * and this exact message prefix (router/lib/layer.js), but without
+ * `expose`. Matched on all three, so no other non-exposed error is ever
+ * treated as the client's.
+ */
+function isUndecodableParam(err: unknown): boolean {
+	return (
+		err instanceof URIError &&
+		(err as URIError & { status?: unknown }).status === 400 &&
+		err.message.startsWith("Failed to decode param '")
+	);
 }
 
 /**
@@ -58,6 +74,8 @@ const GENERIC_CLIENT_ERROR = { code: ErrorCode.BAD_REQUEST, message: 'Solicitud 
 // `_next` is unused but required: Express only treats a middleware as an
 // error handler when its function has exactly 4 parameters.
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+	// An error is never cacheable, even on a route that caches its successes.
+	res.set('Cache-Control', 'no-store');
 	if (err instanceof HttpError) {
 		res.status(err.status).json(errorBody(err.code, err.message, err.details));
 		return;
@@ -69,9 +87,22 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
 		return;
 	}
 
+	if (isUndecodableParam(err)) {
+		res.status(400).json(errorBody(ErrorCode.INVALID_URL_ENCODING, 'La URL tiene un parámetro mal codificado.'));
+		return;
+	}
+
 	if (isClientError(err)) {
 		const known = BODY_ERRORS.get(err.type) ?? GENERIC_CLIENT_ERROR;
 		res.status(err.status).json(errorBody(known.code, known.message));
+		return;
+	}
+
+	// A MySQL constraint violation no service translated first (lib/db-errors.ts):
+	// a clear 4xx, never a 500 or the driver's message.
+	const dbError = translateDbError(err);
+	if (dbError) {
+		res.status(dbError.status).json(errorBody(dbError.code, dbError.message));
 		return;
 	}
 

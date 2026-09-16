@@ -59,7 +59,7 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - **A local MySQL 8.4 runs in Docker** (`compose.yaml`, credentials in `.env`, see `.env.example`). `db/init/01-schema.sql` creates every table and `db/init/02-catalogos.sql` loads only the catalog rows. Setup, connection and reset steps are in the README.
 - **The frontend is not connected to it.** `src/lib/` stays static and the site stays a static SPA until T-22 of `docs/plan-polla.md`. Do not wire `src/lib/` to the API, or seed teams/players/matches, unless explicitly asked.
-- **The backend (`server/`) is an Express app, and must stay one.** No other framework (Fastify, Nest, Koa, Next API routes…). It already connects to this database through `mysql2` (see **Backend stack** below). As of T-04 it has `GET /health`, accounts (register, login, sessions, roles) and participant validation under `/admin/participantes`. No betting logic yet.
+- **The backend (`server/`) is an Express app, and must stay one.** No other framework (Fastify, Nest, Koa, Next API routes…). It already connects to this database through `mysql2` (see **Backend stack** below). As of T-04 it has `GET /health`, accounts (register, login, sessions, roles) and participant validation under `/admin/participantes`, plus the catalog, matches, the public API and (T-09) selection checks. No ticket is created yet (T-10).
 - `EsquemaBD.md` and `db/init/01-schema.sql` must stay in sync: a schema change updates both in the same change.
 
 - Treat it as the source of truth when adding or changing entities in `src/types/` or `src/data/`, so the static layer keeps converging on the future tables.
@@ -76,7 +76,7 @@ This section summarizes the target schema. Full detail (every column, constraint
 - **Computed, never stored:** standings, top scorers, a match's general result, the pool ranking, bet closing time. The one deliberate exception is `usuario.saldo_monedas` (must never go negative, and MySQL can't `CHECK` against another table's sum) — kept in sync with `movimiento_moneda` by the backend, in the same transaction.
 - **Business rules that matter never live only in the frontend** (project-wide rule for the betting platform).
 
-**Modules.** Informativo must never depend on Polla or Auditoría.
+**Modules.** Informativo must never depend on Polla or Auditoría. When an Informativo rule needs a Polla fact, Informativo declares an extension point (a function type) and the composition root (`server/src/routes/index.ts`) passes Polla's implementation in. Example: `DrawRuleGuard` in `services/sports.service.ts`, implemented by `services/bets-sport-guard.service.ts`.
 
 | Module | Tables |
 |---|---|
@@ -108,7 +108,8 @@ This section summarizes the target schema. Full detail (every column, constraint
 
 - Standings **puntos** (informational, per competición): win **3**, draw **1**, loss **0**. Unrelated to the pool's own points.
 - The pool: monedas fund bets (BR-008 to BR-010), puntos measure performance (BR-039) — never convert one into the other.
-- A `seleccion` closes **24 h before** `partido.fecha_hora`, and only while the match is `programado` (BR-014).
+- A `seleccion` closes **24 h before** `partido.fecha_hora`, and only while the match is `programado` (BR-014). A match created less than 24 h ahead is born closed.
+- A match registered before it is played can get its result, goals and media **after** its date (user decision): T-12/T-13 must not require a future date.
 - Points per selection, evaluated independently when the match's result is confirmed (BR-034 to BR-038):
 
   | Bet type | Condition | Points |
@@ -134,6 +135,12 @@ This section summarizes the target schema. Full detail (every column, constraint
 - Read it to learn which changes are already verified before building on them.
 - Only `tester_liga` appends entries, at the end of the file. Never rewrite or delete past entries.
 - **Report back to the coordinator (Herdr pane `w4:p1`) with `herdr agent prompt w4:p1 "<summary>"`**, no double quotes inside the text. `ejecutor_liga` reports when it finishes a task or a fix, or when it is blocked on a decision; `tester_liga` reports every verdict, pass or fail. The coordinator relies on these messages to hand work over.
+- **Two testers work in parallel:** `tester_liga` (pane `w4:p3`) and `tester_liga_2` (pane `w4:p5`, its own tab). The coordinator may split one task between them; each verifies only its part, and only the one told to close the task ticks `docs/plan-polla.md` and writes `historial.md` (re-read both before writing). To avoid clashing:
+  - Test database: `la_liga_acp_test` for `tester_liga`, `la_liga_acp_test_2` for `tester_liga_2` (set as `MYSQL_DATABASE_TEST` in its tab's environment; never change it).
+  - Local backend instances: ports 3950–3999 for `tester_liga`, 3900–3949 for `tester_liga_2`. Never 3001 or 5173.
+  - Never run `docker compose down -v`, or stop/recreate `db` or `server`, unless the coordinator explicitly asks. To test a database outage, point a local instance at a closed port.
+  - Test data in the development database carries a per-tester prefix (`t1_`, `t2_`); each tester deletes only its own.
+- **Context near capacity:** before the coordinator sends a new instruction to any pane, it checks that agent's context. If it is near capacity (≥ 80% of the window, or Claude Code shows "% until auto-compact"), the coordinator runs `/clear` on that pane (never mid-task), re-sends the agent's role, rules and current goal, and only then the instruction. An agent that receives a message starting with "CONTEXTO REINICIADO" must re-read the listed files before doing anything else.
 
 ### Backlog
 
@@ -180,10 +187,54 @@ Team crests and logos live in `src/assets/` and are imported with a rendition pr
   - Rate limits key on `req.ip`, which is the socket address unless `TRUST_PROXY` (off by default; a hop count or IPs/CIDRs, never `true`) names the proxies allowed to set `X-Forwarded-For`. It is applied in `app.ts`.
   - `SESSION_SECRET` rejects placeholder-looking values, including the one in `.env.example`. Every login also purges expired sessions of all users, via `idx_sesion_expira_en`.
   - **CSRF** (`middleware/csrf.ts`) applies to every non-GET request. A foreign `Origin` gets 403. With a session cookie, `X-CSRF-Token` must equal the `csrfToken` returned by login and `/auth/me` (an HMAC of the session token with `SESSION_SECRET`). Login and register are exempt from the token, not from the Origin check.
-  - **Route protection:** `requireAuth` (401) → `requireRole(role)` (403, exact role; roles don't include each other) / `requireBettor` (403). Everything under `/admin` already has `requireAuth` + `requireRole('admin')`.
+  - **Route protection:** `requireAuth` (401) → `requireRole(role)` (403, exact role; roles don't include each other) / `requireParticipant` (403 `NOT_A_PARTICIPANT`: any `apostador`, for their own pool data) / `requireBettor` (403). Everything under `/admin` already has `requireAuth` + `requireRole('admin')`.
   - **Every betting or coin-spending route (T-09 on) must use `requireAuth, requireBettor`.** It lets through only a validated `apostador`: an admin gets 403 `ADMIN_CANNOT_BET` even if the database says `validado`, and a `pendiente` user gets 403 `USER_NOT_VALIDATED` (they can still log in and browse, BR-005).
   - **Roles are never changed from the app** (user decision, BR-001). There is no admin panel or API action for it, and T-21 must not add one. An admin is only created or promoted with `npm run admin:create` on the server. Promotion is refused for any account that took part in the pool: not `pendiente`, payment confirmed, coins, movements or tickets.
   - That command takes `ADMIN_EMAIL`/`ADMIN_NOMBRE` from the environment and **prompts for the password without echo** (`docker compose exec -it ...`). Never document or use a password typed on the command line (`ADMIN_PASSWORD=...`, `-e ADMIN_PASSWORD=...`): it ends up in shell history and in docker's visible process command line. For non-interactive use there are `ADMIN_PASSWORD_FILE`, `ADMIN_PASSWORD_STDIN=1`, or `ADMIN_PASSWORD` only when injected by a CI secret store.
+- **Coins (T-05, details in `server/README.md`):**
+  - **`services/coins.service.ts` is the only code that writes `usuario.saldo_monedas` or `movimiento_moneda`.** Use `applyCoinMovements(conn, userId, movements)` inside the caller's `withTransaction`, or the shortcuts `grantValidationCoins` (T-04), `debitSelections` (T-10) and `refundSelections` (T-16).
+  - They take a `TransactionConnection` (`db/transaction.ts`), which only `withTransaction` hands out: calling them outside a transaction doesn't compile and is rejected at runtime. Use this branded type for any future function that must not run in autocommit.
+  - It locks the user row (`FOR UPDATE OF u`), refuses a negative balance (409 `INSUFFICIENT_BALANCE`, nothing written), inserts the movements and sets the new balance in the same transaction.
+  - Callers pass a movement type, never an amount: amounts and signs live in `lib/coins.ts`. D19 is checked first: `validacion` never has a `seleccionId`, debits and refunds always have one, and it must belong to that user.
+  - A repeated movement gets 409 `MOVEMENT_ALREADY_APPLIED` and the whole batch rolls back.
+  - A refund needs that user's `seleccion_confirmada` for the selection and no earlier refund (BR-046). Otherwise it gets 409 `SELECTION_NOT_DEBITED` or `MOVEMENT_ALREADY_APPLIED`, and nothing is written.
+  - The participant's own `GET /monedas/saldo` and `GET /monedas/movimientos` (paginated, newest first) use `requireParticipant`: an admin gets 403 `NOT_A_PARTICIPANT`. `npm run coins:check` and `GET /admin/monedas/consistencia` report `saldo_monedas <> SUM(cantidad)` and admins with coins, read-only.
+- **Sports catalog (T-06, details in `server/README.md`):**
+  - Admin CRUD under `/admin/{deportes,competiciones,equipos,jugadores,planteles}`: paginated lists with filters, read, create (201), PATCH, delete. Strict zod for body and query.
+  - Slugs come from the name when not sent and are always normalized (`lib/slug.ts`). A taken one is 409 `SLUG_TAKEN`.
+  - Deletes are refused while anything uses the row (409 `*_IN_USE` with counts). No cascade, no soft delete.
+  - Plantel: the competition always comes from the team. A different one sent by the client is 409 `COMPETITION_MISMATCH`, and changing team or player is 409 `TRANSFER_NOT_ALLOWED` (D4).
+  - `permite_empate` only changes while no match left `programado` and no bet exists: 409 `DRAW_RULE_LOCKED`.
+  - Names (`displayName` in `schemas/catalog.schema.ts`) reject control characters, the whole Unicode Cf category except ZWJ/ZWNJ (bidi, zero-width, BOM, soft hyphen, tag characters…), line/paragraph separators, blank-looking fillers and lone surrogates, and must contain at least one letter or digit. Slugs transliterate letters that have no accent decomposition (ß→ss, æ→ae, ł→l…).
+  - Crest and photo: an `https://` URL or a relative image path, up to 255 characters. Color: `#rrggbb`. The server must never fetch those URLs without a host allowlist (any https host is accepted today, including internal ones). The frontend shows them only with `<img>`/`<PixelImage>`, never as inline SVG or in any other context.
+  - Every write goes through `runAdminAction` (`services/admin-action.ts`), whose `hooks.inTransaction` is T-17's audit point.
+- **MySQL constraint errors are translated in one place: `lib/db-errors.ts`**, called by the error handler. 1062, 1451 and 1452 map by constraint name to a specific code, with generic 409 codes as the fallback; 1406, 1264 and 1366 become 400. A constraint violation is never a 500 and never shows the driver's text. When adding a UNIQUE or FK, add its mapping there. Services still pre-check the common cases to give details.
+- **Public API (T-08, details in `server/README.md`):**
+  - Read-only `GET /public/...`, no session: deportes, competiciones (and their equipos and posiciones), partidos (fixture and detail), equipos/:id with squad. It is Módulo Informativo only (`services/public.service.ts`): it must never read or import users, sessions, coins, bets or audit.
+  - Scores and goals are shown only once a match is `finalizado` with both sides loaded (otherwise both are null, and standings skip it). Cancelled matches are listed with their state. Standings are computed per request (3/1/0, only `finalizado`, ordered by points, goal difference, goals for, name, id; positions never shared).
+  - Answers embed what a card needs (teams inside matches, team inside each standing row), so `src/lib` can map them without N+1 calls. The mapping to `src/types` for T-22 is in the README.
+  - The API has its own per-IP limit (`PUBLIC_RATE_LIMIT_*`, 120/min by default) and is skipped by the global limiter. Successes carry `Cache-Control: public, max-age=30`; everything else in the API is `no-store`, errors and every 429 included (the no-store default is the first middleware in `app.ts`).
+- **A malformed `%` in a route param** is 400 `INVALID_URL_ENCODING`, not logged. `error-handler.ts` recognizes only the router's own decode error; any other `URIError` stays a logged 500.
+- **Matches (T-07, details in `server/README.md`):**
+  - `/admin/partidos`: CRUD plus `POST /:id/estado`. Creating a match writes both `partido_equipo` rows (goals NULL) in the same transaction, always `programado`.
+  - Dates are ISO 8601 with zone and seconds (`schemas/matches.schema.ts`), stored in UTC, and must be in the future.
+  - Only `programado` ↔ `en_curso` here. `programado` → `en_curso` is allowed once betting has closed; going back is allowed while there are no goals. `finalizado` is T-12 only and `cancelado` T-16 only: 409 `INVALID_STATE_TRANSITION`.
+  - `finalizado`/`cancelado` lock the match (409 `MATCH_LOCKED`). Competition, teams and date change only while `programado`.
+  - With bets, teams and competition never change, and the date can only be postponed (BR-014 precision).
+  - Delete only if not `finalizado` and with no bets or goals.
+  - The match row is locked (`FOR UPDATE`) for every write; betting code must lock it too.
+  - The bets check is the injected `MatchBetsProbe` (Polla's `services/bets-match-probe.service.ts`, wired in `routes/index.ts`). T-07 never writes goals.
+- **Match order (BR-013) is defined once, in `lib/match-order.ts`:** upcoming (`fecha_hora >= now`) soonest first, then past most recent first, then id. Every match list (T-07, T-08, T-19, T-21) uses `proximityOrderBy`. The 24 h betting close lives in `lib/betting.ts` (`bettingCloseTime`, and `isBeforeBettingClose`, the only comparison against it: the close instant itself is already closed).
+- **Selections (T-09, Módulo Polla, details in `server/README.md`):**
+  - `/apuestas` uses `requireAuth, requireBettor`. `GET /apuestas/partidos` lists every match with `apuesta: { estado, cierre, pronosticosAdmitidos }` (BR-052 states `disponible`/`cerrada`/`en_curso`/`finalizado`/`cancelado`), filterable by sport, competition, dates and betting state, in BR-013 order. `POST /apuestas/vista-previa` evaluates a proposed ticket and writes nothing.
+  - `services/betting.service.ts` is the one place that checks selections: the match exists, is `programado` and before its close, and a draw (as a result or a tied exact score) only where `deporte.permite_empate`. Problems are reported per selection (`errores`, `valida`) plus `INSUFFICIENT_BALANCE` for the ticket. `valido` is what T-10 must require. A malformed shape is a 400.
+  - Limits and rules live in `lib/betting.ts`: `MAX_GOLES_PRONOSTICO` (999), `MAX_SELECCIONES_POR_TICKET` (50), bet type and result codes. Identical repeated selections are allowed and flagged with `repiteA`. The cost is `COSTO_POR_SELECCION` per selection, valid or not.
+  - T-10 must call `evaluateTicketInTransaction` first inside its `withTransaction`: it locks the user row `FOR UPDATE` (same lock as the debit), then the match, competition and sport rows `FOR SHARE`. On a non-transaction connection it rejects the promise. A `BETTING_CLOSED` error carries `cierre` in its own field.
+- **Locking and concurrency (T-09 fix, details in `server/README.md`, "Orden de bloqueo y concurrencia"):**
+  - Lock with one statement per table, by primary key only (`SELECT id FROM t FORCE INDEX (PRIMARY) WHERE id IN (?) ORDER BY id FOR ...`). Never lock through a join or a secondary index: the plan can change and lock index ranges (the ticket once deadlocked with `changeMatchState` that way).
+  - Fixed order across tables: usuario → partido → plantel → equipo → jugador → competicion → deporte, ascending id within a table. Read the facts a rule depends on with a locking read, after locking.
+  - `withTransaction` reruns the whole transaction on a deadlock (1213), up to 3 attempts, so transaction work must only touch the database. A persistent deadlock or a lock wait timeout (1205) is 409 `CONCURRENT_UPDATE`, never a 500.
+  - `tests/concurrency-stress.test.ts` must see zero deadlocks. `tests/betting.test.ts` checks, through `performance_schema.data_locks`, that the ticket only takes record locks on primary keys.
 - **Participants (T-04, details in `server/README.md`):**
   - Admin actions live in `services/participant-validation.service.ts`. Each runs through `withTransaction` (`db/transaction.ts`) with `READ COMMITTED` and changes state only through an `UPDATE ... WHERE <expected state>`, so a repeated or concurrent call gets 409 without side effects.
   - Their `hooks.inTransaction(conn, outcome)` is where T-17's audit insert goes: same transaction, before commit.
@@ -201,6 +252,7 @@ npm run server:dev      # backend, http://localhost:3001 (needs `docker compose 
 npm run server:test     # backend test suite (Vitest + Supertest)
 npm run server:typecheck # backend type check, src + tests
 npm run server:admin:create # create/promote an admin (ADMIN_EMAIL, ADMIN_NOMBRE; asks for the password)
+npm run server:coins:check   # balance vs SUM(movements) per participant; exit 1 on mismatches
 ```
 
 Start the dev server as a background process so it doesn't block the session, and stop it when done. `npm run build` must finish with no TypeScript errors or warnings. For the backend, `docker compose up -d` (from the repo root) runs both `db` and `server` together, with reload — see `server/README.md` for the full command reference and layer conventions.

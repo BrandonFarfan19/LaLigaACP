@@ -20,6 +20,34 @@ function isHealthCheck(req: Request): boolean {
 	return (req.method === 'GET' || req.method === 'HEAD') && HEALTH_PATH.test(req.path);
 }
 
+/** `/public` and below (same matching as the router). It has its own limiter (`publicRateLimit`). */
+const PUBLIC_PATH = /^\/public(?:\/|$)/i;
+
+export function isPublicApi(req: Request): boolean {
+	return PUBLIC_PATH.test(req.path);
+}
+
+/**
+ * The public read-only API (T-08) gets its own limit, per IP, roomier than
+ * the global one: a landing page view makes several calls (fixture, table,
+ * team), everything is cacheable and cheap, and one visitor browsing a few
+ * pages must not hit the 100-per-15-minutes budget meant for accounts and
+ * admin actions. Still bounded: `PUBLIC_RATE_LIMIT_MAX` per
+ * `PUBLIC_RATE_LIMIT_WINDOW_MS` (120 per minute by default).
+ */
+export function publicRateLimit(env: Env) {
+	return rateLimit({
+		windowMs: env.publicRateLimit.windowMs,
+		limit: env.publicRateLimit.max,
+		standardHeaders: true,
+		legacyHeaders: false,
+		handler: (_req, res) => {
+			res.set('Cache-Control', 'no-store');
+			res.status(429).json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiadas solicitudes. Probá de nuevo más tarde.'));
+		},
+	});
+}
+
 /**
  * NFR-005 base: helmet's default headers, CORS locked to exactly the
  * frontend's origin (never a wildcard), a basic global rate limit and a
@@ -47,7 +75,7 @@ export function applySecurity(app: Express, env: Env): void {
 			limit: env.rateLimit.max,
 			standardHeaders: true,
 			legacyHeaders: false,
-			skip: isHealthCheck,
+			skip: (req) => isHealthCheck(req) || isPublicApi(req),
 			handler: (_req, res) => {
 				res.status(429).json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiadas solicitudes. Probá de nuevo más tarde.'));
 			},

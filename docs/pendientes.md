@@ -37,3 +37,11 @@ Decisiones que `EsquemaBD.md` no define y que se tomaron por defecto al crear la
 - [ ] **`estadistica_tipo` sin cargar.** Es un catálogo por disciplina; falta decidir sus filas.
 - [ ] **Apuesta al campeón:** el propio `EsquemaBD.md` deja abiertos su cierre y sus coins.
 - [ ] **Validar valores fuera de rango en las fechas.** `formatKickoff` normaliza en silencio un mes 13 o una hora 25; además lanza error con un ISO mal formado y la ruta `/` no tiene `ErrorBoundary`, así que un dato malo reemplazaría toda la portada.
+
+## Backend
+
+Observaciones de la revisión de T-08, postergadas a propósito.
+
+- [ ] **Banderas con secuencia de tags rechazadas en nombres.** Las banderas de subdivisiones (por ejemplo, Escocia o Gales) usan caracteres de etiqueta U+E0020 a U+E007F, que son categoría Cf. `displayName` los rechaza todos, así que un nombre con esas banderas da 400. Decidir si se aceptan solo como secuencia de bandera válida.
+- [ ] **Invisibles que todavía pasan dentro de nombres con letras.** Marcas Mn que no se ven (U+034F, U+17B4, U+17B5, U+180B) y los espacios U+2000 a U+200A y U+205F se aceptan si el nombre tiene al menos una letra o número. Pueden hacer que dos nombres parezcan iguales. Evaluar rechazarlos o normalizarlos.
+- [ ] **Consultas que recorren la tabla de partidos.** En el fixture público, un rango de fechas amplio, y en `/admin/partidos`, el filtro por deporte (con pocos deportes), recorren la tabla `partido` por decisión de costo de MySQL. Con 3800 partidos tardan unos 17 ms. Revisar si el volumen crece (ver `server/README.md`, sección de índices de T-08).

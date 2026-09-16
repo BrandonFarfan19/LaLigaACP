@@ -19,6 +19,14 @@ import { createRouter } from './routes/index.js';
  */
 export function createApp({ pool, env }: { pool: Pool; env: Env }): Express {
 	const app = express();
+	// Nothing is cacheable unless a route says so (only /public successes do):
+	// session data, balances, admin screens and every error or 429 (including
+	// the ones the security middleware answers before any route) must never
+	// be kept by a browser or proxy. First, so it covers everything below.
+	app.use((_req, res, next) => {
+		res.set('Cache-Control', 'no-store');
+		next();
+	});
 	// Which proxies may set X-Forwarded-For. Off by default: req.ip (and so
 	// every rate limit) uses the socket's address. See TRUST_PROXY in env.ts.
 	app.set('trust proxy', env.trustProxy);

@@ -94,6 +94,29 @@ describe('parseEnv', () => {
 		expect(() => parseEnv({ ...process.env, REGISTER_RATE_LIMIT_MAX: '0' })).toThrow(/REGISTER_RATE_LIMIT_MAX/);
 	});
 
+	const WINDOWS = ['RATE_LIMIT_WINDOW_MS', 'LOGIN_RATE_LIMIT_WINDOW_MS', 'REGISTER_RATE_LIMIT_WINDOW_MS', 'PUBLIC_RATE_LIMIT_WINDOW_MS'];
+
+	it.each(WINDOWS)('rejects a %s above 2147483647 ms (a longer timer fires at once and disables the limit)', (name) => {
+		for (const value of ['2147483648', '9999999999999', '1e20']) {
+			expect(() => parseEnv({ ...process.env, [name]: value }), `${name}=${value}`).toThrow(new RegExp(name));
+		}
+		expect(() => parseEnv({ ...process.env, [name]: '2147483647' })).not.toThrow();
+	});
+
+	it.each([
+		['RATE_LIMIT_MAX', '1000001'],
+		['LOGIN_RATE_LIMIT_MAX', '1000001'],
+		['REGISTER_RATE_LIMIT_MAX', '1000001'],
+		['PUBLIC_RATE_LIMIT_MAX', '1000001'],
+		['PORT', '65536'],
+		['PORT', '0'],
+		['DB_PORT', '65536'],
+		['DB_POOL_SIZE', '1001'],
+		['SESSION_TTL_HOURS', '721'],
+	])('rejects %s=%s (out of range)', (name, value) => {
+		expect(() => parseEnv({ ...process.env, [name]: value })).toThrow(new RegExp(name));
+	});
+
 	it('derives the session cookie settings from NODE_ENV', () => {
 		const dev = parseEnv({ ...process.env, NODE_ENV: 'development' });
 		const prod = parseEnv({ ...process.env, NODE_ENV: 'production' });

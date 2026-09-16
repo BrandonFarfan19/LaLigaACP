@@ -28,5 +28,14 @@ export const MOVIMIENTOS: Readonly<Record<TipoMovimientoCodigo, { cantidad: numb
 	devolucion_cancelacion: { cantidad: DEVOLUCION_POR_SELECCION, conSeleccion: true },
 };
 
+/**
+ * The rule of a movement type, or `undefined` for anything that isn't one of
+ * the three codes. Own keys only: `toString`, `constructor` or `__proto__`
+ * are not movement types.
+ */
+export function movementRule(tipo: unknown): { cantidad: number; conSeleccion: boolean } | undefined {
+	return typeof tipo === 'string' && Object.hasOwn(MOVIMIENTOS, tipo) ? MOVIMIENTOS[tipo as TipoMovimientoCodigo] : undefined;
+}
+
 /** `usuario.saldo_monedas` is SMALLINT UNSIGNED. */
 export const SALDO_MAXIMO = 65_535;

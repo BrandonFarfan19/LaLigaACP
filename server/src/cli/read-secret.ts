@@ -42,13 +42,13 @@ export function promptHidden(
 		const onData = (chunk: Buffer | string) => {
 			for (const ch of String(chunk)) {
 				if (ch === '\r' || ch === '\n') return finish();
-				if (ch === '' || (ch === '' && value === '')) return finish(new PromptAborted());
-				if (ch === '' || ch === '\b') {
+				if (ch === '\u0003' || (ch === '\u0004' && value === '')) return finish(new PromptAborted());
+				if (ch === '\u007F' || ch === '\b') {
 					value = Array.from(value).slice(0, -1).join('');
 					continue;
 				}
 				// Arrow keys and other escape sequences arrive as one chunk: drop the rest of it.
-				if (ch === '') break;
+				if (ch === '\u001B') break;
 				if (ch < ' ') continue;
 				value += ch;
 			}

@@ -1,10 +1,9 @@
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { withTransaction } from '../db/transaction.js';
-import { MONEDAS_POR_VALIDACION } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { findAccountRole, findParticipant, type Participant } from './participants.service.js';
-import { isDuplicateEntry } from './users.service.js';
+import { grantValidationCoins } from './coins.service.js';
 
 /**
  * The admin actions of the participation flow (business-rules.md §23):
@@ -50,11 +49,10 @@ const CATALOG_IDS = `SELECT
 	(SELECT id FROM estado_usuario WHERE codigo = 'validado') AS usuarioValidado,
 	(SELECT id FROM estado_pago WHERE codigo = 'pendiente') AS pagoPendiente,
 	(SELECT id FROM estado_pago WHERE codigo = 'confirmado') AS pagoConfirmado,
-	(SELECT id FROM tipo_movimiento WHERE codigo = 'validacion') AS movimientoValidacion,
 	(SELECT id FROM rol WHERE codigo = 'apostador') AS rolApostador`;
 
 type CatalogIds = Record<
-	'usuarioPendiente' | 'usuarioValidado' | 'pagoPendiente' | 'pagoConfirmado' | 'movimientoValidacion' | 'rolApostador',
+	'usuarioPendiente' | 'usuarioValidado' | 'pagoPendiente' | 'pagoConfirmado' | 'rolApostador',
 	number
 >;
 
@@ -160,13 +158,14 @@ export async function revertPayment(
 /**
  * §23 step 2, BR-006/BR-008, in one transaction:
  *
- * 1. `pendiente` → `validado` and `saldo_monedas + 10`, in one UPDATE that
- *    only matches a `pendiente` `apostador` with payment `confirmado`. Two
- *    concurrent calls: InnoDB locks the row, the second re-reads it after the
- *    first commits, matches nothing and gets 409.
- * 2. A `validacion` movement of +10. `uq_movimiento_sin_seleccion` (EsquemaBD
- *    D19) rejects a second one for the same user even if the state had been
- *    reset by hand; the whole transaction is then rolled back.
+ * 1. `pendiente` → `validado`, in an UPDATE that only matches a `pendiente`
+ *    `apostador` with payment `confirmado`. Two concurrent calls: InnoDB
+ *    locks the row, the second re-reads it after the first commits, matches
+ *    nothing and gets 409.
+ * 2. The +10 through the coin service (`grantValidationCoins`, T-05): the
+ *    `validacion` movement and the new balance. `uq_movimiento_sin_seleccion`
+ *    (EsquemaBD D19) rejects a second one for the same user even if the state
+ *    had been reset by hand; the whole transaction is then rolled back.
  */
 export async function validateParticipant(
 	pool: Pool,
@@ -175,12 +174,11 @@ export async function validateParticipant(
 ): Promise<ParticipantActionOutcome> {
 	return withTransaction(pool, async (conn) => {
 		const ids = await catalogIds(conn);
-		const now = new Date();
 		const [result] = await conn.query<ResultSetHeader>(
 			`UPDATE usuario
-			SET estado_usuario_id = ?, saldo_monedas = saldo_monedas + ?
+			SET estado_usuario_id = ?
 			WHERE id = ? AND rol_id = ? AND estado_usuario_id = ? AND estado_pago_id = ?`,
-			[ids.usuarioValidado, MONEDAS_POR_VALIDACION, input.userId, ids.rolApostador, ids.usuarioPendiente, ids.pagoConfirmado],
+			[ids.usuarioValidado, input.userId, ids.rolApostador, ids.usuarioPendiente, ids.pagoConfirmado],
 		);
 		if (result.affectedRows !== 1) {
 			const current = await mustFind(conn, input.userId);
@@ -190,13 +188,9 @@ export async function validateParticipant(
 
 		let movimientoId: number;
 		try {
-			const [inserted] = await conn.query<ResultSetHeader>(
-				'INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en) VALUES (?, ?, NULL, ?, ?)',
-				[input.userId, ids.movimientoValidacion, MONEDAS_POR_VALIDACION, now],
-			);
-			movimientoId = inserted.insertId;
+			[movimientoId] = (await grantValidationCoins(conn, input.userId)).movimientoIds as [number];
 		} catch (error) {
-			if (isDuplicateEntry(error)) {
+			if (error instanceof HttpError && error.code === ErrorCode.MOVEMENT_ALREADY_APPLIED) {
 				throw errors.alreadyValidated('Este usuario ya recibió sus monedas de validación: no se asignan dos veces.');
 			}
 			throw error;

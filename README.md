@@ -48,6 +48,7 @@ Desde la raíz del proyecto:
 | `npm run server:test` | Corre las pruebas del backend (necesita `docker compose up -d db`) |
 | `npm run server:typecheck` | Revisa los tipos del backend y de sus pruebas |
 | `npm run server:admin:create` | Crea o promueve un administrador; pide la contraseña (ver abajo) |
+| `npm run server:coins:check` | Compara cada saldo de monedas con la suma de sus movimientos y lista los descuadres (sale con 1 si hay) |
 
 `npm run dev` y `npm run preview` sirven cualquier ruta, con o sin barra final (`/posiciones/`, `/plantilla/boca-juniors/`), con 200.
 

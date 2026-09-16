@@ -30,6 +30,21 @@ export const paginationFields = {
 	pageSize: pageNumber('pageSize', 100).default(20),
 };
 
+/**
+ * A numeric id arriving as text (URL segment or query value): digits only (no
+ * `1e3`, `0x10`, `-1`), within MySQL's BIGINT and JS's safe range.
+ */
+export function idFromText(name = 'El id') {
+	return z
+		.string()
+		.regex(/^[1-9]\d{0,15}$/, `${name} debe ser un entero positivo.`)
+		.transform(Number)
+		.refine(Number.isSafeInteger, `${name} es demasiado grande.`);
+}
+
+/** `:id` in the URL. */
+export const idParamsSchema = z.object({ id: idFromText() });
+
 /** A list that takes only pagination: anything else is a 400. */
 export const paginationQuerySchema = z.strictObject(paginationFields);
 

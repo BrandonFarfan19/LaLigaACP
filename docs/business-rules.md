@@ -176,6 +176,12 @@ El sistema deberá mantener actualizado el saldo de cada usuario.
 
 El saldo nunca podrá ser negativo.
 
+Precisiones (T-05):
+
+* Todo cambio de saldo queda registrado como un movimiento (tabla 28), y el saldo es siempre la suma de los movimientos del usuario. El sistema puede comprobarlo y listar cualquier descuadre, sin corregirlo solo.
+* Una operación que dejaría el saldo negativo se rechaza completa: no se descuenta una parte.
+* El usuario puede consultar su saldo y el historial de sus movimientos, del más reciente al más antiguo. Los administradores no tienen saldo ni movimientos (BR-001).
+
 ---
 
 ## BR-010 – Visualización del saldo
@@ -209,6 +215,15 @@ Cada partido deberá contener como mínimo:
 * Goles del equipo local.
 * Goles del equipo visitante.
 
+Precisiones (T-07):
+
+* **Alta:** la fecha y hora se indican con zona horaria y tienen que ser futuras. Los dos equipos tienen que ser distintos y de esa competición. Los goles no se cargan en el alta: se registran con el resultado (BR-028).
+* **Edición:** un partido `FINALIZADO` o `CANCELADO` no se modifica. Mientras tanto:
+  * La jornada y la sede se pueden cambiar siempre.
+  * La competición, los equipos y la fecha solo se cambian con el partido `PROGRAMADO`.
+  * Si el partido ya tiene apuestas, no cambian los equipos ni la competición, y la fecha solo puede postergarse (ver BR-014).
+* **Borrado:** solo se borra un partido que no esté finalizado y que no tenga apuestas ni goles.
+
 ---
 
 ## BR-012 – Estados del partido
@@ -221,6 +236,14 @@ Los estados mínimos serán:
 * Cancelado.
 
 Solo los partidos en estado `PROGRAMADO` y dentro del periodo permitido podrán recibir apuestas.
+
+Transiciones (T-07):
+
+* Todo partido se crea `PROGRAMADO`.
+* El administrador puede pasarlo de `PROGRAMADO` a `EN_CURSO`, pero solo cuando ya cerraron las apuestas (24 horas antes de su fecha).
+* Puede devolverlo de `EN_CURSO` a `PROGRAMADO` (un inicio por error o suspendido) mientras no tenga goles registrados.
+* `FINALIZADO` solo se alcanza al confirmar el resultado (BR-031), y `CANCELADO` solo con la cancelación que anula y devuelve las apuestas (BR-045 a BR-047). Ninguno se asigna directamente.
+* Un partido `FINALIZADO` o `CANCELADO` no cambia más de estado.
 
 ---
 
@@ -236,6 +259,14 @@ Esta regla aplica a:
 * Fixture.
 * Interfaz de apuestas.
 * Administración de partidos.
+
+Definición precisa (T-07), la misma en todas esas vistas:
+
+1. Primero los partidos que todavía no empezaron según su fecha (`fecha_hora >= ahora`), del más cercano al más lejano.
+2. Después los que ya pasaron su fecha (`fecha_hora < ahora`), del más reciente al más antiguo.
+3. Con la misma fecha y hora, primero el que se creó antes.
+
+"Ahora" es el momento de la consulta.
 
 ---
 
@@ -257,6 +288,12 @@ Una vez alcanzado el cierre:
 
 La validación deberá realizarse obligatoriamente en backend.
 
+Precisión (T-08): un partido creado a menos de 24 horas de su inicio nace con las apuestas ya cerradas, porque su cierre ya pasó.
+
+Precisión (T-09): el momento exacto del cierre ya está cerrado. Se puede apostar mientras `ahora < fecha_cierre`, y solo si el partido está `PROGRAMADO` (BR-012). Un partido en curso, finalizado o cancelado no recibe apuestas aunque su cierre no haya pasado.
+
+Precisión (T-07): si un partido con apuestas se reprograma, solo puede postergarse; adelantarlo se rechaza, porque correría el cierre por delante de apuestas ya hechas. Al postergarlo, el cierre se recalcula con la nueva fecha: las apuestas existentes siguen vigentes, y se puede volver a apostar hasta el nuevo cierre. Sin apuestas, la fecha puede moverse en cualquier sentido, siempre hacia el futuro.
+
 ---
 
 # 7. Tipos de apuesta
@@ -273,6 +310,10 @@ El empate solo estará disponible en los deportes que admitan empate.
 
 Cada deporte indicará si lo admite. En un deporte que siempre define un ganador, como vóley o básquet, la opción de empate no deberá ofrecerse ni aceptarse.
 
+Precisión (T-09): en un deporte sin empate, un marcador exacto empatado (por ejemplo 1-1) tampoco se acepta, porque es el mismo pronóstico que el empate.
+
+Precisión (T-06): si un deporte admite empate solo puede cambiarse mientras ninguna apuesta dependa de ello. El cambio se rechaza si alguno de sus partidos ya no está programado (en curso, finalizado o cancelado) o si sus partidos tienen alguna apuesta.
+
 ---
 
 ## BR-016 – Marcador exacto
@@ -282,6 +323,8 @@ El usuario podrá apostar por el marcador exacto.
 Ejemplo:
 
 `Equipo A 2 - 1 Equipo B`
+
+Precisión (T-09): los goles de cada equipo son números enteros de 0 a 999. El máximo es alto para que sirva en deportes de muchos puntos, como el básquet.
 
 ---
 
@@ -304,6 +347,8 @@ el usuario podrá apostar:
 * Equipo B gana.
 
 Estas serán consideradas tres apuestas independientes.
+
+Precisión (T-09): también se puede repetir exactamente la misma apuesta (por ejemplo, dos veces "Equipo A gana" en el mismo ticket). Ninguna regla lo prohíbe, y cada repetición es otra selección que cuesta su moneda. La vista previa del ticket la marca como repetida para que el usuario lo confirme.
 
 ---
 
@@ -339,6 +384,8 @@ Ticket #001
 1. Perú vs. Chile → Perú gana.
 2. Argentina vs. Brasil → 2-1.
 3. Perú vs. Chile → Empate.
+
+Precisión (T-09): un ticket tiene como mínimo 1 selección y como máximo 50.
 
 ---
 
@@ -418,6 +465,8 @@ Antes de confirmar un ticket, el sistema deberá mostrar:
 * Costo total.
 * Saldo actual.
 * Saldo posterior.
+
+Precisión (T-09): el resumen indica, por cada selección, si es válida y por qué no (partido inexistente, apuestas cerradas, partido que ya no está programado o empate no permitido). Si alguna selección no es válida o el saldo no alcanza, el ticket no se puede confirmar. El resumen es una vista previa: no descuenta monedas ni guarda nada, y la confirmación (BR-024) vuelve a validar todo.
 
 ---
 
@@ -745,6 +794,8 @@ Si el partido es cancelado:
 
 `3 monedas devueltas`
 
+Precisión (T-05): solo se devuelven monedas que se descontaron de verdad, una vez por selección. Devolver una selección que nunca se cobró, o devolverla dos veces, se rechaza sin efectos.
+
 ---
 
 ## BR-047 – Tickets con múltiples partidos
@@ -778,11 +829,33 @@ El usuario podrá consultar el fixture.
 
 Los partidos deberán mostrarse ordenados desde el encuentro más próximo.
 
+Precisiones (T-08):
+
+* El fixture es público: no requiere sesión.
+* Muestra también los partidos cancelados, indicando su estado; ocultarlos haría desaparecer un partido anunciado sin explicación.
+* El marcador y los goles (autor, equipo, minuto, imagen y video) solo se muestran cuando el partido está finalizado. Antes de confirmar el resultado no son públicos, aunque el administrador ya haya empezado a cargarlos.
+* Regla común con BR-050: el marcador de un partido se muestra, y el partido cuenta en la tabla de posiciones, solo si está finalizado y con los goles de ambos equipos cargados.
+
 ---
 
 ## BR-050 – Tabla de posiciones
 
 La landing deberá permitir consultar la tabla de posiciones de los equipos correspondientes a cada competición.
+
+Definición (T-08):
+
+* Se calcula en cada consulta; nunca se guarda.
+* Regla común con BR-049: el marcador de un partido se muestra, y el partido cuenta en la tabla de posiciones, solo si está finalizado y con los goles de ambos equipos cargados.
+* Solo cuentan los partidos finalizados de esa competición con el marcador de los dos equipos cargado: 3 puntos por victoria, 1 por empate y 0 por derrota.
+* Columnas: partidos jugados, ganados, empatados y perdidos, goles a favor, goles en contra, diferencia de goles y puntos.
+* Aparecen todos los equipos de la competición; los que no jugaron, con ceros.
+* Orden, siempre el mismo:
+  1. Más puntos.
+  2. Mayor diferencia de goles.
+  3. Más goles a favor.
+  4. Nombre del equipo en orden alfabético, sin distinguir mayúsculas ni acentos.
+  5. El equipo registrado antes.
+* Las posiciones son consecutivas (1, 2, 3…); no hay posiciones compartidas.
 
 ---
 

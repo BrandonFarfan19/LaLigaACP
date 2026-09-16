@@ -50,8 +50,8 @@ describe('promptHidden', () => {
 	it('handles backspace, pasted text with CRLF and escape sequences', async () => {
 		const term = fakeTerminal();
 		const pending = promptHidden('Clave: ', term.input, term.output);
-		term.input.write('abcx');
-		term.input.write('[D');
+		term.input.write('abcx\u007F');
+		term.input.write('\u001B[D');
 		term.input.write('ñé\r\n');
 
 		await expect(pending).resolves.toBe('abcñé');
@@ -60,7 +60,7 @@ describe('promptHidden', () => {
 	it('Ctrl+C cancels and restores the terminal', async () => {
 		const term = fakeTerminal();
 		const pending = promptHidden('Clave: ', term.input, term.output);
-		term.input.write('abc');
+		term.input.write('abc\u0003');
 
 		await expect(pending).rejects.toBeInstanceOf(PromptAborted);
 		expect(term.input.setRawMode).toHaveBeenLastCalledWith(false);
