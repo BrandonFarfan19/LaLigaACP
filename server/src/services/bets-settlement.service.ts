@@ -113,8 +113,8 @@ export async function settleMatchSelections(conn: TransactionConnection, match: 
 	}
 
 	const [[totals]] = await conn.query<RowDataPacket[]>(
-		`SELECT COUNT(*) AS acertadas, COALESCE(SUM(puntos_obtenidos), 0) AS puntos
-		FROM seleccion FORCE INDEX (idx_seleccion_partido_estado)
+		`SELECT ${pendingIndexHint('seleccion')} COUNT(*) AS acertadas, COALESCE(SUM(puntos_obtenidos), 0) AS puntos
+		FROM seleccion
 		WHERE partido_id = ? AND estado_seleccion_id = ?`,
 		[match.id, ids.acertada],
 	);

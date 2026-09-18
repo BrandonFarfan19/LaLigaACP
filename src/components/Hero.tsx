@@ -5,18 +5,20 @@ import type { CarouselSlide, Team } from '../types';
 import styles from './Hero.module.css';
 
 interface Props {
-	/** Read by the page loader through `getTeams()`, never from `src/data`. */
+	/** Read by the page loader through the data layer, never from the API directly. */
 	teams: Team[];
+	/** The competition on screen (D-021): shown above each crest. */
+	competition?: string;
 }
 
-export default function Hero({ teams }: Props) {
+export default function Hero({ teams, competition }: Props) {
 	// Map the domain entity onto the carousel's own contract, so the carousel
 	// stays reusable for anything else we need to feature later.
 	const slides: CarouselSlide[] = teams.map((team) => ({
 		id: team.id,
-		image: team.crest,
+		team,
 		alt: `Escudo de ${team.name}`,
-		eyebrow: team.country,
+		eyebrow: competition,
 		title: team.shortName,
 		accent: team.accent,
 		href: `/plantilla/${team.id}`,
@@ -40,10 +42,16 @@ export default function Hero({ teams }: Props) {
 					<h1 className={styles.title}>
 						Conoce a los <span className={styles.accent}>equipos</span>
 					</h1>
-					<p className={styles.lead}>Los {teams.length} clubes que disputan el torneo.</p>
+					{/* No teams read means no figure to give: a count of 0 beside the
+					    page's notice read as if the tournament had no clubs (T-22 fix). */}
+					{teams.length > 0 && (
+						<p className={styles.lead}>
+							{teams.length === 1 ? 'El club que disputa' : `Los ${teams.length} clubes que disputan`} {competition ? `la ${competition}` : 'el torneo'}.
+						</p>
+					)}
 				</header>
 
-				<Carousel slides={slides} label="Equipos participantes" />
+				{teams.length > 0 && <Carousel slides={slides} label="Equipos participantes" />}
 			</div>
 		</section>
 	);

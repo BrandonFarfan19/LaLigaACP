@@ -14,9 +14,12 @@ export const env: Env = loadEnv();
 /**
  * Uploaded images of this test process go to a temporary directory, never to
  * UPLOADS_DIR. The media store creates it on the first upload; the files that
- * upload remove it when they finish.
+ * upload remove it (`testUploadsRoot`) when they finish. It sits under a
+ * dotted folder, like the local default `.data/uploads`, so serving an image
+ * is tested with one (T-21 fix).
  */
-export const testUploadsDir = join(tmpdir(), `liga-uploads-${process.pid}-${Date.now()}`);
+export const testUploadsRoot = join(tmpdir(), `liga-uploads-${process.pid}-${Date.now()}`);
+export const testUploadsDir = join(testUploadsRoot, '.data', 'uploads');
 
 /**
  * The real app, wired to the test database. `overrides` tweaks config (e.g. a
@@ -32,6 +35,7 @@ export function createTestApp(overrides: Partial<Env> = {}) {
 		registerRateLimit: { ...env.registerRateLimit, max: 1000 },
 		publicRateLimit: { ...env.publicRateLimit, max: 10_000 },
 		uploadRateLimit: { ...env.uploadRateLimit, max: 10_000 },
+		sessionReadRateLimit: { ...env.sessionReadRateLimit, max: 10_000 },
 		uploads: { ...env.uploads, dir: testUploadsDir },
 		...overrides,
 	};

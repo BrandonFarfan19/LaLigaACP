@@ -288,6 +288,8 @@ describe('match results (T-12: BR-028 to BR-032)', () => {
 			await insertGoal(pool, id, s.team.B!, s.enrollment.bea!);
 			await pool.query('UPDATE gol g JOIN partido_equipo pe ON pe.id = g.partido_equipo_id SET g.minuto = IF(g.equipo_id = ?, 80, 12) WHERE pe.partido_id = ?', [s.team.A, id]);
 			const before = await row(id);
+			const auditCount = async () => Number((await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS n FROM auditoria'))[0][0]!.n);
+			const auditBefore = await auditCount();
 
 			const res = await preview(id);
 			expect(res.status).toBe(200);
@@ -312,8 +314,7 @@ describe('match results (T-12: BR-028 to BR-032)', () => {
 				advertencia: expect.stringMatching(/definitivo/),
 			});
 			expect(await row(id)).toEqual(before);
-			const [[audit]] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS n FROM auditoria');
-			expect(Number(audit!.n)).toBe(0);
+			expect(await auditCount()).toBe(auditBefore);
 		});
 
 		it.each([

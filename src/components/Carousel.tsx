@@ -1,6 +1,6 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { Link } from 'react-router';
-import PixelImage from './PixelImage';
+import Crest from './Crest';
 import type { CarouselSlide } from '../types';
 import styles from './Carousel.module.css';
 
@@ -126,14 +126,7 @@ export default function Carousel({ slides, label = 'Destacados', autoplay = true
 					// Width only — forcing a square height would squash the crests that aren't square.
 					const crest = (
 						<div className={styles.stage}>
-							<PixelImage
-								className={`${styles.crest} pixelated`}
-								image={slide.image}
-								alt={slide.alt}
-								width={96}
-								densities={[2]}
-								loading={index === 0 ? 'eager' : 'lazy'}
-							/>
+							<Crest team={slide.team} size={96} alt={slide.alt} loading={index === 0 ? 'eager' : 'lazy'} />
 						</div>
 					);
 

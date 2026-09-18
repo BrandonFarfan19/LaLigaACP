@@ -34,6 +34,17 @@
 	color: var(--color-text-muted);
 }
 
+/* What the section says when there is nothing to list, or when the list was
+   cut (T-22 fix): same box as the page notices, never a bare title. */
+.note {
+	margin: 0;
+	padding: var(--space-4);
+	background: var(--color-surface);
+	font-size: var(--text-sm);
+	line-height: 1.6;
+	color: var(--color-text-muted);
+}
+
 .rounds {
 	display: flex;
 	flex-direction: column;

@@ -1,0 +1,192 @@
+.bar {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-2);
+	min-height: 44px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Same look as the site links: pixel caps, 44px touch target, the menu cursor. */
+.link {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	/* Narrow on phones: four items must fit next to the coin counter. */
+	padding-inline: var(--space-1);
+	border: 0;
+	background: none;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	font-weight: 400;
+	line-height: 1;
+	text-transform: uppercase;
+	text-decoration: none;
+	white-space: nowrap;
+	color: var(--color-text-muted);
+	transition: color 120ms steps(2, end);
+}
+
+.link:hover,
+.link:focus-visible {
+	color: var(--color-accent);
+}
+
+.link:disabled {
+	color: var(--color-text-muted);
+}
+
+/* The page being shown (NavLink) or a menu of pages that holds it. */
+.link[aria-current='page'],
+.link[data-current] {
+	color: var(--color-text);
+}
+
+/* "Polla": a button that opens the pool's pages (T-20). */
+.menuItem {
+	position: relative;
+}
+
+.menu {
+	position: relative;
+}
+
+/* A small pixel arrow: down when closed, up when open. */
+.caret {
+	width: 0;
+	height: 0;
+	margin-left: var(--space-1);
+	border-inline: var(--px) solid transparent;
+	border-top: var(--px) solid currentColor;
+}
+
+.caret[data-open] {
+	border-top: 0;
+	border-bottom: var(--px) solid currentColor;
+}
+
+.menuList {
+	position: absolute;
+	top: 100%;
+	/* Opens to the right of the button: at 320px the button sits near the left edge. */
+	left: 0;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	min-width: 11rem;
+	margin: var(--space-1) 0 0;
+	padding: var(--space-1);
+	list-style: none;
+	background: var(--color-bg);
+}
+
+.menuList[hidden] {
+	display: none;
+}
+
+.menuLink {
+	display: flex;
+	align-items: center;
+	min-height: 44px;
+	padding-inline: var(--space-3);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	text-transform: uppercase;
+	text-decoration: none;
+	color: var(--color-text-muted);
+}
+
+.menuLink:hover,
+.menuLink:focus-visible {
+	color: var(--color-bg);
+	background: var(--color-accent);
+}
+
+/* The page being shown: a marker as well as the color. */
+.menuLink[aria-current='page'] {
+	color: var(--color-text);
+}
+
+.menuLink[aria-current='page']::before {
+	content: '>';
+	margin-right: var(--space-2);
+	color: var(--color-accent);
+}
+
+/* "Crear cuenta": the call to action, in the accent color. */
+.primary {
+	color: var(--color-accent);
+}
+
+.primary:hover,
+.primary:focus-visible {
+	color: var(--color-accent-alt);
+}
+
+/* The coin counter (BR-010): sprite + amount, one 44px-tall target. */
+.coins {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: 44px;
+	padding-inline: var(--space-1);
+	text-decoration: none;
+	color: var(--color-accent-alt);
+}
+
+.amount {
+	font-family: var(--font-display);
+	font-size: var(--text-md);
+	font-weight: 400;
+	line-height: 1;
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+/* Pending validation (BR-005): a small tag on the counter; the account page explains it. */
+.badge {
+	padding: var(--space-1) var(--space-1);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1;
+	text-transform: uppercase;
+	color: var(--color-bg);
+	background: var(--color-accent-alt);
+}
+
+.coins:hover .amount,
+.coins:focus-visible .amount {
+	color: var(--color-accent);
+}
+
+/* A failed sign-out, under the bar. */
+.alert {
+	position: absolute;
+	right: var(--space-4);
+	top: calc(100% + var(--space-2));
+	max-width: calc(100% - var(--space-8));
+	margin: 0;
+	padding: var(--space-2) var(--space-3);
+	font-size: var(--text-sm);
+	color: var(--color-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.link {
+		transition: none;
+	}
+}
+
+@media (min-width: 48rem) {
+	.link {
+		font-size: var(--text-sm);
+		padding-inline: var(--space-3);
+	}
+
+	.amount {
+		font-size: var(--text-lg);
+	}
+}

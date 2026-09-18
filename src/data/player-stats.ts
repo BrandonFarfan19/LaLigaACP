@@ -1,16 +1,17 @@
 import type { PlayerStatKey, PlayerStats } from '../types';
-import { players } from './players';
 
 /**
- * Placeholder ratings — random, not real data.
+ * Sample ratings — made up here, never real data (D-022).
+ *
+ * The rest of the league is real since T-22: these six attributes are not, and
+ * no business rule defines them nor does the schema store them. They are
+ * generated from the player's real id, so they stay the same on every reload
+ * and on every device instead of reshuffling, and the player's card says out
+ * loud that they are a sample.
  *
  * Every attribute is a whole number between 70 and 90, so each player's
- * average lands in that range too. The generator is seeded by the player id:
- * the numbers look random but stay the same on every build, instead of
- * reshuffling each time the site is deployed.
- *
- * When the backend arrives this whole file is replaced by the
- * `player_stats` table; `src/lib/players.ts` is the only reader.
+ * average lands in that range too. If real attributes ever exist, only this
+ * file changes: the screen keeps reading them through `src/lib/league.ts`.
  */
 
 const MIN = 70;
@@ -39,11 +40,12 @@ function seededRandom(seed: number): () => number {
 	};
 }
 
-export const playerStats: PlayerStats[] = players.map((player) => {
-	const random = seededRandom(hash(player.id));
-	const stats = { playerId: player.id } as PlayerStats;
+/** The sample ratings of one player, from their real id. */
+export function statsForPlayer(playerId: string): PlayerStats {
+	const random = seededRandom(hash(playerId));
+	const stats = { playerId } as PlayerStats;
 	for (const key of KEYS) {
 		stats[key] = MIN + Math.floor(random() * (MAX - MIN + 1));
 	}
 	return stats;
-});
+}

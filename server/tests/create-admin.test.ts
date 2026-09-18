@@ -268,6 +268,24 @@ describe('first admin (BR-001)', () => {
 			expect(await roleOf(pool, user.email)).toBe('apostador');
 		});
 
+		it('two runs at once (T-17 second fix): the loser says it already was an admin, with exit 0, never the driver text', async () => {
+			const runs = await Promise.all([1, 2].map(() => cli({ ADMIN_EMAIL: 'doble@liga.test', ADMIN_NOMBRE: 'Doble', ADMIN_PASSWORD_STDIN: '1' }, 'clave-doble-123\n')));
+			for (const run of runs) {
+				expect(run.code, run.stderr).toBe(0);
+				expect(run.stdout + run.stderr).not.toMatch(/Duplicate entry|ER_DUP/);
+			}
+			expect(runs.map((run) => run.stdout.split(':')[0]).sort()).toEqual(['Administrador creado', 'Ya era administrador']);
+
+			const { body } = await registerUser(app);
+			const promotions = await Promise.all([1, 2].map(() => cli({ ADMIN_EMAIL: body.email })));
+			for (const run of promotions) {
+				expect(run.code, run.stderr).toBe(0);
+				expect(run.stderr).not.toMatch(/No se puede promover/);
+			}
+			expect(promotions.map((run) => run.stdout.split(':')[0]).sort()).toEqual(['Usuario promovido a administrador', 'Ya era administrador']);
+			expect(await roleOf(pool, body.email)).toBe('admin');
+		});
+
 		it('promotes without any password source and without waiting for input', async () => {
 			const { body } = await registerUser(app);
 

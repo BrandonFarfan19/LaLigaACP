@@ -10,6 +10,7 @@ import { type AdminActionContext, runAdminAction } from './admin-action.js';
 import { find, findForUpdate, type Match, type Side } from './matches.service.js';
 import type { MediaStore } from './media-storage.js';
 import { loadingProblem } from './results.service.js';
+import { plural } from '../lib/plural.js';
 
 /**
  * Módulo Informativo, T-13: who scored (BR-033) and each goal's image and
@@ -150,8 +151,8 @@ function tooManyGoals(side: { goles: number | null; atribuidos: number }, equipo
 		409,
 		ErrorCode.GOALS_EXCEED_SCORE,
 		side.goles === null
-			? 'Cargá primero el marcador del partido: no se pueden atribuir más goles que los del marcador.'
-			: `Ese equipo tiene ${side.goles} gol(es) en el marcador y ya tiene ${side.atribuidos} atribuido(s).`,
+			? 'Carga primero el marcador del partido: no se pueden atribuir más goles que los del marcador.'
+			: `Ese equipo tiene ${plural(Number(side.goles), 'gol', 'goles')} en el marcador y ya tiene ${plural(Number(side.atribuidos), 'atribuido', 'atribuidos')}.`,
 		{ equipoId, golesMarcador: side.goles, golesAtribuidos: side.atribuidos },
 	);
 }
@@ -169,7 +170,7 @@ export async function createGoal(pool: Pool, ctx: AdminActionContext, matchId: n
 			'INSERT INTO gol (partido_equipo_id, plantel_id, equipo_id, minuto) VALUES (?, ?, ?, ?)',
 			[side.id, plantelId, input.equipoId, input.minuto],
 		);
-		return { id: result.insertId, before: null, after: await readGoal(conn, matchId, result.insertId) };
+		return { id: result.insertId, before: null, after: withoutFile(await readGoal(conn, matchId, result.insertId)) };
 	});
 	return withoutFile(outcome.after!);
 }
@@ -202,7 +203,7 @@ export async function updateGoal(
 			input.minuto ?? before.minuto,
 			goalId,
 		]);
-		return { id: goalId, before: withoutFile(before), after: await readGoal(conn, matchId, goalId) };
+		return { id: goalId, before: withoutFile(before), after: withoutFile(await readGoal(conn, matchId, goalId)) };
 	});
 	return withoutFile(outcome.after!);
 }
@@ -247,7 +248,7 @@ export async function setGoalImage(
 			const before = await readGoal(conn, matchId, goalId);
 			await conn.query('UPDATE gol SET imagen = ? WHERE id = ?', [name, goalId]);
 			replaced = before.archivo;
-			return { id: goalId, before: withoutFile(before), after: await readGoal(conn, matchId, goalId) };
+			return { id: goalId, before: withoutFile(before), after: withoutFile(await readGoal(conn, matchId, goalId)) };
 		});
 		await deps.store.remove(replaced);
 		return withoutFile(outcome.after!);
@@ -267,7 +268,7 @@ export async function removeGoalImage(pool: Pool, ctx: AdminActionContext, match
 		if (!before.archivo) throw HttpError.notFound('Ese gol no tiene imagen.', ErrorCode.MEDIA_NOT_FOUND);
 		await conn.query('UPDATE gol SET imagen = NULL WHERE id = ?', [goalId]);
 		removed = before.archivo;
-		return { id: goalId, before: withoutFile(before), after: await readGoal(conn, matchId, goalId) };
+		return { id: goalId, before: withoutFile(before), after: withoutFile(await readGoal(conn, matchId, goalId)) };
 	});
 	await deps.store.remove(removed);
 	return withoutFile(outcome.after!);
@@ -289,7 +290,7 @@ export async function setGoalVideo(
 		const before = await readGoal(conn, matchId, goalId);
 		if (!video && !before.video) throw HttpError.notFound('Ese gol no tiene video.', ErrorCode.MEDIA_NOT_FOUND);
 		await conn.query('UPDATE gol SET video = ? WHERE id = ?', [video?.url ?? null, goalId]);
-		return { id: goalId, before: withoutFile(before), after: await readGoal(conn, matchId, goalId) };
+		return { id: goalId, before: withoutFile(before), after: withoutFile(await readGoal(conn, matchId, goalId)) };
 	});
 	return withoutFile(outcome.after!);
 }

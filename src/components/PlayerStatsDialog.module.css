@@ -280,3 +280,12 @@
 		font-size: var(--text-sm);
 	}
 }
+
+/* D-022: says the six attributes are made up, next to the average. */
+.sample {
+	margin: var(--space-1) 0 0;
+	font-size: var(--text-xs);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	color: var(--color-text-muted);
+}

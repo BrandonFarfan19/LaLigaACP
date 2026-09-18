@@ -8,6 +8,7 @@ import type { CreateSportBody, ListSportsQuery, UpdateSportBody } from '../schem
 import type { Page } from '../schemas/common.schema.js';
 import { type AdminActionContext, runAdminAction } from './admin-action.js';
 import { type Db, dependents, describeDependents, likePattern, pageOf, Where } from './catalog-query.js';
+import { plural } from '../lib/plural.js';
 
 /** Módulo Informativo: `deporte` (BR-001, BR-011, BR-015, BR-048). */
 
@@ -70,7 +71,7 @@ export function requireSlug(nombre: string): string {
 	const slug = slugify(nombre);
 	if (!slug) {
 		throw HttpError.badRequest('Solicitud inválida.', [
-			{ path: 'slug', message: 'El nombre no tiene letras ni números: enviá un slug.' },
+			{ path: 'slug', message: 'El nombre no tiene letras ni números: envía un slug.' },
 		]);
 	}
 	return slug;
@@ -107,7 +108,7 @@ export async function updateSport(
 				WHERE c.deporte_id = ? AND NOT ${notStarted.sql}`,
 				[id, ...notStarted.params],
 			);
-			if (Number(started?.n) > 0) reasons.push(`tiene ${started!.n} partido(s) en curso, finalizados o cancelados`);
+			if (Number(started?.n) > 0) reasons.push(`tiene ${plural(Number(started!.n), 'partido que ya no está programado', 'partidos que ya no están programados')} (en curso, finalizados o cancelados)`);
 			for (const guard of guards) {
 				const reason = await guard(conn, id);
 				if (reason) reasons.push(reason);

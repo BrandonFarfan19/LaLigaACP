@@ -91,9 +91,14 @@ export const setResultBody = z.strictObject({ golesLocal: goles, golesVisitante:
  * between, the confirmation is refused (409 `RESULT_CHANGED`).
  */
 export const confirmResultBody = z.strictObject({
-	confirmar: z.literal(true, { error: 'Para confirmar el resultado, enviá confirmar: true.' }),
+	confirmar: z.literal(true, { error: 'Para confirmar el resultado, envía confirmar: true.' }),
 	golesLocal: goles,
 	golesVisitante: goles,
+});
+
+/** T-16, BR-045: cancelling a match is explicit and final. */
+export const cancelMatchBody = z.strictObject({
+	confirmar: z.literal(true, { error: 'Para cancelar el partido, envía confirmar: true.' }),
 });
 
 export type SetResultBody = z.infer<typeof setResultBody>;

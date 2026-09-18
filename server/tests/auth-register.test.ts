@@ -92,6 +92,16 @@ describe('POST /auth/register (BR-003)', () => {
 		['too long password', { password: 'x'.repeat(129) }, 'password'],
 		['blank name', { nombre: '   ' }, 'nombre'],
 		['missing name', { nombre: undefined }, 'nombre'],
+		// D-011: the same rules as the catalog's names (displayName).
+		['a name that is only an emoji', { nombre: '🦅' }, 'nombre'],
+		['a name that is only punctuation', { nombre: '¡¿!?' }, 'nombre'],
+		['a name with a zero-width space', { nombre: 'An\u200Ba' }, 'nombre'],
+		['a name with a right-to-left override', { nombre: 'Ana \u202Eatciv' }, 'nombre'],
+		['a name with a control character', { nombre: 'Ana\u0007' }, 'nombre'],
+		['a name with a newline', { nombre: 'Ana\nPérez' }, 'nombre'],
+		['a name with a lone surrogate', { nombre: 'Ana \uD83D' }, 'nombre'],
+		['a name that is only a Hangul filler', { nombre: '\u3164' }, 'nombre'],
+		['a name over 100 characters', { nombre: 'a'.repeat(101) }, 'nombre'],
 	])('%s -> 400 VALIDATION_ERROR naming the field', async (_label, overrides, field) => {
 		const res = await request(app).post('/auth/register').send(newUserBody(overrides));
 
@@ -100,6 +110,14 @@ describe('POST /auth/register (BR-003)', () => {
 		expect(res.body.error.details).toEqual(expect.arrayContaining([expect.objectContaining({ path: field })]));
 		// The rejected password is never echoed back.
 		expect(JSON.stringify(res.body)).not.toContain('corta');
+	});
+
+	it('accepts names with accents, emoji next to letters, digits only, and trims them (D-011)', async () => {
+		for (const nombre of ['  José Ñandú 🦅  ', 'Ana 👨\u200D👩\u200D👧', '1860', 'a'.repeat(100)]) {
+			const res = await request(app).post('/auth/register').send(newUserBody({ nombre }));
+			expect(res.status, nombre).toBe(201);
+			expect(res.body.data.user.nombre).toBe(nombre.trim());
+		}
 	});
 
 	it('rejects a non-object body', async () => {

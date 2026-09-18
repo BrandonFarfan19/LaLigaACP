@@ -14,5 +14,5 @@
     "moduleDetection": "force",
     "skipLibCheck": true
   },
-  "include": ["vite.config.ts", "vite-plugins"]
+  "include": ["vite.config.ts", "vitest.config.ts", "vite-plugins"]
 }

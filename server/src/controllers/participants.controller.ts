@@ -8,7 +8,7 @@ import * as participantActions from '../services/participant-validation.service.
 import { countParticipants, listParticipants } from '../services/participants.service.js';
 
 /** `/admin/participantes` handlers (BR-001, BR-006 to BR-008, §23). The router already requires an admin session. */
-export function createParticipantsController(pool: Pool) {
+export function createParticipantsController(pool: Pool, hooks: participantActions.ParticipantActionHooks = {}) {
 	const list: RequestHandler = async (req, res) => {
 		sendSuccess(res, await listParticipants(pool, listParticipantsQuerySchema.parse(req.query)));
 	};
@@ -24,7 +24,7 @@ export function createParticipantsController(pool: Pool) {
 		(run: typeof participantActions.confirmPayment): RequestHandler =>
 		async (req, res) => {
 			const { id } = userIdParamsSchema.parse(req.params);
-			const outcome = await run(pool, { actorId: authUser(req).id, userId: id });
+			const outcome = await run(pool, { actorId: authUser(req).id, userId: id }, hooks);
 			sendSuccess(res, { participante: outcome.participant });
 		};
 

@@ -32,7 +32,7 @@ describe('admin: competiciones y equipos (BR-001, BR-011)', () => {
 			const voley = await sport('Vóley');
 			const res = await api.post('/competiciones', { deporteId: futbol.id, nombre: 'Torneo Apertura 2026' });
 			expect(res.status).toBe(201);
-			expect(res.body.data).toEqual({ id: expect.any(Number), deporteId: futbol.id, nombre: 'Torneo Apertura 2026', slug: 'torneo-apertura-2026' });
+			expect(res.body.data).toEqual({ id: expect.any(Number), deporteId: futbol.id, deporteNombre: 'Fútbol', nombre: 'Torneo Apertura 2026', slug: 'torneo-apertura-2026' });
 			const id = res.body.data.id as number;
 			await created(api.post('/competiciones', { deporteId: voley.id, nombre: 'Liga Vóley' }));
 
@@ -103,7 +103,7 @@ describe('admin: competiciones y equipos (BR-001, BR-011)', () => {
 			expect(res.status).toBe(409);
 			expect(res.body.error).toEqual({
 				code: 'COMPETITION_IN_USE',
-				message: 'No se puede borrar la competición: tiene 2 equipos, 1 partido, 1 jugador inscrito.',
+				message: 'No se puede borrar la competición: tiene 2 equipos, 1 partido y 1 jugador inscrito.',
 				details: { equipos: 2, partidos: 1, inscripciones: 1 },
 			});
 		});
@@ -117,6 +117,8 @@ describe('admin: competiciones y equipos (BR-001, BR-011)', () => {
 			expect(res.body.data).toEqual({
 				id: expect.any(Number),
 				competicionId: competitionId,
+				competicionNombre: 'Apertura',
+				deporteNombre: 'Fútbol',
 				nombre: 'Boca Juniors',
 				nombreCorto: 'Atlético',
 				escudo: 'https://cdn.example.com/boca.png',
@@ -189,7 +191,7 @@ describe('admin: competiciones y equipos (BR-001, BR-011)', () => {
 			expect(res.status).toBe(409);
 			expect(res.body.error).toEqual({
 				code: 'TEAM_IN_USE',
-				message: 'No se puede borrar el equipo: tiene 1 partido, 1 jugador inscrito, 1 gol.',
+				message: 'No se puede borrar el equipo: tiene 1 partido, 1 jugador inscrito y 1 gol.',
 				details: { partidos: 1, inscripciones: 1, goles: 1 },
 			});
 			// A team with nothing attached can be deleted.

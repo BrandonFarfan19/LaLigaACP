@@ -8,17 +8,25 @@ import { z } from 'zod';
 export const emptyQuerySchema = z.strictObject({});
 
 /**
- * A whole number from 1 to `max`, each failure with its own message. The
- * "must be a number" text applies only to non-numbers: set on the schema
- * itself, zod would use it for every failed check too ("page debe ser un
- * número" for page=100001).
+ * A whole number from 1 to `max`, written only with decimal digits (T-21 fix:
+ * `z.coerce` took `1e2`, `0x10`, ` 2` or `2.0`), each failure with its own
+ * message.
  */
 export function pageNumber(name: string, max: number) {
-	return z.coerce
-		.number({ error: (issue) => (issue.code === 'invalid_type' ? `${name} debe ser un número.` : undefined) })
-		.int(`${name} debe ser un número entero.`)
-		.min(1, `${name} debe ser 1 o mayor.`)
-		.max(max, `${name} no puede ser mayor que ${max}.`);
+	return z.string({ error: `${name} debe ser un número.` }).transform((text, ctx) => {
+		let message: string | null = null;
+		if (/^-\d+$/.test(text)) message = `${name} debe ser 1 o mayor.`;
+		else if (!/^\d+$/.test(text)) {
+			// Something a number parser would take (1.5, 1e2, 0x10) is a number, just not a whole one in digits.
+			message = text.trim() !== '' && Number.isFinite(Number(text)) ? `${name} debe ser un número entero, escrito solo con cifras.` : `${name} debe ser un número.`;
+		} else if (Number(text) < 1) message = `${name} debe ser 1 o mayor.`;
+		else if (Number(text) > max) message = `${name} no puede ser mayor que ${max}.`;
+		if (message) {
+			ctx.addIssue({ code: 'custom', message });
+			return z.NEVER;
+		}
+		return Number(text);
+	});
 }
 
 /**

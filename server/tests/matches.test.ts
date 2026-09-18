@@ -83,7 +83,9 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 			expect(res.body.data).toEqual({
 				id: expect.any(Number),
 				competicionId: ids.comp,
+				competicionNombre: 'Apertura',
 				deporteId: ids.sport,
+				deporteNombre: 'Fútbol',
 				estado: 'programado',
 				jornada: 1,
 				fechaHora: new Date(fechaHora).toISOString(),

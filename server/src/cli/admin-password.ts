@@ -50,7 +50,7 @@ export async function resolvePasswordSource(
 		Boolean,
 	);
 	if (chosen.length > 1) {
-		throw new UsageError(`Usá una sola fuente para la contraseña; llegaron varias: ${chosen.join(', ')}.`);
+		throw new UsageError(`Usa una sola fuente para la contraseña; llegaron varias: ${chosen.join(', ')}.`);
 	}
 
 	if (inline) return { kind: 'value', from: 'ADMIN_PASSWORD', value: inline };

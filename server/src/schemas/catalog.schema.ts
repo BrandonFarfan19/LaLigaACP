@@ -76,15 +76,34 @@ const bodyId = z
 	.max(Number.MAX_SAFE_INTEGER, 'Es demasiado grande.');
 
 /**
+ * Blank or invisible characters that aren't format characters: any space
+ * (including U+00A0, U+2000 to U+200A, U+202F, U+205F, U+3000), invisible
+ * marks (U+034F, U+17B4, U+17B5, U+180B), variation selectors (U+FE0F...)
+ * and U+1D159. A crest or photo address never needs them (a real space is
+ * written `%20`). Names still accept them next to letters (docs/pendientes.md).
+ */
+const URL_BLANK = /[\s\p{Zs}\u034F\u17B4\u17B5\u180B-\u180D\uFE00-\uFE0F\u{1D159}\u{E0100}-\u{E01EF}]/u;
+
+/**
  * Crest or photo, until file uploads exist (T-13): either an `https://` URL
  * or a relative asset path such as `escudos/boca.webp`. No `..`, no leading
  * `/`, no `//`, an image extension, at most 255 characters (the column).
+ * Like names (T-17 fix), no lone UTF-16 surrogates, control, format,
+ * blank-looking or line-separator characters, and no blanks at all (T-18 fix):
+ * `new URL` would accept them (it drops tabs and newlines, and encodes a lone
+ * half as U+FFFD), but the raw text is what gets stored.
  */
 const ASSET_PATH = /^(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9][A-Za-z0-9._/-]*\.(?:png|jpe?g|webp|avif|svg|gif)$/i;
 const imageRef = z
 	.string({ error: 'Debe ser un texto.' })
 	.trim()
 	.max(255, 'No puede superar los 255 caracteres.')
+	.refine((value) => !LONE_SURROGATE.test(value), 'Tiene caracteres Unicode inválidos.')
+	.refine(
+		(value) =>
+			!/\p{Cc}/u.test(value) && !/\p{Cf}/u.test(value) && !LINE_BREAK.test(value) && !BLANK_LOOKING.test(value) && !URL_BLANK.test(value),
+		'No puede tener espacios ni caracteres de control, invisibles, rellenos en blanco o separadores de línea.',
+	)
 	.refine((value) => {
 		if (ASSET_PATH.test(value)) return true;
 		try {
@@ -211,6 +230,8 @@ export const updatePlayerBody = z
 
 export const listEnrollmentsQuery = z.strictObject({
 	...paginationFields,
+	/** T-21: player or team name. */
+	q: search,
 	equipoId: idFromText('equipoId').optional(),
 	competicionId: idFromText('competicionId').optional(),
 	jugadorId: idFromText('jugadorId').optional(),

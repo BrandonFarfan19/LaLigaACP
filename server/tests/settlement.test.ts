@@ -14,7 +14,7 @@ import {
 	settleSelection,
 } from '../src/lib/points.js';
 import { countPendingSelections } from '../src/services/bets-match-probe.service.js';
-import { LOTE_LIQUIDACION, PENDING_IDS_SQL, settleMatchBets, settleMatchSelections } from '../src/services/bets-settlement.service.js';
+import { LOTE_LIQUIDACION, PENDING_IDS_SQL, PENDING_INDEX, settleMatchBets, settleMatchSelections } from '../src/services/bets-settlement.service.js';
 import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
 import { confirmResult, type MatchSettler, type ResultDeps } from '../src/services/results.service.js';
 import { createTestApp } from './helpers/app.js';
@@ -356,7 +356,9 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 					await settleMatchSelections(conn, { id, competicionId: s.liga, ...result(1, 0) });
 					const [[me]] = await conn.query<RowDataPacket[]>('SELECT CONNECTION_ID() AS id');
 					const locks = (await locksHeldBy(Number(me!.id))).filter((l) => l.tabla === 'seleccion' && l.tipo === 'RECORD');
-					expect(locks.map((l) => [l.indice, l.modo, Number(l.dato)])).toEqual([
+					// performance_schema.data_locks has no fixed row order: compare by id.
+					const held = locks.map((l) => [l.indice, l.modo, Number(l.dato)] as const).sort((a, b) => a[2] - b[2]);
+					expect(held).toEqual([
 						['PRIMARY', 'X,REC_NOT_GAP', pending[0]],
 						['PRIMARY', 'X,REC_NOT_GAP', pending[2]],
 					]);
@@ -399,6 +401,13 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			const [plan] = await pool.query<RowDataPacket[]>(`EXPLAIN ${PENDING_IDS_SQL}`, [id, s.cat['estado:pendiente']]);
 			expect(plan[0]).toMatchObject({ key: 'idx_seleccion_partido_estado', type: 'ref' });
 			expect(await countPendingSelections(pool, id)).toBe(TOTAL);
+			// If the index were renamed or dropped, the hint is only a warning: same answer, never a 500.
+			const withoutIndex = PENDING_IDS_SQL.replace(PENDING_INDEX, 'idx_que_no_existe');
+			expect(withoutIndex).not.toBe(PENDING_IDS_SQL);
+			const [unhinted] = await pool.query<RowDataPacket[]>(withoutIndex, [id, s.cat['estado:pendiente']]);
+			expect(unhinted).toHaveLength(TOTAL);
+			const [[warning]] = await pool.query<RowDataPacket[]>('SHOW WARNINGS');
+			expect(warning).toMatchObject({ Code: 3128 });
 
 			let statements = 0;
 			const counting: MatchSettler = async (conn, match) => {

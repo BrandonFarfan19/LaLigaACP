@@ -4,7 +4,15 @@ import { type EstadoSeleccion, type EstadoTicket, ticketStateCondition } from '.
 import type { ListMyBetsQuery } from '../schemas/betting.schema.js';
 import { type Page, toPage } from '../schemas/common.schema.js';
 import { Where } from './catalog-query.js';
-import { SELECTION_COLUMNS, SELECTION_JOINS, selectionFrom, type TicketSelectionView, type TicketTotals, ticketTotals } from './tickets.service.js';
+import {
+	REFUND_TYPE,
+	SELECTION_COLUMNS,
+	SELECTION_JOINS,
+	selectionFrom,
+	type TicketSelectionView,
+	type TicketTotals,
+	ticketTotals,
+} from './tickets.service.js';
 
 /**
  * Módulo Polla, T-11: "Mis apuestas" (BR-026, BR-027). Only the caller's own
@@ -18,42 +26,55 @@ export interface MyBet extends TicketSelectionView {
 	ticket: { id: number; creadoEn: Date } & TicketTotals;
 }
 
-const stateId = (codigo: EstadoSeleccion) => `(SELECT id FROM estado_seleccion WHERE codigo = '${codigo}')`;
+/** A selection state's id, as an uncorrelated SQL subquery (by `codigo`, never a fixed id). */
+export const stateId = (codigo: EstadoSeleccion) => `(SELECT id FROM estado_seleccion WHERE codigo = '${codigo}')`;
 
 /**
- * Per ticket, over the caller's tickets (and, when given, only some of
- * them): what its state and totals are computed from. Served by
- * `idx_ticket_usuario_fecha` and the covering `idx_seleccion_ticket_estado`.
+ * Per ticket, over the tickets `anchor` picks (a condition on `t2`): what its
+ * state and totals are computed from. The caller's own history anchors on
+ * its user (and, when given, only some of its tickets); the admin query
+ * (T-21) on ticket ids or on every participant. Served by
+ * `idx_ticket_usuario_fecha` and the covering `idx_seleccion_ticket_estado`;
+ * the refunds (D-003) through `uq_movimiento_seleccion_tipo` (at most one per
+ * selection, so the join never repeats a row).
  */
-const ticketAggregates = (onlySomeTickets: boolean) => `(
+export const ticketAggregatesFor = (anchor: string) => `(
 	SELECT s2.ticket_id,
 		COUNT(*) AS total,
 		SUM(s2.estado_seleccion_id = ${stateId('pendiente')}) AS pendientes,
 		SUM(s2.estado_seleccion_id = ${stateId('anulada')}) AS anuladas,
 		SUM(s2.estado_seleccion_id = ${stateId('acertada')}) AS acertadas,
 		SUM(s2.estado_seleccion_id = ${stateId('no_acertada')}) AS no_acertadas,
-		COALESCE(SUM(s2.puntos_obtenidos), 0) AS puntos
+		COALESCE(SUM(s2.puntos_obtenidos), 0) AS puntos,
+		COALESCE(SUM(m2.cantidad), 0) AS devueltas
 	FROM ticket t2
 	JOIN seleccion s2 ON s2.ticket_id = t2.id
-	WHERE t2.usuario_id = ?${onlySomeTickets ? ' AND t2.id IN (?)' : ''}
+	LEFT JOIN movimiento_moneda m2 ON m2.seleccion_id = s2.id AND m2.tipo_movimiento_id = ${REFUND_TYPE}
+	WHERE ${anchor}
 	GROUP BY s2.ticket_id
 )`;
+const ticketAggregates = (onlySomeTickets: boolean) => ticketAggregatesFor(`t2.usuario_id = ?${onlySomeTickets ? ' AND t2.id IN (?)' : ''}`);
 const TICKET_AGGREGATES = ticketAggregates(false);
 
-const ORDER = 't.creado_en DESC, t.id DESC, s.id ASC';
+/** Newest ticket first, and inside a ticket in the order it was placed. */
+export const HISTORY_ORDER = 't.creado_en DESC, t.id DESC, s.id ASC';
+const ORDER = HISTORY_ORDER;
 
-const COLUMNS = `t.id AS t_id, t.creado_en AS t_creado_en,
-	agg.total AS t_total, agg.pendientes AS t_pendientes, agg.anuladas AS t_anuladas, agg.puntos AS t_puntos,
+/** A history row: its ticket (with `agg`), then the selection with its match. */
+export const HISTORY_COLUMNS = `t.id AS t_id, t.creado_en AS t_creado_en,
+	agg.total AS t_total, agg.pendientes AS t_pendientes, agg.anuladas AS t_anuladas, agg.puntos AS t_puntos, agg.devueltas AS t_devueltas,
 	${SELECTION_COLUMNS}`;
+const COLUMNS = HISTORY_COLUMNS;
 
 const countsFrom = (row: RowDataPacket, prefix: string) => ({
 	total: Number(row[`${prefix}total`]),
 	pendientes: Number(row[`${prefix}pendientes`]),
 	anuladas: Number(row[`${prefix}anuladas`]),
 	puntos: Number(row[`${prefix}puntos`]),
+	devueltas: Number(row[`${prefix}devueltas`]),
 });
 
-function myBetFrom(row: RowDataPacket): MyBet {
+export function myBetFrom(row: RowDataPacket): MyBet {
 	return {
 		ticket: { id: Number(row.t_id), creadoEn: row.t_creado_en as Date, ...ticketTotals(countsFrom(row, 't_')) },
 		...selectionFrom(row),
@@ -126,7 +147,7 @@ export interface MyBetsSummary {
 	selecciones: { total: number } & Record<EstadoSeleccion, number>;
 	/** BR-020: every confirmed selection, refunded or not. */
 	monedasUtilizadas: number;
-	/** BR-046: one per voided selection. */
+	/** BR-046, D-003: the coins actually refunded to the user. */
 	monedasDevueltas: number;
 	/** BR-039/BR-040: the sum of the settled selections' points. */
 	puntos: number;
@@ -150,7 +171,8 @@ export async function getMyBetsSummary(pool: Pool, userId: number): Promise<MyBe
 			COALESCE(SUM(agg.anuladas), 0) AS sel_anuladas,
 			COALESCE(SUM(agg.acertadas), 0) AS sel_acertadas,
 			COALESCE(SUM(agg.no_acertadas), 0) AS sel_no_acertadas,
-			COALESCE(SUM(agg.puntos), 0) AS sel_puntos
+			COALESCE(SUM(agg.puntos), 0) AS sel_puntos,
+			COALESCE(SUM(agg.devueltas), 0) AS sel_devueltas
 		FROM ${TICKET_AGGREGATES} agg`,
 		[userId],
 	);

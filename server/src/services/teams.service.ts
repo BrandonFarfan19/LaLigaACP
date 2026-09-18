@@ -11,6 +11,9 @@ import { type Db, dependents, describeDependents, likePattern, pageOf, Where } f
 export interface Team {
 	id: number;
 	competicionId: number;
+	/** Joined by the API (T-21 fix), so a row shows where it plays without another list. */
+	competicionNombre: string;
+	deporteNombre: string;
 	nombre: string;
 	nombreCorto: string;
 	/** `https://` URL or relative asset path (no uploads until T-13). */
@@ -19,12 +22,15 @@ export interface Team {
 	colorAcento: string;
 }
 
-const COLUMNS = 'e.id, e.competicion_id, e.nombre, e.nombre_corto, e.escudo, e.color_acento';
+const COLUMNS = 'e.id, e.competicion_id, c.nombre AS competicion_nombre, d.nombre AS deporte_nombre, e.nombre, e.nombre_corto, e.escudo, e.color_acento';
+const FROM = 'FROM equipo e JOIN competicion c ON c.id = e.competicion_id JOIN deporte d ON d.id = c.deporte_id';
 
 function toTeam(row: RowDataPacket): Team {
 	return {
 		id: Number(row.id),
 		competicionId: Number(row.competicion_id),
+		competicionNombre: String(row.competicion_nombre),
+		deporteNombre: String(row.deporte_nombre),
 		nombre: String(row.nombre),
 		nombreCorto: String(row.nombre_corto),
 		escudo: String(row.escudo),
@@ -34,7 +40,7 @@ function toTeam(row: RowDataPacket): Team {
 
 async function find(db: Db, id: number, lock = false): Promise<Team> {
 	const [[row]] = await db.query<RowDataPacket[]>(
-		`SELECT ${COLUMNS} FROM equipo e WHERE e.id = ?${lock ? ' FOR UPDATE' : ''}`,
+		`SELECT ${COLUMNS} ${FROM} WHERE e.id = ?${lock ? ' FOR UPDATE OF e' : ''}`,
 		[id],
 	);
 	if (!row) throw HttpError.notFound('No existe ese equipo.', ErrorCode.TEAM_NOT_FOUND);
@@ -60,7 +66,7 @@ export function listTeams(pool: Pool, query: ListTeamsQuery): Promise<Page<Team>
 	if (query.deporteId) where.add('c.deporte_id = ?', query.deporteId);
 	return pageOf(
 		pool,
-		{ columns: COLUMNS, from: 'FROM equipo e JOIN competicion c ON c.id = e.competicion_id', where, orderBy: 'e.nombre, e.id' },
+		{ columns: COLUMNS, from: FROM, where, orderBy: 'e.nombre, e.id' },
 		query,
 		toTeam,
 	);

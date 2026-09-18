@@ -22,7 +22,7 @@ export function imageUpload(env: Env): RequestHandler {
 
 	return (req, res, next) => {
 		if (!req.is('multipart/form-data')) {
-			next(new HttpError(415, ErrorCode.UNSUPPORTED_MEDIA_TYPE, `Enviá la imagen como multipart/form-data, en el campo ${UPLOAD_FIELD}.`));
+			next(new HttpError(415, ErrorCode.UNSUPPORTED_MEDIA_TYPE, `Envía la imagen como multipart/form-data, en el campo ${UPLOAD_FIELD}.`));
 			return;
 		}
 		parse(req, res, (error: unknown) => {
@@ -37,7 +37,7 @@ export function imageUpload(env: Env): RequestHandler {
 			// Any other problem with the multipart body (other fields, more files, a
 			// cut or malformed stream) is the client's; the parser's message is not
 			// forwarded.
-			next(new HttpError(400, ErrorCode.UPLOAD_INVALID, `El envío no es válido: mandá un solo archivo en el campo ${UPLOAD_FIELD} y nada más.`));
+			next(new HttpError(400, ErrorCode.UPLOAD_INVALID, `El envío no es válido: manda un solo archivo en el campo ${UPLOAD_FIELD} y nada más.`));
 		});
 	};
 }

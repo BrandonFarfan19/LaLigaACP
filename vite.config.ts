@@ -10,7 +10,48 @@ import spaRewrites from './vite-plugins/spa-rewrites.ts';
  * `/` needs no rule. Adding a route means listing it here and in `vercel.json`
  * (with and without a trailing slash); the build fails if they differ.
  */
-const SPA_ROUTES = ['/posiciones', '/plantilla/:id'];
+const SPA_ROUTES = [
+	'/posiciones',
+	'/plantilla/:id',
+	'/ingresar',
+	'/registro',
+	'/cuenta',
+	'/admin',
+	// The admin panel's sections (T-21).
+	'/admin/participantes',
+	'/admin/partidos',
+	'/admin/partidos/:id',
+	'/admin/apuestas',
+	'/admin/ranking',
+	'/admin/auditoria',
+	'/admin/deportes',
+	'/admin/competiciones',
+	'/admin/equipos',
+	'/admin/jugadores',
+	'/admin/planteles',
+	'/apuestas',
+	'/apuestas/tickets/:id',
+	'/mis-apuestas',
+	'/ranking',
+];
+
+/**
+ * D-006: the frontend calls the API on its own origin, under `/api`. In
+ * development (`vite dev`) and `vite preview`, this proxy forwards those
+ * requests to the backend without the prefix, keeping the browser's `Origin`
+ * and cookies as they are. In production a reverse proxy does the same
+ * (README, "Despliegue"). `API_PROXY_TARGET` points it elsewhere.
+ */
+const apiProxy = {
+	// A key starting with `^` is a regular expression: only `/api` and `/api/...`, never `/apix`.
+	'^/api(?:/|$|\\?)': {
+		target: process.env.API_PROXY_TARGET ?? 'http://localhost:3001',
+		rewrite: (path: string) => {
+			const rest = path.replace(/^\/api(?=\/|$|\?)/, '');
+			return rest.startsWith('/') ? rest : `/${rest}`;
+		},
+	},
+};
 
 /**
  * Fallback for static hosts without rewrites (e.g. GitHub Pages): they serve
@@ -58,6 +99,8 @@ export default defineConfig({
 		spaRewrites(SPA_ROUTES),
 		spaFallback(),
 	],
+	server: { proxy: apiProxy },
+	preview: { proxy: apiProxy },
 	css: {
 		modules: {
 			// Readable in devtools while still scoped per component.

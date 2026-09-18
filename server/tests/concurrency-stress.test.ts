@@ -16,7 +16,8 @@ import { resetDatabase } from './helpers/db.js';
  * times at once) and locked evaluations running in parallel with the admin
  * writes that lock the same rows: postponing and advancing a match, editing
  * matches whose betting closed (T-07 had manual state changes until T-13),
- * flipping permite_empate, and (T-12) loading and confirming a result.
+ * flipping permite_empate, (T-12) loading and confirming a result, and (T-16)
+ * cancelling a match with bets every other round.
  *
  * Before the fix the ticket locked through a joined query with no fixed plan
  * and deadlocked with changeMatchState (6 deadlocks in 8 rounds). Now every
@@ -142,6 +143,8 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			outcomes[key] = (outcomes[key] ?? 0) + 1;
 		};
 
+		let lastBetting: number[] = [];
+		const cancelled: number[] = [];
 		for (let round = 0; round < ROUNDS; round++) {
 			const flip = round % 2 === 0;
 			// The matches the admin touches this round are in the tickets too: that is where locks collide.
@@ -151,7 +154,16 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			const finishing = s.past[round]!;
 			const betting = [postponed, advanced, ...pick(s.open, 1)]; // all open: it is confirmed
 			const key = randomUUID();
+			// T-16: every other round, cancel a match bettor 0 bet on last round (not touched this round), while bettor 0
+			// confirms again: the cancellation locks that user before the match. It leaves the open list for good.
+			const cancelling = round % 2 === 1 ? lastBetting.find((id) => !betting.includes(id) && id !== postponed && id !== advanced) : undefined;
+			if (cancelling) {
+				s.open.splice(s.open.indexOf(cancelling), 1);
+				cancelled.push(cancelling);
+			}
+			lastBetting = betting;
 			const work: Array<Promise<unknown>> = [
+				...(cancelling ? [api.post(`/partidos/${cancelling}/cancelacion/confirmar`, { confirmar: true })] : []),
 				// Bettor 0 confirms, the same key three times at once (one ticket); bettor 1 is refused
 				// (closed matches) but locks them; bettor 2 only evaluates, so the other sport keeps
 				// no bets and its draw rule can flip.
@@ -212,6 +224,13 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			[s.past],
 		);
 		expect(Number(finished!.n)).toBe(ROUNDS);
+		// Every chosen match was cancelled, with its bets voided.
+		expect(cancelled.length).toBeGreaterThan(0);
+		const [[voided]] = await pool.query<RowDataPacket[]>(
+			"SELECT COUNT(*) AS n FROM partido p JOIN estado_partido ep ON ep.id = p.estado_partido_id WHERE ep.codigo = 'cancelado' AND p.id IN (?)",
+			[cancelled],
+		);
+		expect(Number(voided!.n)).toBe(cancelled.length);
 		// Not a single deadlock, not even one that the retry absorbed.
 		expect(transactionStats.deadlockRetries - statsBefore.deadlockRetries, JSON.stringify(outcomes)).toBe(0);
 		expect(transactionStats.deadlocksExhausted - statsBefore.deadlocksExhausted).toBe(0);
@@ -220,12 +239,14 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			expect(deadlockAfter ?? '', 'InnoDB registró un deadlock nuevo en la base de pruebas').not.toContain(`\`${env.db.database}\`.`);
 		}
 
-		// Coins stayed consistent with the bets actually placed.
+		// Coins stayed consistent with the bets actually placed, and the ones refunded by the cancellations.
 		const [[coins]] = await pool.query<RowDataPacket[]>(
 			`SELECT (SELECT SUM(saldo_monedas) FROM usuario WHERE id IN (?)) AS saldo,
-				(SELECT COUNT(*) FROM seleccion) AS selecciones`,
+				(SELECT COUNT(*) FROM seleccion) AS selecciones,
+				(SELECT COUNT(*) FROM seleccion s JOIN estado_seleccion es ON es.id = s.estado_seleccion_id WHERE es.codigo = 'anulada') AS anuladas`,
 			[s.bettors],
 		);
-		expect(Number(coins!.saldo)).toBe(60000 * TICKETS_PER_ROUND - Number(coins!.selecciones));
+		expect(Number(coins!.anuladas)).toBeGreaterThan(0);
+		expect(Number(coins!.saldo)).toBe(60000 * TICKETS_PER_ROUND - Number(coins!.selecciones) + Number(coins!.anuladas));
 	});
 });

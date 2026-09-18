@@ -1,0 +1,220 @@
+/* The ranking (T-20): an arcade high-score board. */
+.page {
+	max-width: 48rem;
+}
+
+.small {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+/* Read by screen readers only. */
+.status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.actions {
+	display: flex;
+	align-items: center;
+	margin: 0;
+}
+
+/* The user's own place, above the board. */
+.own {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-2) var(--space-3);
+	margin: var(--px);
+	padding: var(--space-3) var(--space-4);
+	font-size: var(--text-sm);
+}
+
+.own[data-none] {
+	color: var(--color-accent-alt);
+}
+
+.ownLabel {
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.ownPosition {
+	font-family: var(--font-display);
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	color: var(--color-accent-alt);
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.own .small {
+	flex-basis: 100%;
+}
+
+/* The board. */
+.board {
+	margin: var(--px);
+	padding: var(--space-3) var(--space-2);
+}
+
+.table {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+}
+
+.caption {
+	padding-bottom: var(--space-3);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-align: left;
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.table th {
+	padding: var(--space-1);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	font-weight: 400;
+	text-align: left;
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+	box-shadow: inset 0 calc(var(--px) * -1) 0 0 var(--color-border);
+}
+
+.table td {
+	padding: var(--space-2) var(--space-1);
+	vertical-align: top;
+}
+
+/* Column widths that fit 320px: "=10" and four digits in the 8px pixel font, the name takes the rest and wraps. */
+.pos {
+	width: 2.5rem;
+}
+
+.num {
+	width: 3rem;
+	text-align: right;
+}
+
+.table th.num {
+	text-align: right;
+}
+
+.row td {
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.6;
+}
+
+.row td.name {
+	font-family: var(--font-body);
+	font-size: var(--text-md);
+	line-height: 1.2;
+	overflow-wrap: anywhere;
+}
+
+/* Banded rows, like a score screen. */
+.row:nth-child(even) {
+	background: var(--color-surface-raised);
+}
+
+/* The podium: its own colors, and the position is printed anyway. */
+.row[data-podium='1'] .pos {
+	color: var(--color-coin-light);
+}
+
+.row[data-podium='2'] .pos {
+	color: var(--color-text);
+}
+
+.row[data-podium='3'] .pos {
+	color: var(--color-accent-alt);
+}
+
+/* The user's row: a thick frame and a "TÚ" tag, never color alone. */
+.row[data-own] {
+	background: var(--color-bg);
+	box-shadow:
+		inset 0 var(--px) 0 0 var(--color-accent),
+		inset 0 calc(var(--px) * -1) 0 0 var(--color-accent);
+}
+
+.row[data-own] td {
+	color: var(--color-accent);
+}
+
+.you {
+	display: inline-block;
+	margin-right: var(--space-2);
+	padding: 0 var(--space-1);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.8;
+	vertical-align: middle;
+	color: var(--color-bg);
+	background: var(--color-accent);
+}
+
+.more td,
+.empty {
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.gap td {
+	padding-block: var(--space-1);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-align: center;
+	color: var(--color-text-muted);
+}
+
+/* Headings: short on phones, whole words from 48rem (screen readers always get the whole word). */
+.long {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+@media (min-width: 48rem) {
+	.board {
+		padding: var(--space-4);
+	}
+
+	.pos,
+	.num {
+		width: 7.5rem;
+	}
+
+	.short {
+		display: none;
+	}
+
+	.long {
+		position: static;
+		width: auto;
+		height: auto;
+		margin: 0;
+		overflow: visible;
+		clip-path: none;
+	}
+
+	.row td {
+		font-size: var(--text-sm);
+	}
+}

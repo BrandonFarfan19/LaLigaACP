@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { transactionStats } from '../src/db/transaction.js';
 import { bettingCloseTime, ticketState } from '../src/lib/betting.js';
 import { COSTO_POR_SELECCION, MONEDAS_POR_VALIDACION } from '../src/lib/coins.js';
+import { applyCoinMovementsInTransaction } from '../src/services/coins.service.js';
 import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
 import { confirmTicket } from '../src/services/tickets.service.js';
 import { createTestApp } from './helpers/app.js';
@@ -322,6 +323,9 @@ describe('ticket confirmation (T-10: BR-019 to BR-025, BR-053, BR-054)', () => {
 			await setState(b!.id, 'no_acertada', 0);
 			expect((await receipt(who, res.body.data.id)).body.data).toMatchObject({ estado: 'pendiente', puntosObtenidos: 3, monedasDevueltas: 0 });
 			await setState(c!.id, 'anulada', null);
+			// D-003: a voided selection shows a refund only once the coin really came back.
+			expect((await receipt(who, res.body.data.id)).body.data).toMatchObject({ estado: 'finalizado', monedasDevueltas: 0 });
+			await applyCoinMovementsInTransaction(pool, who.user.id, [{ tipo: 'devolucion_cancelacion', seleccionId: c!.id }]);
 			expect((await receipt(who, res.body.data.id)).body.data).toMatchObject({
 				estado: 'finalizado',
 				puntosObtenidos: 3,

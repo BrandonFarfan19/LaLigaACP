@@ -1,4 +1,4 @@
-import PixelImage from './PixelImage';
+import Crest from './Crest';
 import { formatKickoff } from '../utils/format-date';
 import type { ResolvedMatch } from '../types';
 import styles from './MatchCard.module.css';
@@ -11,6 +11,7 @@ const statusLabel: Record<ResolvedMatch['status'], string> = {
 	scheduled: 'Programado',
 	live: 'En vivo',
 	finished: 'Finalizado',
+	cancelled: 'Cancelado',
 };
 
 export default function MatchCard({ match }: Props) {
@@ -32,14 +33,7 @@ export default function MatchCard({ match }: Props) {
 
 			<div className={styles.board}>
 				<div className={styles.team}>
-					<PixelImage
-						className={`${styles.crest} pixelated`}
-						image={homeTeam.crest}
-						alt={`Escudo de ${homeTeam.name}`}
-						width={48}
-						densities={[2]}
-						loading="lazy"
-					/>
+					<Crest team={homeTeam} size={48} alt={`Escudo de ${homeTeam.name}`} />
 					<span className={styles.name}>{homeTeam.shortName}</span>
 				</div>
 
@@ -56,14 +50,7 @@ export default function MatchCard({ match }: Props) {
 				</div>
 
 				<div className={styles.team}>
-					<PixelImage
-						className={`${styles.crest} pixelated`}
-						image={awayTeam.crest}
-						alt={`Escudo de ${awayTeam.name}`}
-						width={48}
-						densities={[2]}
-						loading="lazy"
-					/>
+					<Crest team={awayTeam} size={48} alt={`Escudo de ${awayTeam.name}`} />
 					<span className={styles.name}>{awayTeam.shortName}</span>
 				</div>
 			</div>

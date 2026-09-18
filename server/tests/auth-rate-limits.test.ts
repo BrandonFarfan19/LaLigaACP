@@ -7,7 +7,7 @@ import { createTestApp, env } from './helpers/app.js';
 import { newUserBody, PASSWORD, registerUser } from './helpers/auth.js';
 import { resetDatabase } from './helpers/db.js';
 
-const RATE_LIMITED = { error: { code: 'RATE_LIMITED', message: expect.any(String) } };
+const limited = (limite: string) => ({ error: { code: 'RATE_LIMITED', message: expect.any(String), details: { limite } } });
 
 /**
  * `/auth` limits, with small maximums: 3 failed logins per IP + email, 3
@@ -54,7 +54,7 @@ describe('auth rate limits', () => {
 
 			const blocked = await attempt(body.email, PASSWORD);
 			expect(blocked.status).toBe(429);
-			expect(blocked.body).toEqual(RATE_LIMITED);
+			expect(blocked.body).toEqual(limited('ingreso'));
 			expect(blocked.headers['set-cookie']).toBeUndefined();
 			expect(blocked.headers['cache-control']).toBe('no-store');
 			// Same key whatever the case of the email.
@@ -130,7 +130,7 @@ describe('auth rate limits', () => {
 
 			const blocked = await register();
 			expect(blocked.status).toBe(429);
-			expect(blocked.body).toEqual(RATE_LIMITED);
+			expect(blocked.body).toEqual(limited('registro'));
 			expect(blocked.headers['ratelimit-remaining']).toBe('0');
 			expect(blocked.headers['cache-control']).toBe('no-store');
 		});

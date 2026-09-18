@@ -3,6 +3,7 @@ import type { Pool } from 'mysql2/promise';
 import type { Env } from '../config/env.js';
 import { createAuthController } from '../controllers/auth.controller.js';
 import { loginRateLimit, registerRateLimit } from '../middleware/auth-rate-limits.js';
+import { sessionReadRateLimit } from '../middleware/security.js';
 import { rejectQueryParams } from '../middleware/no-query.js';
 
 export function createAuthRouter(pool: Pool, env: Env, requireAuth: RequestHandler): Router {
@@ -16,7 +17,8 @@ export function createAuthRouter(pool: Pool, env: Env, requireAuth: RequestHandl
 	// (The global limiter still counts it, like any other request.)
 	router.post('/register', rejectQueryParams, registerRateLimit(env), controller.register);
 	router.post('/login', rejectQueryParams, loginRateLimit(env), controller.login);
-	router.get('/me', requireAuth, rejectQueryParams, controller.me);
+	// D-009: its own limiter (the global one skips it), counted before the session check.
+	router.get('/me', sessionReadRateLimit(env), requireAuth, rejectQueryParams, controller.me);
 	router.post('/logout', requireAuth, rejectQueryParams, controller.logout);
 
 	return router;

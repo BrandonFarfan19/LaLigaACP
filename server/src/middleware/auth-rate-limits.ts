@@ -1,8 +1,7 @@
 import type { RequestHandler } from 'express';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import type { Env } from '../config/env.js';
-import { ErrorCode } from '../lib/error-codes.js';
-import { errorBody } from '../lib/response.js';
+import { rateLimited } from './security.js';
 
 /**
  * Limits specific to `/auth`, stricter than the global one. Both key on
@@ -33,7 +32,7 @@ export function loginRateLimit(env: Env): RequestHandler {
 		handler: (_req, res) => {
 			res
 				.status(429)
-				.json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiados intentos de inicio de sesión. Probá de nuevo más tarde.'));
+				.json(rateLimited('Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.', 'ingreso'));
 		},
 	});
 }
@@ -52,7 +51,7 @@ export function registerRateLimit(env: Env): RequestHandler {
 		handler: (_req, res) => {
 			res
 				.status(429)
-				.json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiados registros desde esta conexión. Probá de nuevo más tarde.'));
+				.json(rateLimited('Demasiados registros desde esta conexión. Intenta de nuevo más tarde.', 'registro'));
 		},
 	});
 }

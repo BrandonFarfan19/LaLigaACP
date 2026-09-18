@@ -51,7 +51,7 @@ const BODY_ERRORS = new Map<unknown, { code: ErrorCode; message: string }>([
 	['entity.too.large', { code: ErrorCode.PAYLOAD_TOO_LARGE, message: 'El cuerpo de la solicitud es demasiado grande.' }],
 	[
 		'charset.unsupported',
-		{ code: ErrorCode.UNSUPPORTED_MEDIA_TYPE, message: 'Codificación de caracteres no soportada: usá UTF-8.' },
+		{ code: ErrorCode.UNSUPPORTED_MEDIA_TYPE, message: 'Codificación de caracteres no soportada: usa UTF-8.' },
 	],
 	['encoding.unsupported', { code: ErrorCode.UNSUPPORTED_MEDIA_TYPE, message: 'Content-Encoding no soportado.' }],
 ]);

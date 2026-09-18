@@ -1,31 +1,27 @@
 import type { CSSProperties } from 'react';
 import { data, Link, useLoaderData, type LoaderFunctionArgs } from 'react-router';
-import PixelImage from '../components/PixelImage';
+import Crest from '../components/Crest';
 import SquadBoard from '../components/SquadBoard';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
-import { getPlayersByTeamId, getPlayerStatsByTeamId, getSquadPlacementsByTeamId } from '../lib/players';
-import { getTeamById } from '../lib/teams';
+import { statsForPlayer } from '../data/player-stats';
+import { getTeamWithSquad } from '../lib/league';
 import styles from './Plantilla.module.css';
 
 /**
- * One page per team, read from the data layer. When the backend arrives this
- * keeps working untouched: `getTeamById()` starts returning rows from the API.
- * An id the data layer doesn't know is a 404.
+ * One page per team, read from the public API (T-22). The id in the URL is the
+ * team's numeric id (`/plantilla/42`, decision of the user in T-08): an id that
+ * is not one, or that no team has, is the not-found page — the API answers 400
+ * or 404 and `src/lib/league.ts` treats both the same.
  */
-export async function loader({ params }: LoaderFunctionArgs) {
-	const team = params.id ? await getTeamById(params.id) : undefined;
-	if (!team) throw data(null, { status: 404 });
-
-	const [players, stats, placements] = await Promise.all([
-		getPlayersByTeamId(team.id),
-		getPlayerStatsByTeamId(team.id),
-		getSquadPlacementsByTeamId(team.id),
-	]);
-	return { team, players, stats, placements };
+export async function loader({ params, request }: LoaderFunctionArgs) {
+	const found = params.id ? await getTeamWithSquad(params.id, request.signal) : undefined;
+	if (!found) throw data(null, { status: 404 });
+	// Sample ratings from each player's real id (D-022): the card says so.
+	return { ...found, stats: found.players.map((player) => statsForPlayer(player.id)) };
 }
 
 export default function Plantilla() {
-	const { team, players, stats, placements } = useLoaderData<typeof loader>();
+	const { team, competition, players, stats } = useLoaderData<typeof loader>();
 	useDocumentTitle(`Plantilla · ${team.name}`);
 
 	return (
@@ -37,21 +33,20 @@ export default function Plantilla() {
 
 			<header className={styles.identity}>
 				<div className={styles.badge}>
-					<PixelImage
-						className={`${styles.crest} pixelated`}
-						image={team.crest}
-						alt={`Escudo de ${team.name}`}
-						width={32}
-						densities={[2]}
-						loading="eager"
-						fetchPriority="high"
-					/>
+					<Crest team={team} size={32} alt={`Escudo de ${team.name}`} loading="eager" />
 				</div>
 
 				<h1 className={styles.name}>{team.name}</h1>
+				<p className={styles.competition}>
+					{competition.name} · {competition.sport.name}
+				</p>
 			</header>
 
-			<SquadBoard teamName={team.name} players={players} stats={stats} placements={placements} />
+			{players.length === 0 ? (
+				<p className={styles.empty}>Este equipo todavía no tiene jugadores inscritos.</p>
+			) : (
+				<SquadBoard teamName={team.name} players={players} stats={stats} />
+			)}
 		</section>
 	);
 }

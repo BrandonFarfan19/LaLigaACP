@@ -14,7 +14,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "admin:create": "tsx src/cli/create-admin.ts",
-    "coins:check": "tsx src/cli/coins-check.ts"
+    "coins:check": "tsx src/cli/coins-check.ts",
+    "seed:dev": "tsx src/cli/seed-dev.ts",
+    "seed:dev:clean": "tsx src/cli/seed-dev.ts clean"
   },
   "dependencies": {
     "argon2": "^0.45.1",

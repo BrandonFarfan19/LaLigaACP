@@ -1,0 +1,79 @@
+/* A group of choices (radios) drawn as pixel-art chips whose text wraps (D-014, D-017). */
+.group {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.legend {
+	padding: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+}
+
+.choices {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.choice {
+	position: relative;
+	display: flex;
+	min-width: 0;
+	max-width: 100%;
+}
+
+/* The radio stays in the page for keyboards and screen readers; the chip draws it. */
+.choice input {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.choice span {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	min-height: 44px;
+	padding: var(--space-1) var(--space-2);
+	font-family: var(--font-body);
+	font-size: var(--text-md);
+	overflow-wrap: anywhere;
+	color: var(--color-text);
+	background: var(--color-bg);
+	box-shadow: inset 0 0 0 var(--px) var(--color-border);
+}
+
+/* A hollow square that fills when chosen: the choice never relies on color alone. */
+.choice span::before {
+	content: '';
+	flex: none;
+	width: var(--space-4);
+	height: var(--space-4);
+	box-shadow: inset 0 0 0 var(--px) currentColor;
+}
+
+.choice input:checked + span {
+	color: var(--color-bg);
+	background: var(--color-accent);
+	box-shadow: inset 0 0 0 var(--px) var(--color-accent);
+}
+
+.choice input:checked + span::before {
+	background: currentColor;
+}
+
+.choice input:focus-visible + span {
+	outline: var(--px) solid var(--color-text);
+	outline-offset: var(--px);
+}

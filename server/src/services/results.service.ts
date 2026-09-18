@@ -142,7 +142,7 @@ function confirmationProblems(match: Match, permiteEmpate: boolean, at: Date): R
 		return [{ code: ErrorCode.RESULT_INCOMPLETE, message: 'Faltan los goles de uno o de los dos equipos.' }];
 	}
 	if (!permiteEmpate && resultOfScore(loaded.golesLocal, loaded.golesVisitante) === 'empate') {
-		return [{ code: ErrorCode.DRAW_NOT_ALLOWED, message: 'Este deporte no admite empate: corregí el marcador antes de confirmar.' }];
+		return [{ code: ErrorCode.DRAW_NOT_ALLOWED, message: 'Este deporte no admite empate: corrige el marcador antes de confirmar.' }];
 	}
 	return [];
 }
@@ -186,7 +186,7 @@ export async function setResult(pool: Pool, ctx: AdminActionContext, id: number,
 			throw new HttpError(
 				409,
 				ErrorCode.SCORE_BELOW_GOALS,
-				'El marcador no puede tener menos goles que los ya registrados con su autor: borrá o corregí esos goles primero.',
+				'El marcador no puede tener menos goles que los ya registrados con su autor: borra o corrige esos goles primero.',
 				{ golesAtribuidos: attributed },
 			);
 		}
@@ -237,7 +237,7 @@ export async function getResultPreview(pool: Pool, id: number, deps: ResultDeps)
 		if (missing > 0) {
 			avisos.push({
 				code: ErrorCode.GOALS_UNATTRIBUTED,
-				message: `${missing} gol(es) del marcador no tienen autor registrado. Se puede confirmar igual.`,
+				message: `${missing === 1 ? '1 gol del marcador no tiene' : `${missing} goles del marcador no tienen`} autor registrado. Se puede confirmar igual.`,
 			});
 		}
 	}
@@ -291,7 +291,7 @@ export async function confirmResult(
 
 		const loaded = score(before)!;
 		if (loaded.golesLocal !== input.golesLocal || loaded.golesVisitante !== input.golesVisitante) {
-			throw new HttpError(409, ErrorCode.RESULT_CHANGED, 'El marcador cambió desde la vista previa: revisalo antes de confirmar.', loaded);
+			throw new HttpError(409, ErrorCode.RESULT_CHANGED, 'El marcador cambió desde la vista previa: revísalo antes de confirmar.', loaded);
 		}
 
 		await conn.query('UPDATE partido SET estado_partido_id = ? WHERE id = ?', [await stateId(conn, 'finalizado'), id]);

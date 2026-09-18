@@ -96,11 +96,37 @@ describe('admin: jugadores y planteles (BR-001, EsquemaBD D2/D4)', () => {
 				jugadorId: ana.id,
 				jugadorNombre: 'Ana',
 				equipoId: teamId,
+				equipoNombre: 'Club',
 				competicionId: competitionId,
+				competicionNombre: 'Apertura',
+				deporteNombre: 'Fútbol',
 				numeroCamiseta: 10,
 			});
 			expect((await api.get(`/planteles?equipoId=${teamId}`)).body.data.total).toBe(1);
 			expect((await api.get(`/planteles?jugadorId=${ana.id}&competicionId=${competitionId}`)).body.data.total).toBe(1);
+			expect((await api.get(`/planteles/${res.body.data.id}`)).body.data).toEqual(res.body.data);
+		});
+
+		it('searches by player or team name (T-21), with % and _ taken literally, and rejects a long text', async () => {
+			const a = await sportCompetitionTeam(api, ' Norte');
+			const b = await sportCompetitionTeam(api, ' Sur');
+			const ana = await player('Ana María');
+			const beto = await player('Beto_1');
+			await created(api.post('/planteles', { jugadorId: ana.id, equipoId: a.teamId, numeroCamiseta: 1 }));
+			await created(api.post('/planteles', { jugadorId: beto.id, equipoId: b.teamId, numeroCamiseta: 2 }));
+			const found = async (query: string) => {
+				const res = await api.get(`/planteles?${query}`);
+				expect(res.status, JSON.stringify(res.body)).toBe(200);
+				return (res.body.data.items as Array<{ jugadorNombre: string }>).map((x) => x.jugadorNombre).sort();
+			};
+
+			expect(await found('q=mar')).toEqual(['Ana María']);
+			expect(await found(`q=${encodeURIComponent('club sur')}`)).toEqual(['Beto_1']);
+			expect(await found('q=club')).toEqual(['Ana María', 'Beto_1']);
+			expect(await found(`q=club&equipoId=${a.teamId}`)).toEqual(['Ana María']);
+			expect(await found('q=_')).toEqual(['Beto_1']);
+			expect(await found('q=%25')).toEqual([]);
+			expect((await api.get(`/planteles?q=${'x'.repeat(101)}`)).status).toBe(400);
 		});
 
 		it('a player only once per competition (another team of it: 409), but in another competition fine', async () => {

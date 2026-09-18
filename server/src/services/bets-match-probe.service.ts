@@ -1,4 +1,5 @@
 import type { RowDataPacket } from 'mysql2/promise';
+import { pendingIndexHint } from './bets-settlement.service.js';
 import type { MatchBetsProbe } from './matches.service.js';
 import type { PendingSelectionsProbe } from './results.service.js';
 
@@ -19,7 +20,7 @@ export const countBetsOnMatch: MatchBetsProbe = async (conn, matchId) => {
  */
 export const countPendingSelections: PendingSelectionsProbe = async (db, matchId) => {
 	const [[row]] = await db.query<RowDataPacket[]>(
-		`SELECT COUNT(*) AS n FROM seleccion s FORCE INDEX (idx_seleccion_partido_estado)
+		`SELECT ${pendingIndexHint('s')} COUNT(*) AS n FROM seleccion s
 		WHERE s.partido_id = ? AND s.estado_seleccion_id = (SELECT id FROM estado_seleccion WHERE codigo = 'pendiente')`,
 		[matchId],
 	);

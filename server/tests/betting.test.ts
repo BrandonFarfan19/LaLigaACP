@@ -116,20 +116,24 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 			expect(res.body.error.code).toBe('UNAUTHENTICATED');
 		});
 
-		it('a pendiente user: 403 USER_NOT_VALIDATED', async () => {
-			for (const res of [await matches('', pending), await preview([general(s.match.open!, 'local_gana')], pending)]) {
-				expect(res.status).toBe(403);
-				expect(res.body.error.code).toBe('USER_NOT_VALIDATED');
-			}
+		it('a pendiente user sees the same match list (T-19), but cannot preview: 403 USER_NOT_VALIDATED', async () => {
+			const listed = await matches('', pending);
+			expect(listed.status).toBe(200);
+			expect(listed.body.data).toEqual((await matches()).body.data);
+			const res = await preview([general(s.match.open!, 'local_gana')], pending);
+			expect(res.status).toBe(403);
+			expect(res.body.error.code).toBe('USER_NOT_VALIDATED');
 		});
 
-		it('an admin, even marked validado: 403 ADMIN_CANNOT_BET', async () => {
+		it('an admin, even marked validado: 403 on both (NOT_A_PARTICIPANT for the list, ADMIN_CANNOT_BET for the preview)', async () => {
 			const admin = { ...api.admin } as Session;
 			await pool.query("UPDATE usuario SET estado_usuario_id = (SELECT id FROM estado_usuario WHERE codigo = 'validado') WHERE id = ?", [admin.user.id]);
-			for (const res of [await matches('', admin), await preview([general(s.match.open!, 'local_gana')], admin)]) {
-				expect(res.status).toBe(403);
-				expect(res.body.error.code).toBe('ADMIN_CANNOT_BET');
-			}
+			const listed = await matches('', admin);
+			expect(listed.status).toBe(403);
+			expect(listed.body.error.code).toBe('NOT_A_PARTICIPANT');
+			const res = await preview([general(s.match.open!, 'local_gana')], admin);
+			expect(res.status).toBe(403);
+			expect(res.body.error.code).toBe('ADMIN_CANNOT_BET');
 		});
 
 		it('the preview is a POST under CSRF: without the token, 403 CSRF_FAILED', async () => {

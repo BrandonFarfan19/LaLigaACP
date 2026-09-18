@@ -1,0 +1,284 @@
+/* One match of the betting list: a framed panel, phone first. */
+.card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	margin: var(--px);
+	padding: var(--space-4);
+}
+
+/* Closed, in progress, finished and cancelled matches step back a little. */
+.card:not([data-estado='disponible']) {
+	background: var(--color-bg);
+}
+
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+/* The betting state (BR-052): an icon, a word and its own color. */
+.state {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	padding: var(--space-1) var(--space-2);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	text-transform: uppercase;
+	box-shadow: inset 0 0 0 var(--px) currentColor;
+}
+
+.state[data-estado='disponible'] {
+	color: var(--color-accent);
+}
+
+.state[data-estado='cerrada'] {
+	color: var(--color-text-muted);
+}
+
+.state[data-estado='en_curso'] {
+	color: var(--color-accent-alt);
+}
+
+.state[data-estado='finalizado'] {
+	color: var(--color-text);
+}
+
+.state[data-estado='cancelado'] {
+	color: var(--color-danger);
+}
+
+.meta {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.teams {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--text-xs);
+	line-height: 1.5;
+}
+
+.team {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.away {
+	justify-content: flex-end;
+	text-align: right;
+}
+
+.versus {
+	font-size: var(--text-sm);
+	color: var(--color-accent-alt);
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.facts {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2) var(--space-4);
+	margin: 0;
+	font-size: var(--text-sm);
+}
+
+.facts div {
+	display: flex;
+	gap: var(--space-2);
+}
+
+.facts dt {
+	color: var(--color-text-muted);
+}
+
+.facts dt::after {
+	content: ':';
+}
+
+.facts dd {
+	margin: 0;
+}
+
+.hint {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.bets {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding-top: var(--space-2);
+	box-shadow: 0 calc(var(--px) * -1) 0 0 var(--color-border);
+}
+
+.betTitle {
+	margin: var(--space-2) 0 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+}
+
+.results {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
+	gap: var(--space-2);
+}
+
+/* A forecast button: flat pixel frame, fills in on hover and focus. */
+.pick {
+	min-height: 44px;
+	margin: var(--px);
+	padding: var(--space-2) var(--space-3);
+	border: 0;
+	border-radius: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	text-transform: uppercase;
+	color: var(--color-accent);
+	background: var(--color-bg);
+	box-shadow: inset 0 0 0 var(--px) var(--color-accent), var(--px) var(--px) 0 0 var(--color-shadow);
+}
+
+.pick:hover:not(:disabled),
+.pick:focus-visible {
+	color: var(--color-bg);
+	background: var(--color-accent);
+}
+
+.pick:active:not(:disabled) {
+	transform: translate(var(--px), var(--px));
+	box-shadow: inset 0 0 0 var(--px) var(--color-accent);
+}
+
+.pick:disabled {
+	color: var(--color-text-muted);
+	box-shadow: inset 0 0 0 var(--px) var(--color-border);
+}
+
+.score {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-3);
+}
+
+.goals {
+	display: flex;
+	flex: 1 1 10rem;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.goalsLabel {
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+	overflow-wrap: anywhere;
+}
+
+.stepper {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.step {
+	width: 44px;
+	height: 44px;
+	flex: none;
+	border: 0;
+	border-radius: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-md);
+	line-height: 1;
+	color: var(--color-text);
+	background: var(--color-surface-raised);
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.18),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 var(--color-shadow);
+}
+
+.step:hover:not(:disabled, [aria-disabled="true"]),
+.step:focus-visible {
+	color: var(--color-bg);
+	background: var(--color-accent);
+}
+
+.step:disabled,
+.step[aria-disabled="true"] {
+	color: var(--color-text-muted);
+}
+
+.goalsInput {
+	width: 4.5rem;
+	min-height: 44px;
+	margin: var(--px);
+	padding: var(--space-1) var(--space-2);
+	border: 0;
+	border-radius: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-md);
+	text-align: center;
+	color: var(--color-text);
+	background: var(--color-bg);
+	appearance: textfield;
+	-moz-appearance: textfield;
+}
+
+.goalsInput::-webkit-outer-spin-button,
+.goalsInput::-webkit-inner-spin-button {
+	margin: 0;
+	-webkit-appearance: none;
+}
+
+.reason {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-accent-alt);
+}
+
+.inTicket {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-accent);
+}
+
+@media (min-width: 48rem) {
+	.card {
+		padding: var(--space-6);
+	}
+
+	.teams {
+		font-size: var(--text-sm);
+	}
+}
+
+/* Read by screen readers only: the goal limits. */
+.live {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}

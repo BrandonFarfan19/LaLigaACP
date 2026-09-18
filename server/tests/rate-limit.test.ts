@@ -50,12 +50,12 @@ describe('rate limit', () => {
 		const res = await request(app).get('/no-existe');
 
 		expect(res.status).toBe(429);
-		expect(res.body).toEqual({ error: { code: 'RATE_LIMITED', message: expect.any(String) } });
+		expect(res.body).toEqual({ error: { code: 'RATE_LIMITED', message: expect.any(String), details: { limite: 'general' } } });
 		expect(res.headers['cache-control']).toBe('no-store');
 	});
 
 	it('the 429 is never cacheable, on any route kind (T-08 follow-up)', async () => {
-		for (const [method, path] of [['get', '/health/extra'], ['get', '/auth/me'], ['get', '/admin/deportes'], ['get', '/monedas'], ['post', '/auth/logout']] as const) {
+		for (const [method, path] of [['get', '/health/extra'], ['post', '/auth/me'], ['get', '/admin/deportes'], ['get', '/monedas'], ['post', '/auth/logout']] as const) {
 			const app = tinyLimitApp();
 			await request(app)[method](path);
 			const res = await request(app)[method](path);
@@ -64,6 +64,35 @@ describe('rate limit', () => {
 			await pool?.end();
 			pool = undefined;
 		}
+	});
+
+	it('does not count GET /auth/me (D-009): it has its own, roomier limit', async () => {
+		const created = createTestApp({ rateLimit: { ...env.rateLimit, max: 1 }, sessionReadRateLimit: { ...env.sessionReadRateLimit, max: 3 } });
+		pool = created.pool;
+		const app = created.app;
+
+		// Same variants the router takes; without a session they are 401, never a 429 from the global limit.
+		for (const path of ['/auth/me', '/auth/me/', '/AUTH/ME']) {
+			const res = await request(app).get(path);
+			expect(res.status, path).toBe(401);
+		}
+		// The global budget (1) is still whole.
+		const counted = await request(app).get('/no-existe');
+		expect(counted.status).toBe(404);
+		expect(counted.headers['ratelimit-remaining']).toBe('0');
+
+		// Its own limit counts it: the fourth read is a 429 that says which limit it was.
+		const blocked = await request(app).get('/auth/me');
+		expect(blocked.status).toBe(429);
+		expect(blocked.body).toEqual({ error: { code: 'RATE_LIMITED', message: expect.any(String), details: { limite: 'sesion' } } });
+		expect(blocked.headers['cache-control']).toBe('no-store');
+		expect(blocked.headers['retry-after']).toBeDefined();
+		// Other methods on that path are not the session read: the global limit counts them.
+		expect((await request(app).post('/auth/me')).status).toBe(429);
+	});
+
+	it('the default session-read limit is roomier than the global one', () => {
+		expect(env.sessionReadRateLimit.max / env.sessionReadRateLimit.windowMs).toBeGreaterThan(env.rateLimit.max / env.rateLimit.windowMs);
 	});
 
 	it('counts a request before its body is parsed', async () => {

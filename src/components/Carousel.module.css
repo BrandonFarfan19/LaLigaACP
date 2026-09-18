@@ -162,6 +162,13 @@
 	color: var(--color-accent);
 }
 
+/* No movement at all under reduced motion (NFR-003, T-23). */
+@media (prefers-reduced-motion: reduce) {
+	.arrow {
+		transition: none;
+	}
+}
+
 .arrow-prev {
 	left: var(--space-2);
 }

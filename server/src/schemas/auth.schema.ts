@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '../lib/password.js';
+import { displayName } from './catalog.schema.js';
+
+/** `usuario.nombre` is VARCHAR(100). */
+export const NOMBRE_MAX_LENGTH = 100;
 
 /**
  * Request bodies for `/auth`. Parsing with these throws a `ZodError`, which
@@ -21,11 +25,12 @@ export const newPasswordSchema = z
 	.min(PASSWORD_MIN_LENGTH, `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`)
 	.max(PASSWORD_MAX_LENGTH, `La contraseña no puede superar los ${PASSWORD_MAX_LENGTH} caracteres.`);
 
-export const nombreSchema = z
-	.string({ error: 'El nombre es obligatorio.' })
-	.trim()
-	.min(1, 'El nombre es obligatorio.')
-	.max(100, 'El nombre no puede superar los 100 caracteres.');
+/**
+ * The display name (BR-003) follows the catalog's name rules (D-011): it is
+ * shown to others in the ranking, so it must have a letter or digit and no
+ * control or invisible characters. Also used by `admin:create`.
+ */
+export const nombreSchema = displayName(NOMBRE_MAX_LENGTH);
 
 export const registerSchema = z.object({
 	nombre: nombreSchema,

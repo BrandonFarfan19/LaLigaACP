@@ -229,7 +229,7 @@ describe('coin routes (BR-002, BR-010) and the consistency check', () => {
 				const { code, stdout } = await cli();
 
 				expect(code).toBe(0);
-				expect(stdout).toMatch(/1 participante\(s\) revisado\(s\)/);
+				expect(stdout).toMatch(/: 1 participante revisado\./);
 				expect(stdout).toMatch(/Todo cuadra/);
 			});
 

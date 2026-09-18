@@ -69,9 +69,8 @@ export async function dependents(
 	return found;
 }
 
-/** "3 competiciones, 1 partido" for a 409 message. */
+/** "3 competiciones, 1 partido y 2 goles" for a 409 message. */
 export function describeDependents(found: Record<string, number>, labels: Record<string, [string, string]>): string {
-	return Object.entries(found)
-		.map(([name, n]) => `${n} ${n === 1 ? labels[name]![0] : labels[name]![1]}`)
-		.join(', ');
+	const parts = Object.entries(found).map(([name, n]) => `${n} ${n === 1 ? labels[name]![0] : labels[name]![1]}`);
+	return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}` : (parts[0] ?? '');
 }

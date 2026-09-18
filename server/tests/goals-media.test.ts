@@ -11,7 +11,7 @@ import type { AdminActionOutcome } from '../src/services/admin-action.js';
 import { createGoal, deleteGoal, type MediaDeps, setGoalImage, updateGoal } from '../src/services/goals.service.js';
 import { addMatchImage, MAX_IMAGENES_PARTIDO, MAX_VIDEOS_PARTIDO } from '../src/services/match-media.service.js';
 import { createMediaStore } from '../src/services/media-storage.js';
-import { createTestApp, env, testUploadsDir } from './helpers/app.js';
+import { createTestApp, env, testUploadsDir, testUploadsRoot } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertMatch, teamBody } from './helpers/catalog.js';
 import { resetDatabase } from './helpers/db.js';
@@ -90,7 +90,7 @@ describe('goals and media (T-13: BR-033, BR-001)', () => {
 	afterAll(async () => {
 		await resetDatabase(pool);
 		await pool.end();
-		rmSync(testUploadsDir, { recursive: true, force: true });
+		rmSync(testUploadsRoot, { recursive: true, force: true });
 	});
 
 	describe('goals (BR-033)', () => {

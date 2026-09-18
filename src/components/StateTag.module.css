@@ -1,0 +1,29 @@
+/* A state as a pixel tag: icon + word, colors from the palette (never the only cue). */
+.tag {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: 0 var(--space-1);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.8;
+	text-transform: uppercase;
+	color: var(--color-bg);
+	background: var(--color-accent-alt);
+}
+
+.tag[data-estado='acertada'],
+.tag[data-estado='finalizado'] {
+	background: var(--color-accent);
+}
+
+.tag[data-estado='no_acertada'] {
+	color: var(--color-text);
+	background: var(--color-surface-raised);
+}
+
+.tag[data-estado='anulada'],
+.tag[data-estado='anulado'] {
+	color: var(--color-text);
+	background: var(--color-danger);
+}

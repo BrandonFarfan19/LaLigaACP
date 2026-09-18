@@ -384,9 +384,10 @@ CREATE TABLE movimiento_moneda (
 -- Módulo Auditoría
 -- ---------------------------------------------------------------------------
 
--- NFR-006: las 5 acciones administrativas mínimas. `entidad` documenta qué
--- tabla afecta cada acción (siempre la misma por código), para no repetirlo
--- en cada fila de auditoria.
+-- NFR-006: las acciones administrativas auditadas (las 5 mínimas y, desde
+-- T-17, todas las escrituras del admin). `entidad` documenta qué tabla afecta
+-- cada acción (siempre la misma por código), para no repetirlo en cada fila
+-- de auditoria.
 CREATE TABLE accion_auditoria (
   id      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   codigo  VARCHAR(50)     NOT NULL,
@@ -400,13 +401,25 @@ CREATE TABLE accion_auditoria (
 -- entidad_id es una referencia libre (sin FK): apunta a una fila de tablas
 -- distintas según accion_id (usuario, partido...), y MySQL no permite una FK
 -- condicional. Integridad a cargo del backend (ver EsquemaBD.md).
+-- T-17: detalle es un objeto JSON breve (campos cambiados con su valor
+-- anterior y nuevo, el marcador confirmado, las cifras de una cancelación),
+-- de hasta 4 KB. Nunca lleva contraseñas, hashes, tokens ni claves: lo
+-- garantiza el backend (server/src/lib/audit.ts). Nadie actualiza ni borra filas.
 CREATE TABLE auditoria (
   id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   usuario_id BIGINT UNSIGNED NOT NULL,
   accion_id  BIGINT UNSIGNED NOT NULL,
   entidad_id BIGINT UNSIGNED NOT NULL,
   creado_en  DATETIME        NOT NULL COMMENT 'UTC',
+  detalle    JSON            NULL,
   PRIMARY KEY (id),
+  -- La consulta del admin (T-17): la más reciente primero, con o sin filtros.
+  INDEX idx_auditoria_fecha (creado_en, id),
+  -- Por acción y registro afectado (también es el índice de la FK a accion_auditoria).
+  INDEX idx_auditoria_accion_entidad (accion_id, entidad_id, creado_en),
+  -- Por administrador (también es el índice de la FK a usuario).
+  INDEX idx_auditoria_usuario_fecha (usuario_id, creado_en),
   CONSTRAINT fk_auditoria_usuario FOREIGN KEY (usuario_id) REFERENCES usuario (id),
-  CONSTRAINT fk_auditoria_accion FOREIGN KEY (accion_id) REFERENCES accion_auditoria (id)
+  CONSTRAINT fk_auditoria_accion FOREIGN KEY (accion_id) REFERENCES accion_auditoria (id),
+  CONSTRAINT ck_auditoria_detalle CHECK (detalle IS NULL OR (JSON_TYPE(detalle) = 'OBJECT' AND JSON_STORAGE_SIZE(detalle) <= 4096))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -9,7 +9,7 @@ import {
 	type TipoApuestaCodigo,
 	ticketStateFromCounts,
 } from '../lib/betting.js';
-import { COSTO_POR_SELECCION, DEVOLUCION_POR_SELECCION } from '../lib/coins.js';
+import { COSTO_POR_SELECCION } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { type OfficialResult, officialResult } from '../lib/match-result.js';
@@ -54,7 +54,7 @@ export interface TicketTotals {
 	cantidadSelecciones: number;
 	/** BR-020, D14: selections × cost. Refunds don't change it. */
 	monedasUtilizadas: number;
-	/** BR-046: one coin back per voided selection. */
+	/** BR-046, D-003: the coins actually refunded (`devolucion_cancelacion` movements of its selections). */
 	monedasDevueltas: number;
 	/** BR-040: the sum of the settled selections' points (0 while none is settled). */
 	puntosObtenidos: number;
@@ -82,13 +82,22 @@ export function realResult(match: PublicMatch): RealResult | null {
 	return officialResult(match.estado, match.local.goles, match.visita.goles);
 }
 
-/** BR-025 totals from counts: the receipt counts its selections, the history (T-11) gets them from SQL. */
-export function ticketTotals(counts: TicketCounts & { puntos: number }): TicketTotals {
+/** The id of the refund movement type, as an uncorrelated SQL subquery. */
+export const REFUND_TYPE = "(SELECT id FROM tipo_movimiento WHERE codigo = 'devolucion_cancelacion')";
+
+/**
+ * BR-025 totals from counts: the receipt counts its selections, the history
+ * (T-11) gets them from SQL. `devueltas` is the coins actually refunded
+ * (`SUM` of the ticket's `devolucion_cancelacion` movements, D-003), not a
+ * count of voided selections: one with no debit, or of an admin account
+ * (D-002), got nothing back.
+ */
+export function ticketTotals(counts: TicketCounts & { puntos: number; devueltas: number }): TicketTotals {
 	return {
 		estado: ticketStateFromCounts(counts),
 		cantidadSelecciones: counts.total,
 		monedasUtilizadas: counts.total * COSTO_POR_SELECCION,
-		monedasDevueltas: counts.anuladas * DEVOLUCION_POR_SELECCION,
+		monedasDevueltas: counts.devueltas,
 		puntosObtenidos: counts.puntos,
 	};
 }
@@ -138,6 +147,12 @@ async function readTicket(db: Db, userId: number, ticketId: number): Promise<Tic
 		[ticketId],
 	);
 	const selecciones = rows.map(selectionFrom);
+	const [[refunded]] = await db.query<RowDataPacket[]>(
+		`SELECT COALESCE(SUM(m.cantidad), 0) AS devueltas
+		FROM seleccion s JOIN movimiento_moneda m ON m.seleccion_id = s.id AND m.tipo_movimiento_id = ${REFUND_TYPE}
+		WHERE s.ticket_id = ?`,
+		[ticketId],
+	);
 	return {
 		id: Number(ticket.id),
 		usuario: { id: Number(ticket.usuario_id), nombre: String(ticket.usuario_nombre) },
@@ -147,6 +162,7 @@ async function readTicket(db: Db, userId: number, ticketId: number): Promise<Tic
 			pendientes: selecciones.filter((x) => x.estado === 'pendiente').length,
 			anuladas: selecciones.filter((x) => x.estado === 'anulada').length,
 			puntos: selecciones.reduce((sum, x) => sum + (x.puntosObtenidos ?? 0), 0),
+			devueltas: Number(refunded!.devueltas),
 		}),
 		selecciones,
 	};
@@ -254,7 +270,7 @@ export function confirmTicket(
 					throw new HttpError(
 						409,
 						ErrorCode.IDEMPOTENCY_KEY_REUSED,
-						'Esa clave de idempotencia ya se usó con otras selecciones. Usá una clave nueva para otro ticket.',
+						'Esa clave de idempotencia ya se usó con otras selecciones. Usa una clave nueva para otro ticket.',
 						{ ticketId: Number(existing.id) },
 					);
 				}
@@ -266,7 +282,7 @@ export function confirmTicket(
 				throw new HttpError(
 					409,
 					ErrorCode.TICKET_REJECTED,
-					'El ticket no se confirmó: revisá las selecciones marcadas o tu saldo. No se descontó nada.',
+					'El ticket no se confirmó: revisa las selecciones marcadas o tu saldo. No se descontó nada.',
 					evaluation,
 				);
 			}

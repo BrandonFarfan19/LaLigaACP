@@ -9,6 +9,7 @@ import type { Page } from '../schemas/common.schema.js';
 import type { CreateMatchBody, ListMatchesQuery, MatchState, UpdateMatchBody } from '../schemas/matches.schema.js';
 import { type AdminActionContext, runAdminAction } from './admin-action.js';
 import { type Db, pageOf, Where } from './catalog-query.js';
+import { plural } from '../lib/plural.js';
 
 /**
  * Módulo Informativo: `partido` and its two `partido_equipo` rows (BR-011 to
@@ -27,7 +28,10 @@ export interface MatchSide {
 export interface Match {
 	id: number;
 	competicionId: number;
+	/** Joined names (T-21), for lists that show them; never stored or audited. */
+	competicionNombre: string;
 	deporteId: number;
+	deporteNombre: string;
 	estado: MatchState;
 	jornada: number;
 	/** UTC. */
@@ -53,11 +57,13 @@ export interface MatchDeps {
 	now?: () => Date;
 }
 
-const COLUMNS = `p.id, p.competicion_id, c.deporte_id, ep.codigo AS estado, p.jornada, p.fecha_hora, p.sede,
+const COLUMNS = `p.id, p.competicion_id, c.nombre AS competicion_nombre, c.deporte_id, d.nombre AS deporte_nombre,
+	ep.codigo AS estado, p.jornada, p.fecha_hora, p.sede,
 	l.equipo_id AS local_id, le.nombre AS local_nombre, l.goles AS local_goles,
 	v.equipo_id AS visita_id, ve.nombre AS visita_nombre, v.goles AS visita_goles`;
 const FROM = `FROM partido p
 	JOIN competicion c ON c.id = p.competicion_id
+	JOIN deporte d ON d.id = c.deporte_id
 	JOIN estado_partido ep ON ep.id = p.estado_partido_id
 	JOIN partido_equipo l ON l.partido_id = p.id AND l.es_visita = FALSE
 	JOIN equipo le ON le.id = l.equipo_id
@@ -72,7 +78,9 @@ function toMatch(row: RowDataPacket, now: Date): Match {
 	return {
 		id: Number(row.id),
 		competicionId: Number(row.competicion_id),
+		competicionNombre: String(row.competicion_nombre),
 		deporteId: Number(row.deporte_id),
+		deporteNombre: String(row.deporte_nombre),
 		estado: effectiveState(row.estado as MatchState, fechaHora, now),
 		jornada: Number(row.jornada),
 		fechaHora,
@@ -100,6 +108,15 @@ export async function stateId(conn: TransactionConnection, codigo: MatchState): 
 	const [[row]] = await conn.query<RowDataPacket[]>('SELECT id FROM estado_partido WHERE codigo = ?', [codigo]);
 	if (!row) throw new Error(`Falta el estado_partido ${codigo} (¿se cargó 02-catalogos.sql?).`);
 	return Number(row.id);
+}
+
+/**
+ * T-16: the only write of `cancelado`. The caller holds the match row
+ * (`findForUpdate`) and has checked it is neither `finalizado` nor
+ * `cancelado`. From then on the match is locked for good (BR-012, BR-045).
+ */
+export async function markCancelled(conn: TransactionConnection, id: number): Promise<void> {
+	await conn.query('UPDATE partido SET estado_partido_id = ? WHERE id = ?', [await stateId(conn, 'cancelado'), id]);
 }
 
 export async function countGoals(conn: TransactionConnection, matchId: number): Promise<number> {
@@ -353,13 +370,13 @@ export async function deleteMatch(pool: Pool, ctx: AdminActionContext, id: numbe
 		const bets = await deps.countBets(conn, id);
 		const goals = await countGoals(conn, id);
 		if (bets > 0) {
-			throw new HttpError(409, ErrorCode.MATCH_HAS_BETS, `No se puede borrar el partido: tiene ${bets} apuesta(s).`, {
+			throw new HttpError(409, ErrorCode.MATCH_HAS_BETS, `No se puede borrar el partido: tiene ${plural(Number(bets), 'apuesta', 'apuestas')}.`, {
 				apuestas: bets,
 				goles: goals,
 			});
 		}
 		if (goals > 0) {
-			throw new HttpError(409, ErrorCode.MATCH_HAS_GOALS, `No se puede borrar el partido: tiene ${goals} gol(es).`, {
+			throw new HttpError(409, ErrorCode.MATCH_HAS_GOALS, `No se puede borrar el partido: tiene ${plural(goals, 'gol', 'goles')}.`, {
 				apuestas: bets,
 				goles: goals,
 			});

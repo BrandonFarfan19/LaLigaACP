@@ -19,6 +19,7 @@ import type { SelectionInput } from '../schemas/betting.schema.js';
 import type { Page } from '../schemas/common.schema.js';
 import { pageOf, Where } from './catalog-query.js';
 import { MATCH_COLUMNS, MATCH_FROM, matchFrom, type PublicMatch } from './public.service.js';
+import { plural } from '../lib/plural.js';
 
 /**
  * Módulo Polla, T-09: which matches take bets and whether a proposed list of
@@ -328,7 +329,7 @@ async function evaluate(
 		: [
 				{
 					code: ErrorCode.INSUFFICIENT_BALANCE,
-					message: `El ticket cuesta ${costoTotal} moneda(s) y tu saldo es ${saldoActual}.`,
+					message: `El ticket cuesta ${plural(costoTotal, 'moneda', 'monedas')} y tu saldo es de ${plural(saldoActual, 'moneda', 'monedas')}.`,
 				},
 			];
 	return {

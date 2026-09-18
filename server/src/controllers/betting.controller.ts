@@ -28,7 +28,7 @@ export function createBettingController(pool: Pool) {
 			throw new HttpError(
 				400,
 				ErrorCode.IDEMPOTENCY_KEY_INVALID,
-				'Falta el header Idempotency-Key o no es un UUID. Generá uno nuevo por cada ticket y repetilo en los reintentos.',
+				'Falta el header Idempotency-Key o no es un UUID. Genera uno nuevo por cada ticket y repítelo en los reintentos.',
 			);
 		}
 		const body = confirmTicketBody.parse(req.body);

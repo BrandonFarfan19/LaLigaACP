@@ -27,11 +27,11 @@ export class HttpError extends Error {
 		return new HttpError(400, ErrorCode.VALIDATION_ERROR, message, details);
 	}
 
-	static unauthenticated(message = 'Iniciá sesión para continuar.'): HttpError {
+	static unauthenticated(message = 'Inicia sesión para continuar.'): HttpError {
 		return new HttpError(401, ErrorCode.UNAUTHENTICATED, message);
 	}
 
-	static forbidden(message = 'No tenés permiso para esta acción.', code: ErrorCode = ErrorCode.FORBIDDEN): HttpError {
+	static forbidden(message = 'No tienes permiso para esta acción.', code: ErrorCode = ErrorCode.FORBIDDEN): HttpError {
 		return new HttpError(403, code, message);
 	}
 

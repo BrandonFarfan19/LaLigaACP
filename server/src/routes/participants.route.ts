@@ -2,11 +2,12 @@ import { Router } from 'express';
 import type { Pool } from 'mysql2/promise';
 import { createParticipantsController } from '../controllers/participants.controller.js';
 import { rejectQueryParams } from '../middleware/no-query.js';
+import type { ParticipantActionHooks } from '../services/participant-validation.service.js';
 
 /** Mounted under `/admin`, which already requires a session and the `admin` role. */
-export function createParticipantsRouter(pool: Pool): Router {
+export function createParticipantsRouter(pool: Pool, hooks?: ParticipantActionHooks): Router {
 	const router = Router();
-	const controller = createParticipantsController(pool);
+	const controller = createParticipantsController(pool, hooks);
 
 	router.get('/', controller.list);
 	router.get('/conteos', controller.counts);

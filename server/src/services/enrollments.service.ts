@@ -4,8 +4,9 @@ import { HttpError } from '../lib/http-error.js';
 import type { CreateEnrollmentBody, ListEnrollmentsQuery, UpdateEnrollmentBody } from '../schemas/catalog.schema.js';
 import type { Page } from '../schemas/common.schema.js';
 import { type AdminActionContext, runAdminAction } from './admin-action.js';
-import { type Db, dependents, pageOf, Where } from './catalog-query.js';
+import { type Db, dependents, likePattern, pageOf, Where } from './catalog-query.js';
 import { findPlayer } from './players.service.js';
+import { plural } from '../lib/plural.js';
 
 /**
  * Módulo Informativo: `plantel`, a player enrolled in a team of a
@@ -19,12 +20,18 @@ export interface Enrollment {
 	jugadorId: number;
 	jugadorNombre: string;
 	equipoId: number;
+	/** Joined names (T-21), so a list shows each row without another lookup; never stored or audited. */
+	equipoNombre: string;
 	competicionId: number;
+	competicionNombre: string;
+	deporteNombre: string;
 	numeroCamiseta: number;
 }
 
-const COLUMNS = 'p.id, p.jugador_id, j.nombre AS jugador_nombre, p.equipo_id, p.competicion_id, p.numero_camiseta';
-const FROM = 'FROM plantel p JOIN jugador j ON j.id = p.jugador_id';
+const COLUMNS = `p.id, p.jugador_id, j.nombre AS jugador_nombre, p.equipo_id, e.nombre AS equipo_nombre,
+	p.competicion_id, c.nombre AS competicion_nombre, d.nombre AS deporte_nombre, p.numero_camiseta`;
+const FROM = `FROM plantel p JOIN jugador j ON j.id = p.jugador_id JOIN equipo e ON e.id = p.equipo_id
+	JOIN competicion c ON c.id = p.competicion_id JOIN deporte d ON d.id = c.deporte_id`;
 
 function toEnrollment(row: RowDataPacket): Enrollment {
 	return {
@@ -32,7 +39,10 @@ function toEnrollment(row: RowDataPacket): Enrollment {
 		jugadorId: Number(row.jugador_id),
 		jugadorNombre: String(row.jugador_nombre),
 		equipoId: Number(row.equipo_id),
+		equipoNombre: String(row.equipo_nombre),
 		competicionId: Number(row.competicion_id),
+		competicionNombre: String(row.competicion_nombre),
+		deporteNombre: String(row.deporte_nombre),
 		numeroCamiseta: Number(row.numero_camiseta),
 	};
 }
@@ -60,6 +70,8 @@ async function checkShirtFree(db: Db, equipoId: number, numero: number, exceptId
 
 export function listEnrollments(pool: Pool, query: ListEnrollmentsQuery): Promise<Page<Enrollment>> {
 	const where = new Where();
+	// T-21: the player's or the team's name, so the panel finds any enrollment.
+	if (query.q) where.add('(j.nombre LIKE ? OR e.nombre LIKE ?)', likePattern(query.q), likePattern(query.q));
 	if (query.equipoId) where.add('p.equipo_id = ?', query.equipoId);
 	if (query.competicionId) where.add('p.competicion_id = ?', query.competicionId);
 	if (query.jugadorId) where.add('p.jugador_id = ?', query.jugadorId);
@@ -162,7 +174,7 @@ export async function deleteEnrollment(pool: Pool, ctx: AdminActionContext, id: 
 			throw new HttpError(
 				409,
 				ErrorCode.ENROLLMENT_IN_USE,
-				`No se puede borrar la inscripción: tiene ${found.goles} gol(es) registrado(s).`,
+				`No se puede borrar la inscripción: tiene ${plural(Number(found.goles), 'gol registrado', 'goles registrados')}.`,
 				found,
 			);
 		}

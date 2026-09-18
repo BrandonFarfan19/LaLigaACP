@@ -29,6 +29,17 @@ export interface KickoffLabel {
 
 const pad = (value: number) => String(value).padStart(2, '0');
 
+/**
+ * `17 sept 2026`: the day of an ISO 8601 instant (with offset) in the league's
+ * zone. Returns `—` for anything else, since it only labels account data.
+ */
+export function formatDateOnly(iso: string): string {
+	if (!ISO_WITH_OFFSET.test(iso)) return '—';
+	const { day } = formatKickoff(iso);
+	const instant = Date.parse(iso) + LEAGUE_UTC_OFFSET_MINUTES * 60_000;
+	return `${day} ${new Date(instant).getUTCFullYear()}`;
+}
+
 /** Formats an ISO 8601 kickoff (with offset) in the league's zone. Throws on anything else. */
 export function formatKickoff(iso: string): KickoffLabel {
 	const match = ISO_WITH_OFFSET.exec(iso);

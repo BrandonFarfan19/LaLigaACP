@@ -156,7 +156,7 @@ describe('admin: deportes (BR-001, BR-011, BR-015, BR-048)', () => {
 			const res = await api.patch(`/deportes/${sportId}`, { permiteEmpate: false });
 
 			expect(res.status).toBe(409);
-			expect(res.body.error).toMatchObject({ code: 'DRAW_RULE_LOCKED', details: { motivos: ['sus partidos tienen 1 apuesta(s)'] } });
+			expect(res.body.error).toMatchObject({ code: 'DRAW_RULE_LOCKED', details: { motivos: ['sus partidos tienen 1 apuesta'] } });
 		});
 
 		it('other fields still change on a locked sport, and sending the same value is fine', async () => {

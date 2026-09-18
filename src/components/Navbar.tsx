@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import logo from '../assets/logo-la-liga-acp-copa-dorada.png?pixel=logo';
 import PixelImage from './PixelImage';
@@ -23,7 +23,12 @@ const trimSlash = (path: string) => path.replace(/\/+$/, '') || '/';
 // A few pixels of travel is enough to count as "scrolled".
 const THRESHOLD = 8;
 
-export default function Navbar() {
+interface NavbarProps {
+	/** The account corner (`<SessionBar />`): a second row below 64rem, the end of the bar from there. */
+	session: ReactNode;
+}
+
+export default function Navbar({ session }: NavbarProps) {
 	const currentPath = trimSlash(useLocation().pathname);
 	const isCurrent = (href: string) => !href.includes('#') && trimSlash(href) === currentPath;
 
@@ -55,38 +60,44 @@ export default function Navbar() {
 
 	return (
 		<header className={styles.navbar} data-navbar data-scrolled={scrolled ? '' : undefined}>
-			<nav className={styles.inner} aria-label="Principal">
-				<Link className={styles.brand} to="/#inicio" aria-label="La Liga ACP, inicio">
-					{/* Rendered small on purpose, then upscaled with nearest-neighbour
-					    so the cup reads as a sprite rather than a shrunk photo. */}
-					<PixelImage
-						className={`${styles.logo} pixelated`}
-						image={logo}
-						alt=""
-						width={32}
-						height={32}
-						densities={[2]}
-						loading="eager"
-					/>
-					<span className={styles.wordmark}>
-						La Liga <span className={styles.accent}>ACP</span>
-					</span>
-				</Link>
+			<div className={styles.inner}>
+				<nav className={styles.main} aria-label="Principal">
+					<Link className={styles.brand} to="/#inicio" aria-label="La Liga ACP, inicio">
+						{/* Rendered small on purpose, then upscaled with nearest-neighbour
+						    so the cup reads as a sprite rather than a shrunk photo. */}
+						<PixelImage
+							className={`${styles.logo} pixelated`}
+							image={logo}
+							alt=""
+							width={32}
+							height={32}
+							densities={[2]}
+							loading="eager"
+						/>
+						<span className={styles.wordmark}>
+							La Liga <span className={styles.accent}>ACP</span>
+						</span>
+					</Link>
 
-				<ul className={styles.links}>
-					{links.map((link) => (
-						<li key={link.href}>
-							<Link
-								className={styles.link}
-								to={link.href}
-								aria-current={isCurrent(link.href) ? 'page' : undefined}
-							>
-								{link.label}
-							</Link>
-						</li>
-					))}
-				</ul>
-			</nav>
+					<ul className={styles.links}>
+						{links.map((link) => (
+							<li key={link.href}>
+								<Link
+									className={styles.link}
+									to={link.href}
+									aria-current={isCurrent(link.href) ? 'page' : undefined}
+								>
+									{link.label}
+								</Link>
+							</li>
+						))}
+					</ul>
+				</nav>
+
+				<nav className={styles.session} aria-label="Cuenta">
+					{session}
+				</nav>
+			</div>
 		</header>
 	);
 }

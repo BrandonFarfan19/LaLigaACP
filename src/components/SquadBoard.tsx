@@ -4,7 +4,8 @@ import pitch from '../assets/backgrounds/cancha-vertical.png?pixel=pitch';
 import { isInAppHistoryTraversal } from '../hooks/useScrollManagement';
 import PixelImage from './PixelImage';
 import PlayerStatsDialog from './PlayerStatsDialog';
-import type { Player, PlayerStats, ResolvedSquadPlacement } from '../types';
+import { squadPlacements } from '../lib/squad-layout';
+import type { Player, PlayerStats } from '../types';
 import styles from './SquadBoard.module.css';
 
 /**
@@ -16,13 +17,14 @@ interface Props {
 	teamName: string;
 	players: Player[];
 	stats: PlayerStats[];
-	placements: ResolvedSquadPlacement[];
 }
 
 const dialogId = (player: Player) => `stats-${player.id}`;
 
-export default function SquadBoard({ teamName, players, stats, placements }: Props) {
+export default function SquadBoard({ teamName, players, stats }: Props) {
 	const statsByPlayer = new Map(stats.map((row) => [row.playerId, row]));
+	// Where each one stands is a sample layout (D-022): the schema has no position.
+	const placements = squadPlacements(players);
 	const dialogs = useRef(new Map<string, HTMLDialogElement>());
 
 	const open = (player: Player) => dialogs.current.get(dialogId(player))?.showModal();
@@ -72,7 +74,7 @@ export default function SquadBoard({ teamName, players, stats, placements }: Pro
 											className={styles['pitch-player']}
 											type="button"
 											disabled={!hasStats}
-											aria-label={`Ver estadísticas de ${player.name}, dorsal de muestra ${shirtNumber}`}
+											aria-label={`Ver estadísticas de ${player.name}, dorsal ${shirtNumber}`}
 											aria-haspopup="dialog"
 											aria-controls={hasStats ? dialogId(player) : undefined}
 											data-stats-open={hasStats ? dialogId(player) : undefined}
@@ -99,6 +101,7 @@ export default function SquadBoard({ teamName, players, stats, placements }: Pro
 						</ul>
 					</div>
 					<p className={styles['pitch-hint']}>Toca un jugador para ver su ficha</p>
+					<p className={styles['pitch-hint']}>La ubicación en la cancha es de muestra; el dorsal es el inscrito en el plantel.</p>
 				</figure>
 
 				<table className={`${styles.roster} pixel-box`}>

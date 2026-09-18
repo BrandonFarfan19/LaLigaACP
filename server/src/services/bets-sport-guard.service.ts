@@ -1,5 +1,6 @@
 import type { RowDataPacket } from 'mysql2/promise';
 import type { DrawRuleGuard } from './sports.service.js';
+import { plural } from '../lib/plural.js';
 
 /**
  * Módulo Polla: its check for the Informativo `DrawRuleGuard` extension point
@@ -21,5 +22,5 @@ export const betsOnSportGuard: DrawRuleGuard = async (conn, sportId) => {
 		[sportId],
 	);
 	const n = Number(row?.n ?? 0);
-	return n > 0 ? `sus partidos tienen ${n} apuesta(s)` : null;
+	return n > 0 ? `sus partidos tienen ${plural(n, 'apuesta', 'apuestas')}` : null;
 };

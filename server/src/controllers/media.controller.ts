@@ -127,7 +127,11 @@ export function serveImage(pool: Pool, store: MediaStore, scope: 'admin' | 'publ
 			'X-Content-Type-Options': 'nosniff',
 		};
 		await new Promise<void>((resolve, reject) => {
-			res.sendFile(store.pathOf(name), { headers, dotfiles: 'deny', acceptRanges: false }, (error) => {
+			// `pathOf` checks the name again. The file is sent by name under `root`: with an absolute
+			// path, `dotfiles: 'deny'` also looked at the folders above it, and the default local
+			// folder (`.data/uploads`) answered 403 to every image (T-21 fix).
+			store.pathOf(name);
+			res.sendFile(name, { root: store.dir, headers, dotfiles: 'deny', acceptRanges: false }, (error) => {
 				if (!error) return resolve();
 				// The client went away mid-transfer: nothing left to answer.
 				if (res.headersSent) return resolve();

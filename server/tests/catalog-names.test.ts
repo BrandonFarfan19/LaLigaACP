@@ -1,5 +1,5 @@
 import type { Express } from 'express';
-import type { Pool } from 'mysql2/promise';
+import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { slugify } from '../src/lib/slug.js';
 import { createTestApp } from './helpers/app.js';
@@ -91,6 +91,55 @@ describe('names and slugs of the sports catalog (T-06 follow-up)', () => {
 			expect(res.status, label).toBe(400);
 			expect(res.body.error.details, label).toEqual(expect.arrayContaining([expect.objectContaining({ path })]));
 		}
+	});
+
+	it.each([
+		['a lone high surrogate', 'https://x.test/a\uD83D.png'],
+		['a lone low surrogate', 'https://x.test/a\uDE00.png'],
+		['reversed surrogates', 'https://x.test/\uDE00\uD83D.png'],
+		['a lone surrogate at the end', 'https://x.test/a.png\uD83D'],
+		['a lone surrogate in a relative path', 'escudos/a\uD83D.png'],
+		['a tab (new URL drops it)', 'https://x.test/a\t.png'],
+		['a newline (new URL drops it)', 'https://x.test/a\n.png'],
+		['a right-to-left override', 'https://x.test/\u202Egnp.png'],
+		['a zero-width space', 'https://x.test/a\u200B.png'],
+		['a line separator', 'https://x.test/a\u2028.png'],
+		['a Hangul filler (U+3164)', 'https://x.test/a\u3164.png'],
+		['a Hangul choseong filler (U+115F)', 'https://x.test/a\u115F.png'],
+		['a Hangul filler in a relative path', 'escudos/a\u3164.png'],
+		['a blank Braille pattern', 'https://x.test/a\u2800.png'],
+		// T-18 fix: other blanks inside an https URL.
+		...['\u17B4', '\u17B5', '\u180B', '\u034F', '\u00A0', '\u2000', '\u2005', '\u200A', '\u202F', '\u205F', '\u3000', '\uFE0F', cp(0x1d159), ' '].map(
+			(blank): [string, string] => [`U+${blank.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')} inside an https URL`, `https://x.test/a${blank}b.png`],
+		),
+	])('rejects %s in escudo and foto (second fix of T-17)', async (_label, bad) => {
+		const sport = await created<{ id: number }>(api.post('/deportes', { nombre: 'Fútbol', permiteEmpate: true }));
+		const competition = await created<{ id: number }>(api.post('/competiciones', { deporteId: sport.id, nombre: 'Liga' }));
+		const team = await created<{ id: number; escudo: string }>(api.post('/equipos', teamBody(competition.id)));
+		const player = await created<{ id: number; foto: string | null }>(api.post('/jugadores', { nombre: 'Ana', foto: 'fotos/ana.png' }));
+
+		const attempts: Array<[string, Promise<{ status: number; body: { error: { details: Array<{ path: string }> } } }>, string]> = [
+			['POST equipo', api.post('/equipos', teamBody(competition.id, { nombre: 'Otro', escudo: bad })), 'escudo'],
+			['PATCH equipo', api.patch(`/equipos/${team.id}`, { escudo: bad }), 'escudo'],
+			['POST jugador', api.post('/jugadores', { nombre: 'Bea', foto: bad }), 'foto'],
+			['PATCH jugador', api.patch(`/jugadores/${player.id}`, { foto: bad }), 'foto'],
+		];
+		for (const [label, attempt, path] of attempts) {
+			const res = await attempt;
+			expect(res.status, label).toBe(400);
+			expect(res.body.error.details, label).toEqual(expect.arrayContaining([expect.objectContaining({ path })]));
+		}
+		const [[row]] = await pool.query<RowDataPacket[]>(
+			'SELECT (SELECT COUNT(*) FROM equipo) AS equipos, (SELECT COUNT(*) FROM jugador) AS jugadores, (SELECT escudo FROM equipo WHERE id = ?) AS escudo, (SELECT foto FROM jugador WHERE id = ?) AS foto',
+			[team.id, player.id],
+		);
+		expect([Number(row!.equipos), Number(row!.jugadores), row!.escudo, row!.foto]).toEqual([1, 1, team.escudo, 'fotos/ana.png']);
+	});
+
+	it('still accepts escudo and foto with a well-formed emoji or accents', async () => {
+		const res = await api.post('/jugadores', { nombre: 'Ana', foto: 'https://x.test/fotos/ñandú-🦅.png' });
+		expect(res.status, JSON.stringify(res.body)).toBe(201);
+		expect(res.body.data.foto).toBe('https://x.test/fotos/ñandú-🦅.png');
 	});
 
 	it('accepts normal names with accents, emoji and surrounding spaces', async () => {

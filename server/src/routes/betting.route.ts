@@ -16,7 +16,10 @@ import { rejectQueryParams } from '../middleware/no-query.js';
  *
  * Betting routes are for a validated `apostador` only (`requireBettor`): a
  * `pendiente` user gets 403 `USER_NOT_VALIDATED`, an admin 403
- * `ADMIN_CANNOT_BET`. The receipt only needs a session and answers 404 for
+ * `ADMIN_CANNOT_BET`. The match list is the exception (T-19): it takes no
+ * bet and spends nothing, so any `apostador` reads it (`requireParticipant`)
+ * and a pending one sees what they will be able to bet on; an admin gets 403
+ * `NOT_A_PARTICIPANT`. The receipt only needs a session and answers 404 for
  * any ticket that isn't the caller's (an admin has none), so ticket ids of
  * other users can't be probed. The history is for any `apostador`
  * (`requireParticipant`): a `pendiente` user just has none yet, and an admin
@@ -28,7 +31,7 @@ export function createBettingRouter(pool: Pool, requireAuth: RequestHandler): Ro
 	const controller = createBettingController(pool);
 	router.use(requireAuth);
 
-	router.get('/partidos', requireBettor, controller.matches);
+	router.get('/partidos', requireParticipant, controller.matches);
 	router.post('/vista-previa', requireBettor, rejectQueryParams, controller.preview);
 	router.post('/tickets', requireBettor, rejectQueryParams, controller.confirm);
 	router.get('/tickets/:id', rejectQueryParams, controller.ticket);

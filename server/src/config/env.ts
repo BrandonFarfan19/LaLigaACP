@@ -11,7 +11,7 @@ const PLACEHOLDER_SECRET = /cambiar|changeme|change[-_ ]?me|ejemplo|example|plac
 
 function checkSessionSecret(value: string, ctx: z.RefinementCtx): void {
 	if (PLACEHOLDER_SECRET.test(value)) {
-		ctx.addIssue({ code: 'custom', message: 'es un valor de ejemplo: generá uno propio (openssl rand -base64 48)' });
+		ctx.addIssue({ code: 'custom', message: 'es un valor de ejemplo: genera uno propio (openssl rand -base64 48)' });
 	} else if (new Set(value).size < 12) {
 		ctx.addIssue({ code: 'custom', message: 'tiene muy pocos caracteres distintos para ser aleatorio' });
 	}
@@ -42,7 +42,7 @@ function parseTrustProxy(raw: string, ctx: z.RefinementCtx): TrustProxy {
 	if (value === 'true') {
 		ctx.addIssue({
 			code: 'custom',
-			message: 'true no se acepta (cualquiera podría falsear su IP): usá la cantidad de proxies (1) o sus IPs/rangos',
+			message: 'true no se acepta (cualquiera podría falsear su IP): usa la cantidad de proxies (1) o sus IPs/rangos',
 		});
 		return z.NEVER;
 	}
@@ -105,7 +105,7 @@ const schema = z
 		// outstanding CSRF token, not the sessions themselves.
 		SESSION_SECRET: z
 			.string()
-			.min(32, 'mínimo 32 caracteres (generalo con: openssl rand -base64 48)')
+			.min(32, 'mínimo 32 caracteres (genéralo con: openssl rand -base64 48)')
 			.superRefine(checkSessionSecret),
 		SESSION_TTL_HOURS: z.coerce.number().int().positive().max(24 * 30).default(12),
 		// Failed login attempts per IP + email, stricter than the global limit.
@@ -117,6 +117,10 @@ const schema = z
 		// Public read-only API (T-08), per IP: its own, roomier limit instead of the global one.
 		PUBLIC_RATE_LIMIT_WINDOW_MS: windowMs(60 * 1000),
 		PUBLIC_RATE_LIMIT_MAX: maxRequests(120),
+		// GET /auth/me (D-009), per IP: the frontend reads the session on protected pages, so it
+		// gets its own, roomier limit and the global one doesn't count it.
+		SESSION_READ_RATE_LIMIT_WINDOW_MS: windowMs(60 * 1000),
+		SESSION_READ_RATE_LIMIT_MAX: maxRequests(120),
 		// T-13: uploaded images. A directory outside the code (a Docker volume in
 		// compose.yaml); relative paths resolve against the process's working directory.
 		UPLOADS_DIR: z.string().trim().min(1).default('.data/uploads'),
@@ -129,6 +133,12 @@ const schema = z
 		UPLOAD_RATE_LIMIT_MAX: maxRequests(60),
 		// Off by default: req.ip is the socket's address. See parseTrustProxy.
 		TRUST_PROXY: z.string().default('false').transform(parseTrustProxy),
+		// D-016: the one database the development sample data may touch (`seed:dev`).
+		// Unset or empty means that command refuses to run.
+		DEV_SEED_DATABASE: z.preprocess(
+			(value) => (value === '' ? undefined : value),
+			z.string().regex(/^[A-Za-z0-9_]+$/, 'solo letras, números y guion bajo').optional(),
+		),
 	})
 	// The test suite empties and recreates MYSQL_DATABASE_TEST: if it were the
 	// real database, `npm test` would wipe it.
@@ -165,6 +175,11 @@ export interface Env {
 		readonly windowMs: number;
 		readonly max: number;
 	};
+	/** D-009: GET /auth/me, outside the global limit. */
+	readonly sessionReadRateLimit: {
+		readonly windowMs: number;
+		readonly max: number;
+	};
 	/** Applied as Express's `trust proxy` setting in app.ts. */
 	readonly trustProxy: TrustProxy;
 	/** T-13: where uploaded images live, and how big they may be. */
@@ -177,6 +192,14 @@ export interface Env {
 	readonly uploadRateLimit: {
 		readonly windowMs: number;
 		readonly max: number;
+	};
+	/** D-016: what `seed:dev` checks before touching anything. */
+	readonly devSeed: {
+		/** NODE_ENV was set in the process environment: not the default, not the `.env` file. */
+		readonly nodeEnvExplicit: boolean;
+		/** DEV_SEED_DATABASE, or null when unset. */
+		readonly database: string | null;
+		readonly testDatabase: string;
 	};
 	readonly session: {
 		readonly secret: string;
@@ -208,14 +231,14 @@ function resolveDatabaseName(raw: z.infer<typeof schema>): string {
  * environment, without mutating the real `process.env` — see
  * `tests/env.test.ts`.
  */
-export function parseEnv(source: NodeJS.ProcessEnv): Env {
+export function parseEnv(source: NodeJS.ProcessEnv, options: { nodeEnvExplicit?: boolean } = {}): Env {
 	const result = schema.safeParse(source);
 	if (!result.success) {
 		const issues = result.error.issues
 			.map((issue) => `  - ${issue.path.join('.') || '(sin nombre)'}: ${issue.message}`)
 			.join('\n');
 		throw new ConfigError(
-			`Configuración inválida: revisá estas variables de entorno (copiá .env.example a .env si falta el archivo):\n${issues}`,
+			`Configuración inválida: revisa estas variables de entorno (copia .env.example a .env si falta el archivo):\n${issues}`,
 		);
 	}
 
@@ -248,6 +271,10 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
 			windowMs: raw.REGISTER_RATE_LIMIT_WINDOW_MS,
 			max: raw.REGISTER_RATE_LIMIT_MAX,
 		},
+		sessionReadRateLimit: {
+			windowMs: raw.SESSION_READ_RATE_LIMIT_WINDOW_MS,
+			max: raw.SESSION_READ_RATE_LIMIT_MAX,
+		},
 		trustProxy: raw.TRUST_PROXY,
 		uploads: {
 			dir: resolve(raw.UPLOADS_DIR),
@@ -257,6 +284,11 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
 		uploadRateLimit: {
 			windowMs: raw.UPLOAD_RATE_LIMIT_WINDOW_MS,
 			max: raw.UPLOAD_RATE_LIMIT_MAX,
+		},
+		devSeed: {
+			nodeEnvExplicit: options.nodeEnvExplicit ?? Boolean(source.NODE_ENV),
+			database: raw.DEV_SEED_DATABASE ?? null,
+			testDatabase: raw.MYSQL_DATABASE_TEST,
 		},
 		session: {
 			secret: raw.SESSION_SECRET,
@@ -273,6 +305,8 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
  * message and exit code 1 instead of an uncaught exception.
  */
 export function loadEnv(): Env {
+	// Read before the `.env` file fills the gaps: D-016 wants NODE_ENV set in the real environment.
+	const nodeEnvExplicit = Boolean(process.env.NODE_ENV);
 	loadRootEnvFile();
-	return parseEnv(process.env);
+	return parseEnv(process.env, { nodeEnvExplicit });
 }

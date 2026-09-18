@@ -90,22 +90,36 @@ export function parseIdempotencyKey(header: string | undefined): string | null {
 	return key && UUID.test(key) && key !== NIL_UUID ? key : null;
 }
 
+/** The filters of a bets listing (T-11), shared by the admin query (T-21). */
+const betFilterFields = {
+	...paginationFields,
+	/** BR-027: the selection's state. */
+	estado: z.enum(ESTADOS_SELECCION, { error: `Tiene que ser uno de: ${ESTADOS_SELECCION.join(', ')}.` }).optional(),
+	/** BR-025: the ticket's derived state. */
+	estadoTicket: z.enum(ESTADOS_TICKET, { error: `Tiene que ser uno de: ${ESTADOS_TICKET.join(', ')}.` }).optional(),
+	ticketId: idFromText('ticketId').optional(),
+	partidoId: idFromText('partidoId').optional(),
+	deporteId: idFromText('deporteId').optional(),
+	competicionId: idFromText('competicionId').optional(),
+	/** On the ticket's date (when the bet was placed), inclusive. */
+	desde: isoDateTime('desde').optional(),
+	hasta: isoDateTime('hasta').optional(),
+};
+
+const datesInOrder = (q: { desde?: Date; hasta?: Date }) => !q.desde || !q.hasta || q.desde <= q.hasta;
+const DATES_OUT_OF_ORDER = { message: 'desde no puede ser posterior a hasta.', path: ['hasta'] };
+
 /** T-11: `GET /apuestas/mis-apuestas`. Strict: an unknown key is a 400. */
-export const listMyBetsQuery = z
-	.strictObject({
-		...paginationFields,
-		/** BR-027: the selection's state. */
-		estado: z.enum(ESTADOS_SELECCION, { error: `Tiene que ser uno de: ${ESTADOS_SELECCION.join(', ')}.` }).optional(),
-		/** BR-025: the ticket's derived state. */
-		estadoTicket: z.enum(ESTADOS_TICKET, { error: `Tiene que ser uno de: ${ESTADOS_TICKET.join(', ')}.` }).optional(),
-		ticketId: idFromText('ticketId').optional(),
-		partidoId: idFromText('partidoId').optional(),
-		deporteId: idFromText('deporteId').optional(),
-		competicionId: idFromText('competicionId').optional(),
-		/** On the ticket's date (when the bet was placed), inclusive. */
-		desde: isoDateTime('desde').optional(),
-		hasta: isoDateTime('hasta').optional(),
-	})
-	.refine((q) => !q.desde || !q.hasta || q.desde <= q.hasta, { message: 'desde no puede ser posterior a hasta.', path: ['hasta'] });
+export const listMyBetsQuery = z.strictObject(betFilterFields).refine(datesInOrder, DATES_OUT_OF_ORDER);
 
 export type ListMyBetsQuery = z.infer<typeof listMyBetsQuery>;
+
+/**
+ * `GET /admin/polla/apuestas` (T-21, BR-001 "consultar apuestas realizadas"):
+ * the same filters, plus the participant.
+ */
+export const listAdminBetsQuery = z
+	.strictObject({ ...betFilterFields, usuarioId: idFromText('usuarioId').optional() })
+	.refine(datesInOrder, DATES_OUT_OF_ORDER);
+
+export type ListAdminBetsQuery = z.infer<typeof listAdminBetsQuery>;

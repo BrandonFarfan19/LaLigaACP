@@ -4,6 +4,7 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ESTADOS_TICKET, ticketStateCondition, ticketStateFromCounts } from '../src/lib/betting.js';
+import { applyCoinMovementsInTransaction } from '../src/services/coins.service.js';
 import { createTestApp } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertMatch, teamBody } from './helpers/catalog.js';
@@ -80,9 +81,13 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 	const general = (partidoId: number, pronostico: string) => ({ partidoId, tipo: 'resultado_general', pronostico });
 	const exact = (partidoId: number, golesLocal: number, golesVisitante: number) => ({ partidoId, tipo: 'marcador_exacto', golesLocal, golesVisitante });
 
-	/** What T-12 and T-16 will do, by hand. */
-	const setSelection = (id: number, estado: string, puntos: number | null) =>
-		pool.query('UPDATE seleccion SET estado_seleccion_id = (SELECT id FROM estado_seleccion WHERE codigo = ?), puntos_obtenidos = ? WHERE id = ?', [estado, puntos, id]);
+	/** What T-14 and T-16 do, by hand. Voiding also refunds the coin, as a cancellation does (D-003: refunds come from the movements). */
+	const setSelection = async (id: number, estado: string, puntos: number | null) => {
+		await pool.query('UPDATE seleccion SET estado_seleccion_id = (SELECT id FROM estado_seleccion WHERE codigo = ?), puntos_obtenidos = ? WHERE id = ?', [estado, puntos, id]);
+		if (estado !== 'anulada') return;
+		const [[owner]] = await pool.query<RowDataPacket[]>('SELECT t.usuario_id FROM seleccion s JOIN ticket t ON t.id = s.ticket_id WHERE s.id = ?', [id]);
+		await applyCoinMovementsInTransaction(pool, Number(owner!.usuario_id), [{ tipo: 'devolucion_cancelacion', seleccionId: id }]);
+	};
 	const setMatch = (id: number, estado: string) =>
 		pool.query('UPDATE partido SET estado_partido_id = (SELECT id FROM estado_partido WHERE codigo = ?) WHERE id = ?', [estado, id]);
 	const setScore = (id: number, local: number | null, visita: number | null) =>
@@ -419,7 +424,8 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 				expect(d.tickets.total).toBe(d.tickets.pendiente + d.tickets.finalizado + d.tickets.anulado);
 				expect(d.aciertos).toBe(sel.acertada);
 				expect(d.monedasUtilizadas).toBe(sel.total);
-				expect(d.monedasDevueltas).toBe(sel.anulada);
+				// D-003: this writer voids by hand and never refunds, so nothing came back.
+				expect(d.monedasDevueltas).toBe(0);
 
 				const page = list.body.data;
 				if (page.total <= 100) expect(page.items.length).toBe(page.total);

@@ -12,20 +12,29 @@ import { requireSlug } from './sports.service.js';
 export interface Competition {
 	id: number;
 	deporteId: number;
+	/** Joined by the API (T-21 fix), so a row shows its sport without another list. */
+	deporteNombre: string;
 	nombre: string;
 	/** Unique within its sport, not globally. */
 	slug: string;
 }
 
-const COLUMNS = 'c.id, c.deporte_id, c.nombre, c.slug';
+const COLUMNS = 'c.id, c.deporte_id, d.nombre AS deporte_nombre, c.nombre, c.slug';
+const FROM = 'FROM competicion c JOIN deporte d ON d.id = c.deporte_id';
 
 function toCompetition(row: RowDataPacket): Competition {
-	return { id: Number(row.id), deporteId: Number(row.deporte_id), nombre: String(row.nombre), slug: String(row.slug) };
+	return {
+		id: Number(row.id),
+		deporteId: Number(row.deporte_id),
+		deporteNombre: String(row.deporte_nombre),
+		nombre: String(row.nombre),
+		slug: String(row.slug),
+	};
 }
 
 async function find(db: Db, id: number, lock = false): Promise<Competition> {
 	const [[row]] = await db.query<RowDataPacket[]>(
-		`SELECT ${COLUMNS} FROM competicion c WHERE c.id = ?${lock ? ' FOR UPDATE' : ''}`,
+		`SELECT ${COLUMNS} ${FROM} WHERE c.id = ?${lock ? ' FOR UPDATE OF c' : ''}`,
 		[id],
 	);
 	if (!row) throw HttpError.notFound('No existe esa competición.', ErrorCode.COMPETITION_NOT_FOUND);
@@ -42,7 +51,7 @@ export function listCompetitions(pool: Pool, query: ListCompetitionsQuery): Prom
 	const where = new Where();
 	if (query.q) where.add('(c.nombre LIKE ? OR c.slug LIKE ?)', likePattern(query.q), likePattern(query.q));
 	if (query.deporteId) where.add('c.deporte_id = ?', query.deporteId);
-	return pageOf(pool, { columns: COLUMNS, from: 'FROM competicion c', where, orderBy: 'c.nombre, c.id' }, query, toCompetition);
+	return pageOf(pool, { columns: COLUMNS, from: FROM, where, orderBy: 'c.nombre, c.id' }, query, toCompetition);
 }
 
 export function getCompetition(pool: Pool, id: number): Promise<Competition> {

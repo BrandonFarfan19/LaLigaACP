@@ -12,6 +12,10 @@
 
 .back {
 	align-self: flex-start;
+	/* Something you tap: 44px tall like every other target (NFR-001, T-23). */
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
 	font-family: var(--font-display);
 	font-size: var(--text-xs);
 	text-transform: uppercase;
@@ -23,6 +27,13 @@
 .back:hover,
 .back:focus-visible {
 	color: var(--color-accent);
+}
+
+/* Every animation is off under reduced motion (NFR-003, T-23). */
+@media (prefers-reduced-motion: reduce) {
+	.back {
+		transition: none;
+	}
 }
 
 /* Same stage treatment as the carousel, tinted with the team color. The

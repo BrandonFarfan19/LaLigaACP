@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Pool } from 'mysql2/promise';
 import type { Env } from '../config/env.js';
 import { createRequireAuth } from '../middleware/auth.js';
+import { auditHooks, participantAuditHooks } from '../services/audit.service.js';
 import { countBetsOnMatch, countPendingSelections } from '../services/bets-match-probe.service.js';
 import { settleMatchBets } from '../services/bets-settlement.service.js';
 import { createMediaStore } from '../services/media-storage.js';
@@ -14,6 +15,7 @@ import { createBettingRouter } from './betting.route.js';
 import { createCoinsRouter } from './coins.route.js';
 import { createHealthRouter } from './health.route.js';
 import { createPublicRouter } from './public.route.js';
+import { createRankingRouter } from './ranking.route.js';
 
 /**
  * Every resource mounts here the same way: one `create<Resource>Router(...)`
@@ -30,6 +32,7 @@ export function createRouter(pool: Pool, env: Env): Router {
 	router.use('/public', createPublicRouter(pool, env, store));
 	router.use('/monedas', createCoinsRouter(pool, requireAuth));
 	router.use('/apuestas', createBettingRouter(pool, requireAuth));
+	router.use('/ranking', createRankingRouter(pool, requireAuth));
 	// Composition root: the Polla module's checks (BR-015 draw rule, bets on a
 	// match, pending selections) and its settler (T-12/T-14) reach the Informativo
 	// routes here, so Informativo never imports Polla.
@@ -37,6 +40,8 @@ export function createRouter(pool: Pool, env: Env): Router {
 		'/admin',
 		createAdminRouter(pool, requireAuth, {
 			catalog: {
+				// T-17: every admin write is audited in its own transaction (Módulo Auditoría).
+				hooks: auditHooks,
 				drawRuleGuards: [betsOnSportGuard],
 				countBetsOnMatch,
 				countPendingSelections,
@@ -48,6 +53,7 @@ export function createRouter(pool: Pool, env: Env): Router {
 				},
 			},
 			store,
+			participantHooks: participantAuditHooks,
 		}),
 	);
 	return router;

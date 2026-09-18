@@ -183,6 +183,8 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 					<p className={styles.average}>
 						Media <span className={styles['average-value']}>{average}</span>
 					</p>
+					{/* D-022: the six attributes are a sample; the player and the squad are real. */}
+					<p className={styles.sample}>Atributos de muestra: todavía no hay estadísticas oficiales.</p>
 				</div>
 				<form method="dialog" data-capture-exclude>
 					<button className={styles.close} aria-label="Cerrar">

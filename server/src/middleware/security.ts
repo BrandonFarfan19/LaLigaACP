@@ -20,6 +20,41 @@ function isHealthCheck(req: Request): boolean {
 	return (req.method === 'GET' || req.method === 'HEAD') && HEALTH_PATH.test(req.path);
 }
 
+/** `GET /auth/me` (same matching as the router). It has its own limiter (`sessionReadRateLimit`, D-009). */
+const SESSION_READ_PATH = /^\/auth\/me\/?$/i;
+
+export function isSessionRead(req: Request): boolean {
+	return (req.method === 'GET' || req.method === 'HEAD') && SESSION_READ_PATH.test(req.path);
+}
+
+/**
+ * Which limit refused a request, in `error.details.limite` of every 429, so a
+ * client can tell "too many failed logins" from "too many requests".
+ */
+export type RateLimitKind = 'general' | 'publico' | 'subidas' | 'sesion' | 'ingreso' | 'registro';
+
+export const rateLimited = (message: string, limite: RateLimitKind) => errorBody(ErrorCode.RATE_LIMITED, message, { limite });
+
+/**
+ * D-009: reading one's own session (`GET /auth/me`), per IP. The frontend
+ * reads it on every protected page, so it can't share the global budget of
+ * 100 per 15 minutes: a few people browsing behind one IP would block every
+ * real action. Reading the session is cheap and exposes nothing else.
+ * `SESSION_READ_RATE_LIMIT_MAX` per `SESSION_READ_RATE_LIMIT_WINDOW_MS`
+ * (120 per minute by default). Counts every request, signed in or not.
+ */
+export function sessionReadRateLimit(env: Env): RequestHandler {
+	return rateLimit({
+		windowMs: env.sessionReadRateLimit.windowMs,
+		limit: env.sessionReadRateLimit.max,
+		standardHeaders: true,
+		legacyHeaders: false,
+		handler: (_req, res) => {
+			res.status(429).json(rateLimited('Demasiadas consultas de la sesión. Intenta de nuevo en unos momentos.', 'sesion'));
+		},
+	});
+}
+
 /** `/public` and below (same matching as the router). It has its own limiter (`publicRateLimit`). */
 const PUBLIC_PATH = /^\/public(?:\/|$)/i;
 
@@ -43,7 +78,7 @@ export function publicRateLimit(env: Env) {
 		legacyHeaders: false,
 		handler: (_req, res) => {
 			res.set('Cache-Control', 'no-store');
-			res.status(429).json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiadas solicitudes. Probá de nuevo más tarde.'));
+			res.status(429).json(rateLimited('Demasiadas solicitudes. Intenta de nuevo más tarde.', 'publico'));
 		},
 	});
 }
@@ -59,7 +94,7 @@ export function uploadRateLimit(env: Env): RequestHandler {
 		standardHeaders: true,
 		legacyHeaders: false,
 		handler: (_req, res) => {
-			res.status(429).json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiadas subidas de imágenes. Probá de nuevo más tarde.'));
+			res.status(429).json(rateLimited('Demasiadas subidas de imágenes. Intenta de nuevo más tarde.', 'subidas'));
 		},
 	});
 }
@@ -93,9 +128,9 @@ export function applySecurity(app: Express, env: Env): void {
 			limit: env.rateLimit.max,
 			standardHeaders: true,
 			legacyHeaders: false,
-			skip: (req) => isHealthCheck(req) || isPublicApi(req),
+			skip: (req) => isHealthCheck(req) || isPublicApi(req) || isSessionRead(req),
 			handler: (_req, res) => {
-				res.status(429).json(errorBody(ErrorCode.RATE_LIMITED, 'Demasiadas solicitudes. Probá de nuevo más tarde.'));
+				res.status(429).json(rateLimited('Demasiadas solicitudes. Intenta de nuevo más tarde.', 'general'));
 			},
 		}),
 	);

@@ -40,7 +40,7 @@ const DUPLICATES: Record<string, Answer> = {
 	uq_partido_equipo_equipo: { status: 400, code: ErrorCode.SAME_TEAM, message: 'Un equipo no puede jugar contra sí mismo.' },
 	uq_ticket_usuario_clave: conflict(
 		ErrorCode.IDEMPOTENCY_KEY_REUSED,
-		'Esa clave de idempotencia ya se usó para otro ticket. Reintentá con la misma clave para recibirlo, o usá una nueva.',
+		'Esa clave de idempotencia ya se usó para otro ticket. Reintenta con la misma clave para recibirlo, o usa una nueva.',
 	),
 	uq_gol_imagen: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese archivo ya está asociado a otro gol.'),
 	uq_multimedia_imagen: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese archivo ya está asociado a otra imagen.'),
@@ -116,7 +116,7 @@ const GENERIC = {
 	inUse: conflict(ErrorCode.RESOURCE_IN_USE, 'El registro está en uso por otros datos.'),
 	missing: conflict(ErrorCode.INVALID_REFERENCE, 'Se hace referencia a un registro que no existe.'),
 	badValue: { status: 400, code: ErrorCode.VALIDATION_ERROR, message: 'Solicitud inválida.' } satisfies Answer,
-	concurrent: conflict(ErrorCode.CONCURRENT_UPDATE, 'Otra operación estaba modificando los mismos datos. Intentá de nuevo.'),
+	concurrent: conflict(ErrorCode.CONCURRENT_UPDATE, 'Otra operación estaba modificando los mismos datos. Intenta de nuevo.'),
 };
 
 interface MysqlError {
