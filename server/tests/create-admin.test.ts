@@ -55,6 +55,20 @@ describe('first admin (BR-001)', () => {
 			expect((await request(app).get('/admin/sesion').set('Cookie', cookie)).status).toBe(200);
 		});
 
+		/** The same rule as registration (BR-003, C-01): 6 to 20 characters, nothing else. */
+		it('takes a password of 6 characters and refuses one of 21', async () => {
+			const created = await ensureAdmin(pool, { email: 'corta@liga.test', nombre: 'Corta', password: 'seis12' });
+			expect(created.action).toBe('created');
+			// It really works: six characters are enough to get in as an admin.
+			const { cookie } = await login(app, 'corta@liga.test', 'seis12');
+			expect((await request(app).get('/admin/sesion').set('Cookie', cookie)).status).toBe(200);
+
+			await expect(ensureAdmin(pool, { email: 'larga@liga.test', nombre: 'Larga', password: 'x'.repeat(21) })).rejects.toThrow(/muy larga/);
+			await expect(ensureAdmin(pool, { email: 'mini@liga.test', nombre: 'Mini', password: 'ab12x' })).rejects.toThrow(/muy corta/);
+			const [rows] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS n FROM usuario WHERE email IN (?, ?)', ['larga@liga.test', 'mini@liga.test']);
+			expect(rows[0]!.n).toBe(0);
+		});
+
 		it('promotes an existing account without touching its password, and says the given one was ignored', async () => {
 			const { body } = await registerUser(app);
 

@@ -4,8 +4,16 @@
  * its answer is the one that counts (NFR-005).
  */
 
-export const PASSWORD_MIN_LENGTH = 10;
-export const PASSWORD_MAX_LENGTH = 128;
+/**
+ * A password being chosen (BR-003, C-01): 6 to 20 characters and nothing
+ * else. Nothing about its composition is required or checked — letters,
+ * digits, symbols, spaces, accents and emoji are all just characters. They
+ * are counted as code points: a plain emoji is one, a composed one (a family,
+ * a flag) is as many as it is made of.
+ * Signing in never applies this (D-024): see `checkLogin`.
+ */
+export const PASSWORD_MIN_LENGTH = 6;
+export const PASSWORD_MAX_LENGTH = 20;
 export const NOMBRE_MAX_LENGTH = 100;
 export const EMAIL_MAX_LENGTH = 254;
 
@@ -51,14 +59,18 @@ export function checkRegistration(input: { nombre: string; email: string; passwo
 	if (nombre) errors.nombre = nombre;
 	const email = checkEmail(input.email);
 	if (email) errors.email = email;
-	if (input.password.length < PASSWORD_MIN_LENGTH) {
-		errors.password = `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`;
-	} else if (input.password.length > PASSWORD_MAX_LENGTH) {
-		errors.password = `La contraseña no puede superar los ${PASSWORD_MAX_LENGTH} caracteres.`;
+	// The same two messages the backend sends, word for word, and the same
+	// counting: characters, not UTF-16 units, so an emoji counts once.
+	const characters = [...input.password].length;
+	if (characters < PASSWORD_MIN_LENGTH) {
+		errors.password = `La contraseña es muy corta: debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`;
+	} else if (characters > PASSWORD_MAX_LENGTH) {
+		errors.password = `La contraseña es muy larga: no puede superar los ${PASSWORD_MAX_LENGTH} caracteres.`;
 	}
 	return errors;
 }
 
+/** Signing in only asks for something written: the length rule is for choosing a password, never for using it (D-024). */
 export function checkLogin(input: { email: string; password: string }): FieldErrors<'email' | 'password'> {
 	const errors: FieldErrors<'email' | 'password'> = {};
 	const email = checkEmail(input.email);

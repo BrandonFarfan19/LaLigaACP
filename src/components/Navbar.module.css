@@ -82,8 +82,13 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	/* The logo is 32px, but the link is something you tap: 44px like the rest (NFR-001, T-23). */
+	/* The link is something you tap: 44px tall **and** wide (NFR-001, T-23).
+	   Below 64rem the wordmark is hidden, so the link is only the logo, and the
+	   logo narrows with the row: without a minimum width the target was 24px
+	   across. The logo stays its own size, centred in that area. */
 	min-height: 44px;
+	min-width: 44px;
+	justify-content: center;
 	text-decoration: none;
 	color: var(--color-text);
 }

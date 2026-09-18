@@ -236,7 +236,11 @@ docker compose exec server npm run seed:dev -- --yes-dev-data   # (y seed:dev:cl
 
 **Cuentas y primer administrador**
 
-La API ya tiene registro, login y roles (`/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`), con sesión en cookie y protección CSRF. Todo registro crea un usuario común y pendiente. El panel no cambia roles: el primer administrador se crea (o una cuenta existente se promueve) desde el servidor. El comando pide la contraseña sin mostrarla:
+La API ya tiene registro, login y roles (`/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`), con sesión en cookie y protección CSRF. Todo registro crea un usuario común y pendiente.
+
+**La contraseña es de 6 a 20 caracteres, y nada más** (BR-003): no se exigen mayúsculas, números ni símbolos, y los espacios, los acentos y los emoji se pueden usar y cuentan como caracteres (algunos emoji compuestos, como una familia o una bandera, cuentan más de uno). Vale igual para el administrador que se crea desde el servidor. **Al ingresar no se aplica ese límite** (D-024): una cuenta creada antes del cambio, con una contraseña más larga, sigue entrando.
+
+El panel no cambia roles: el primer administrador se crea (o una cuenta existente se promueve) desde el servidor. El comando pide la contraseña sin mostrarla:
 
 ```sh
 docker compose exec -it -e ADMIN_EMAIL=ana@liga.test -e ADMIN_NOMBRE=Ana server npm run admin:create
@@ -250,6 +254,16 @@ Detalles y decisiones en [server/README.md](server/README.md#autenticación-y-ro
 
 - Desde el host: `127.0.0.1`, puerto `MYSQL_PORT` (3306 por defecto), base `MYSQL_DATABASE`, usuario `MYSQL_USER` / `MYSQL_PASSWORD`.
 - Desde el contenedor: `docker compose exec db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'`
+- **El usuario de la aplicación solo tiene permisos sobre `MYSQL_DATABASE`.** La imagen de MySQL se los da únicamente sobre esa base, así que crear otra (una base propia para probar, o la de pruebas de `MYSQL_DATABASE_TEST`) falla con ese usuario: hay que hacerlo como `root` y darle los permisos a mano.
+
+  ```sh
+  docker compose exec db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+    CREATE DATABASE IF NOT EXISTS mi_base CHARACTER SET utf8mb4;
+    GRANT ALL PRIVILEGES ON mi_base.* TO \"$MYSQL_USER\"@\"%\";
+    FLUSH PRIVILEGES;"'
+  ```
+
+  Por eso la suite del backend crea y migra su base con `root` (`server/tests/global-setup.ts`) y no con el usuario de la aplicación.
 
 **Resetear** (borra todos los datos de MySQL y vuelve a ejecutar los scripts de `db/init/`)
 

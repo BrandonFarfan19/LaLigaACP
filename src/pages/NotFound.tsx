@@ -104,9 +104,25 @@ export default function NotFound() {
 }
 
 /**
+ * Anything the cases below don't name: a render error (a date the API sent
+ * broken reaching `formatKickoff`), a bug, something thrown that isn't an
+ * `ApiError`. It is drawn like every other failure — inside the layout, with
+ * the way back — and **the detail goes to the console, never to the screen**:
+ * a stack trace tells a visitor nothing and says how the app is built (T-23 fix).
+ */
+function UnexpectedError({ error }: { error: unknown }) {
+	useEffect(() => {
+		console.error('La Liga ACP: error inesperado al mostrar la página.', error);
+	}, [error]);
+	return <ErrorPage kicker="Error inesperado" title="No se pudo mostrar la página" lead="Algo se rompió al mostrar esta página. Vuelve al inicio e inténtalo otra vez." />;
+}
+
+/**
  * Route error boundary: a 404 thrown by a loader renders the page above, a
- * 403 (a protected page for another role, T-18) says so, and an API that
- * can't be reached says that instead of breaking the layout.
+ * 403 (a protected page for another role, T-18) says so, an API that can't be
+ * reached says that, and anything else — including an error thrown while
+ * rendering — is the unexpected page. Nothing reaches the router's own bare
+ * screen, so the navbar and the layout are always there.
  */
 export function RouteError() {
 	const error = useRouteError();
@@ -138,5 +154,5 @@ export function RouteError() {
 	if (error instanceof ApiError) {
 		return <ErrorPage kicker={`Error ${error.status}`} title="No se pudo cargar" lead={error.message} />;
 	}
-	throw error;
+	return <UnexpectedError error={error} />;
 }

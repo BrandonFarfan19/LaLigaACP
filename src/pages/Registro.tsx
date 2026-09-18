@@ -127,9 +127,10 @@ export default function Registro() {
 								type="password"
 								autoComplete="new-password"
 								required
-								minLength={PASSWORD_MIN_LENGTH}
-								maxLength={PASSWORD_MAX_LENGTH}
-								hint={`De ${PASSWORD_MIN_LENGTH} a ${PASSWORD_MAX_LENGTH} caracteres.`}
+								// No native minLength/maxLength: the browser counts UTF-16 units, so it
+								// would cut a password of emoji halfway and disagree with the rule.
+								// `checkRegistration` and the backend count characters (C-01).
+								hint={`De ${PASSWORD_MIN_LENGTH} a ${PASSWORD_MAX_LENGTH} caracteres. Nada más: no hacen falta mayúsculas, números ni símbolos. Algunos emoji, como una familia o una bandera, cuentan más de un carácter.`}
 								error={errors.password}
 							/>
 							<button className={styles.button} type="submit" disabled={submitting} aria-busy={submitting || undefined}>

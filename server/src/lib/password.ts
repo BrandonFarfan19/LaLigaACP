@@ -11,9 +11,22 @@ import argon2 from 'argon2';
  */
 const OPTIONS = { type: argon2.argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 
-export const PASSWORD_MIN_LENGTH = 10;
-/** Upper bound so a huge "password" can't be used to burn CPU. */
-export const PASSWORD_MAX_LENGTH = 128;
+/**
+ * What a **new** password may be (BR-003, C-01): from 6 to 20 characters and
+ * nothing else — no uppercase, digits or symbols are required. It applies
+ * where a password is chosen: registration and `admin:create`.
+ */
+export const PASSWORD_MIN_LENGTH = 6;
+export const PASSWORD_MAX_LENGTH = 20;
+
+/**
+ * Technical ceiling for a password that is only **verified** (login, D-024):
+ * it exists so a huge body can't be used to burn CPU on argon2, and it is
+ * high enough that an account created before C-01 still gets in. It never
+ * changes the answer: a login that fails for any reason is the same
+ * `401 INVALID_CREDENTIALS`, and it takes about the same time (BR-004).
+ */
+export const PASSWORD_VERIFY_MAX_LENGTH = 128;
 
 export function hashPassword(plain: string): Promise<string> {
 	return argon2.hash(plain, OPTIONS);

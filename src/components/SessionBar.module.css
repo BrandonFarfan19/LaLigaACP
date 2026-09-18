@@ -9,7 +9,15 @@
 	list-style: none;
 }
 
-/* Same look as the site links: pixel caps, 44px touch target, the menu cursor. */
+/*
+ * Everything in this bar belongs to the pool or to the account, never to the
+ * landing, so it all goes **gold** (`--color-accent-alt`), while the section
+ * links of the navbar keep the site's normal color (C-02). The lit state is
+ * the palette's pale gold, so hover and focus stay inside the same family and
+ * never borrow the green the sections use.
+ */
+
+/* Same shape as the site links: pixel caps, 44px touch target, the menu cursor. */
 .link {
 	position: relative;
 	display: inline-flex;
@@ -26,13 +34,13 @@
 	text-transform: uppercase;
 	text-decoration: none;
 	white-space: nowrap;
-	color: var(--color-text-muted);
+	color: var(--color-accent-alt);
 	transition: color 120ms steps(2, end);
 }
 
 .link:hover,
 .link:focus-visible {
-	color: var(--color-accent);
+	color: var(--color-coin-light);
 }
 
 .link:disabled {
@@ -97,13 +105,13 @@
 	line-height: 1.4;
 	text-transform: uppercase;
 	text-decoration: none;
-	color: var(--color-text-muted);
+	color: var(--color-accent-alt);
 }
 
 .menuLink:hover,
 .menuLink:focus-visible {
 	color: var(--color-bg);
-	background: var(--color-accent);
+	background: var(--color-accent-alt);
 }
 
 /* The page being shown: a marker as well as the color. */
@@ -111,20 +119,27 @@
 	color: var(--color-text);
 }
 
+/* `currentColor`, so the marker is readable on the row's own background too. */
 .menuLink[aria-current='page']::before {
 	content: '>';
 	margin-right: var(--space-2);
-	color: var(--color-accent);
+	color: currentColor;
 }
 
-/* "Crear cuenta": the call to action, in the accent color. */
+/*
+ * "Crear cuenta": the call to action. Gold like the rest of the bar (C-02),
+ * filled instead of plain so it still reads as the one action to take.
+ */
 .primary {
-	color: var(--color-accent);
+	padding-inline: var(--space-2);
+	color: var(--color-bg);
+	background: var(--color-accent-alt);
 }
 
 .primary:hover,
 .primary:focus-visible {
-	color: var(--color-accent-alt);
+	color: var(--color-bg);
+	background: var(--color-coin-light);
 }
 
 /* The coin counter (BR-010): sprite + amount, one 44px-tall target. */
@@ -159,7 +174,7 @@
 
 .coins:hover .amount,
 .coins:focus-visible .amount {
-	color: var(--color-accent);
+	color: var(--color-coin-light);
 }
 
 /* A failed sign-out, under the bar. */

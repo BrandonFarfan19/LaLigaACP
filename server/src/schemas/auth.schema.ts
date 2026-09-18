@@ -20,10 +20,18 @@ export const emailSchema = z
 	.max(254, 'El correo es demasiado largo.')
 	.pipe(z.email('El correo no es válido.'));
 
+/**
+ * A password being chosen (BR-003, C-01): from `PASSWORD_MIN_LENGTH` to
+ * `PASSWORD_MAX_LENGTH` characters and **nothing else** — no uppercase, digit
+ * or symbol is required, and spaces, accents and emoji are ordinary
+ * characters. Used by registration and by `admin:create`.
+ */
 export const newPasswordSchema = z
 	.string({ error: 'La contraseña es obligatoria.' })
-	.min(PASSWORD_MIN_LENGTH, `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`)
-	.max(PASSWORD_MAX_LENGTH, `La contraseña no puede superar los ${PASSWORD_MAX_LENGTH} caracteres.`);
+	// Counted in characters, not in UTF-16 units: an emoji is one character for
+	// whoever types it, so `🦅` counts once and not twice (C-01).
+	.refine((value) => [...value].length >= PASSWORD_MIN_LENGTH, `La contraseña es muy corta: debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`)
+	.refine((value) => [...value].length <= PASSWORD_MAX_LENGTH, `La contraseña es muy larga: no puede superar los ${PASSWORD_MAX_LENGTH} caracteres.`);
 
 /**
  * The display name (BR-003) follows the catalog's name rules (D-011): it is
@@ -38,14 +46,17 @@ export const registerSchema = z.object({
 	password: newPasswordSchema,
 });
 
-// Login doesn't re-apply the registration rules to the password: a wrong one
-// must fail as "invalid credentials", not reveal the policy per attempt.
+/**
+ * Login never re-applies the rules above (D-024): an account created before
+ * C-01 may hold a password longer than 20 characters, and rejecting it here
+ * would lock its owner out and hint at what is stored. Any non-empty text is
+ * taken; `auth.service.ts` fails one that is too long to verify exactly like
+ * a wrong one (same 401, same message, same time). The body parser already
+ * caps what can arrive at 100 kb.
+ */
 export const loginSchema = z.object({
 	email: emailSchema,
-	password: z
-		.string({ error: 'La contraseña es obligatoria.' })
-		.min(1, 'La contraseña es obligatoria.')
-		.max(PASSWORD_MAX_LENGTH, 'Correo o contraseña incorrectos.'),
+	password: z.string({ error: 'La contraseña es obligatoria.' }).min(1, 'La contraseña es obligatoria.'),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

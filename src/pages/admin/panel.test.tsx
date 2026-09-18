@@ -7,6 +7,7 @@ import {
 	adminRoutes,
 	auditRecord,
 	counts,
+	enrollment,
 	league,
 	pageOf,
 	participant,
@@ -343,7 +344,8 @@ describe('catalog (T-21, BR-001)', () => {
 		const { calls } = mockFetch(
 			adminRoutes({
 				'POST /api/admin/planteles': () => fail(409, 'PLAYER_ALREADY_ENROLLED', 'El jugador ya está inscrito en otro equipo de esa competición.', { equipoId: 101 }),
-				'PATCH /api/admin/planteles/700': () => ok({ id: 700 }),
+				// The API answers the whole row, not just its id (`enrollments.service.ts`).
+				'PATCH /api/admin/planteles/700': () => ok({ ...enrollment, numeroCamiseta: 10 }),
 			}),
 		);
 		renderApp('/admin/planteles');

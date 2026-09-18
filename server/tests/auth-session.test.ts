@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { hashPassword, PASSWORD_VERIFY_MAX_LENGTH } from '../src/lib/password.js';
 import { hashSessionToken } from '../src/lib/tokens.js';
 import { createTestApp, env } from './helpers/app.js';
 import { countSessions, LEAKS_SECRET, login, PASSWORD, registerUser, sessionCookieFrom } from './helpers/auth.js';
@@ -81,6 +82,67 @@ describe('login, /auth/me and logout (BR-004, BR-005, NFR-005)', () => {
 				error: { code: 'INVALID_CREDENTIALS', message: 'Correo o contraseña incorrectos.' },
 			});
 			expect(unknown.body).toEqual(wrong.body);
+		});
+
+		/** C-01 and D-024: the 6–20 rule is for choosing a password, never for using it. */
+		describe('the length rule is not applied when signing in (D-024)', () => {
+			/** An account from before C-01: its password is longer than a new one may be. */
+			const legacy = 'una-clave-larguisima-de-antes-del-cambio';
+
+			const withLegacyPassword = async (email: string) => {
+				const created = await registerUser(app);
+				await pool.query('UPDATE usuario SET email = ?, password_hash = ? WHERE id = ?', [email, await hashPassword(legacy), created.user.id]);
+				return created.user;
+			};
+
+			it('an account created before the change still gets in with its long password', async () => {
+				const user = await withLegacyPassword('antigua@liga.test');
+
+				const res = await request(app).post('/auth/login').send({ email: 'antigua@liga.test', password: legacy });
+
+				expect(res.status).toBe(200);
+				expect(res.body.data.user.id).toBe(user.id);
+				expect(res.headers['set-cookie']).toBeDefined();
+			});
+
+			it('a password that is too long to verify fails like any other wrong one, saying nothing about its length', async () => {
+				const { body } = await registerUser(app);
+				const enormous = 'x'.repeat(PASSWORD_VERIFY_MAX_LENGTH + 1);
+
+				const tooLong = await request(app).post('/auth/login').send({ email: body.email, password: enormous });
+				const wrong = await request(app).post('/auth/login').send({ email: body.email, password: 'otra-clave-123' });
+				const short = await request(app).post('/auth/login').send({ email: body.email, password: 'ab1' });
+
+				for (const res of [tooLong, short]) {
+					expect(res.status).toBe(401);
+					expect(res.body).toEqual(wrong.body);
+					expect(res.headers['set-cookie']).toBeUndefined();
+				}
+				// Nothing in the answer mentions a length or a rule.
+				expect(JSON.stringify(tooLong.body)).not.toMatch(/caracteres|larga|corta|20|128/);
+			});
+
+			it('a too long attempt takes about as long as a wrong one, so it tells nothing by timing', async () => {
+				const { body } = await registerUser(app);
+				const time = async (password: string) => {
+					const start = performance.now();
+					await request(app).post('/auth/login').send({ email: body.email, password });
+					return performance.now() - start;
+				};
+				const median = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+
+				await time('calentar-la-cache-123');
+				const wrong: number[] = [];
+				const enormous: number[] = [];
+				for (let i = 0; i < 5; i++) {
+					wrong.push(await time('otra-clave-123'));
+					enormous.push(await time('x'.repeat(PASSWORD_VERIFY_MAX_LENGTH + 1)));
+				}
+
+				const ratio = median(enormous) / median(wrong);
+				expect(ratio).toBeGreaterThan(0.5);
+				expect(ratio).toBeLessThan(2);
+			});
 		});
 
 		it('takes about the same time for a wrong password and an unknown email', async () => {

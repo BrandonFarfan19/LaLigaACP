@@ -1,6 +1,6 @@
 # Esquema BD — La Liga ACP
 
-> **Documento de diseño.** Es la fuente de verdad del esquema. Manda [docs/business-rules.md](docs/business-rules.md): esta versión lo reescribe para modelar la polla deportiva (tarea T-01 de [docs/plan-polla.md](docs/plan-polla.md)). Hay una implementación local en MySQL con Docker (`compose.yaml` y `db/init/`), pero la app **todavía no se conecta**: sigue usando datos estáticos (ver `CLAUDE.md`). Si cambia este documento, `db/init/01-schema.sql` cambia en el mismo cambio.
+> **Documento de diseño.** Es la fuente de verdad del esquema. Manda [docs/business-rules.md](docs/business-rules.md): esta versión lo reescribe para modelar la polla deportiva (tarea T-01 de [docs/plan-polla.md](docs/plan-polla.md)). Está implementado en MySQL con Docker (`compose.yaml` y `db/init/`) y **toda la aplicación lo usa**: el backend de `server/` escribe y lee estas tablas, y desde T-22 las pantallas públicas también, a través de la API (`/public/...`). Nada queda en datos estáticos salvo las estadísticas de muestra del radar de jugador (D-022, ver `CLAUDE.md`). Si cambia este documento, `db/init/01-schema.sql` cambia en el mismo cambio.
 
 ## Módulos
 
@@ -51,6 +51,8 @@ Decisiones que `business-rules.md` no fija y que se tomaron aquí. Las que depen
 | D17 | **Se entra con el correo; no hay nombre de usuario aparte** (T-03). BR-003/BR-004 piden "usuario **o** correo": el correo ya es único, lo necesita el administrador para contactar al inscrito y no suma otro identificador que validar, reservar y proteger contra enumeración. `nombre` es solo para mostrar y puede repetirse. `business-rules.md` quedó alineado. |
 | D18 | **Sesiones en servidor, en la tabla `sesion`** (T-03, NFR-005), no JWT. El logout tiene que invalidar de verdad: con una fila por sesión basta borrarla, mientras que un JWT seguiría siendo válido hasta vencer (o exigiría una lista de revocados, que es otra tabla igual). Se guarda el SHA-256 del token, nunca el token. |
 | D19 | **La asignación de +10 es única también en la base** (T-04, BR-008). El backend valida con un `UPDATE` condicionado a `pendiente` y pago `confirmado`, dentro de la misma transacción que el movimiento. Además, `movimiento_moneda` tiene una columna generada `sin_seleccion` con `UNIQUE(usuario_id, tipo_movimiento_id, sin_seleccion)`, así que un segundo movimiento `validacion` del mismo usuario falla en la base aunque alguien lo devolviera a `pendiente` a mano. Un `CHECK` o una columna generada no pueden leer el `codigo` del catálogo; por eso la barrera es "uno por usuario y tipo entre los que no tienen selección", que hoy solo es `validacion`. Si algún día hay otro tipo sin selección que pueda repetirse (un ajuste manual, por ejemplo), hay que revisar este índice. **Límites conocidos de D19** (observados en T-04, sin cambiar el esquema todavía): (1) un movimiento `validacion` con `seleccion_id` cargado a mano esquiva la barrera, porque ahí `sin_seleccion` es NULL; (2) dos movimientos del **mismo tipo** sin selección para el mismo usuario chocan con la UNIQUE aunque sean legítimos. Por eso los débitos (T-10) y las devoluciones (T-16) siempre llevan su `seleccion_id`, y `validacion` nunca. |
+| D20 | **Idempotencia del ticket con una clave del cliente** (T-10, BR-054). Al confirmar, el cliente manda un UUID nuevo en el header `Idempotency-Key`, y se guarda en `ticket.clave_idempotencia` con `UNIQUE(usuario_id, clave_idempotencia)`. Un doble clic, un reintento del navegador o un corte de conexión repiten la misma clave: si ya hay un ticket con esa clave y la misma `huella_solicitud` (SHA-256 de las selecciones), se devuelve ese ticket sin crear nada; con otras selecciones es 409 `IDEMPOTENCY_KEY_REUSED`. **La clave dura lo que dura el ticket**, es decir, para siempre: los tickets nunca se borran, y así un reintento tardío tampoco duplica. Se descartó deduplicar "por ventana de tiempo" o por contenido, porque dos tickets idénticos seguidos son legítimos (BR-017). Si la confirmación falla (selección inválida, saldo), no se guarda nada y la misma clave puede volver a usarse. |
+| D21 | **El estado "en curso" se calcula, no lo escribe un proceso** (T-13, decisión del usuario en BR-012). Un partido empieza solo a su `fecha_hora` y dura 60 minutos, pero nada cambia la fila en ese momento: `estado_partido_id` puede seguir en `programado`. El backend usa siempre el **estado efectivo** (`server/src/lib/match-state.ts`): `programado` con `fecha_hora <= ahora` es `en_curso`, en respuestas, filtros y reglas, con la misma condición en SQL. Se descartó un proceso programado que actualice la columna: dependería de que corra a tiempo y dejaría ventanas en las que un partido ya empezado se trate como programado. Las acciones que tocan el partido escriben el estado que implican (cargar el resultado escribe `en_curso`; confirmarlo, `finalizado`). |
 
 **Resueltas el 2026-09-15 (respuesta del usuario, ya reflejada en `business-rules.md`):**
 
@@ -59,8 +61,8 @@ Decisiones que `business-rules.md` no fija y que se tomaron aquí. Las que depen
 
 **Abiertas (no bloquean T-01, pero conviene resolverlas antes de las tareas que las tocan):**
 
-- **Duplicados exactos en `seleccion`:** nada en el esquema impide que un usuario repita la misma selección exacta (mismo partido, mismo tipo, mismo pronóstico), ni dentro de un ticket ni entre tickets. `business-rules.md` no lo prohíbe (BR-017/BR-018 solo muestran pronósticos *distintos* como ejemplo) y no le puse una `UNIQUE` para no bloquear un caso que nadie pidió prohibir. Si se quiere prohibir, es una regla de backend, no de esquema.
-- **Idempotencia del ticket (BR-054):** no agregué una columna de clave de idempotencia a `ticket`. El mecanismo concreto (token del cliente, deduplicación por ventana de tiempo, etc.) es una decisión de API que le corresponde a T-10; agregar una columna ahora arriesga atarla a un diseño que todavía no existe.
+- **Duplicados exactos en `seleccion`** (resuelta en T-09: se permiten, cada uno cuesta su moneda y la vista previa los marca; ver BR-017 en `business-rules.md`): nada en el esquema impide que un usuario repita la misma selección exacta (mismo partido, mismo tipo, mismo pronóstico), ni dentro de un ticket ni entre tickets. `business-rules.md` no lo prohíbe (BR-017/BR-018 solo muestran pronósticos *distintos* como ejemplo) y no le puse una `UNIQUE` para no bloquear un caso que nadie pidió prohibir. Si se quiere prohibir, es una regla de backend, no de esquema.
+- **Idempotencia del ticket (BR-054):** resuelta en T-10, ver D20.
 
 ---
 
@@ -203,7 +205,8 @@ Una sesión iniciada (NFR-005, D18).
 **Backend (T-07):**
 
 - Alta siempre en `programado`, con sus dos `partido_equipo` en la misma transacción.
-- Transiciones: `programado` ↔ `en_curso` desde la API de partidos; `finalizado` solo en T-12 y `cancelado` solo en T-16.
+- Transiciones (T-13): `en_curso` llega solo a la `fecha_hora` (estado efectivo, D21); no hay cambios de estado manuales. `finalizado` solo en T-12 (pasados los 60 minutos) y `cancelado` solo en T-16.
+- Un partido que ya empezó no se posterga, no cambia de equipos y no se borra.
 - `finalizado` y `cancelado` bloquean la fila.
 - Cambiar la competición o los equipos borra y recrea las dos filas de `partido_equipo`, porque su FK compuesta apunta a `(partido.id, competicion_id)`. Solo se permite sin apuestas ni goles.
 
@@ -222,6 +225,7 @@ Una sesión iniciada (NFR-005, D18).
 - `UNIQUE(partido_id, equipo_id)`: un equipo no juega contra sí mismo.
 - `UNIQUE(id, equipo_id)`: para la FK compuesta de `gol`.
 - **Backend:** cada partido debe tener exactamente 2 filas. Una vez `partido.estado_partido = finalizado`, `goles` queda bloqueado (D10).
+- **Backend (T-12):** `goles` se carga y corrige con los dos lados juntos (0 a 999), solo con el partido `en_curso` o `programado` con la fecha ya pasada (que pasa a `en_curso`). Se confirma con los dos lados cargados, y la confirmación es el paso a `finalizado` (D10). Mientras no se confirme, el marcador no se muestra ni cuenta. El resultado general (BR-029) se calcula en `server/src/lib/match-result.ts` y nunca se guarda.
 
 ### gol — autor de un gol (BR-033)
 | Campo | Tipo | Notas |
@@ -230,12 +234,27 @@ Una sesión iniciada (NFR-005, D18).
 | partido_equipo_id | FK → partido_equipo | El lado del partido que anotó. |
 | plantel_id | FK → plantel | Quién anotó. |
 | equipo_id | FK → equipo | Copia, para las FKs compuestas. |
-| minuto | SMALLINT UNSIGNED | Sin tope superior (hay deportes con tiempos extra largos) ni `CHECK` de piso: `UNSIGNED` ya excluye los negativos. |
-| imagen | VARCHAR, opcional | BR-033. |
-| video | VARCHAR, opcional | BR-033. |
+| minuto | SMALLINT UNSIGNED | De 1 a 120 (`CHECK`, T-13): el partido dura 60 minutos y queda margen para descuentos y tiempos extra. |
+| imagen | CHAR(37) ascii, opcional | BR-033 (T-13): nombre del archivo subido y reprocesado por el backend (32 hex + `.webp`), guardado en `UPLOADS_DIR`. Nunca una URL ni un nombre del cliente. `UNIQUE` y `CHECK` de forma. |
+| video | VARCHAR(255), opcional | BR-033 (T-13): enlace `https` normalizado a YouTube o Vimeo (`server/src/lib/video-links.ts`). El servidor nunca lo descarga. |
 
 - `FK(partido_equipo_id, equipo_id) → partido_equipo(id, equipo_id)` y `FK(plantel_id, equipo_id) → plantel(id, equipo_id)`: el jugador solo puede anotar para su propio equipo y en un partido donde ese equipo participa.
+- **Backend (T-13):** los goles se registran, editan y borran solo desde que el partido empieza y hasta que se confirma su resultado. El jugador tiene que estar inscrito en ese equipo en esa competición. Los goles atribuidos a un lado nunca superan los cargados en `partido_equipo.goles`. La imagen y el video se pueden agregar o quitar también después de confirmar: no cambian el resultado.
 - Reemplaza a las viejas `partido_jugador`, `estadistica_tipo` y `partido_jugador_estadistica`: ninguna BR pide un sistema genérico de estadísticas por disciplina, y las estadísticas del radar de jugador del frontend (`PlayerStats`) son datos aleatorios de `src/data/`, sin relación con estas tablas (ver `CLAUDE.md`).
+
+### multimedia_partido — imágenes y videos del partido (T-13, BR-001, BR-033)
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| partido_id | FK → partido | |
+| imagen | CHAR(37) ascii, opcional | Archivo subido, igual que `gol.imagen`. |
+| video | VARCHAR(255), opcional | Enlace normalizado, igual que `gol.video`. |
+| creado_en | DATETIME (UTC) | |
+
+- `CHECK`: cada fila es una imagen **o** un video, nunca ambos ni ninguno. `UNIQUE(imagen)`: un archivo pertenece a una sola fila.
+- Índice `idx_multimedia_partido (partido_id, id)`: la multimedia de un partido en orden; también sirve a la FK.
+- No cambia el resultado ni los puntos: se agrega o quita desde que el partido empieza, también después de confirmarlo. En un partido cancelado, no. El backend limita la cantidad por partido (20 imágenes y 10 videos).
+- Público solo con el partido finalizado y el marcador completo, como los goles (BR-049).
 
 ### Calculado, no guardado
 - **Tabla de posiciones:** a partir de `partido_equipo.goles` en partidos `finalizado`, con 3/1/0 (D8). **Backend (T-08):** `GET /public/competiciones/:id/posiciones`; orden y columnas en BR-050. Usa `fk_equipo_competicion`, el índice por equipo de `partido_equipo` y `uq_partido_equipo_lado` (revisado con `EXPLAIN`).
@@ -275,8 +294,14 @@ Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general
 | id | PK | Identificador único (BR-025). |
 | usuario_id | FK → usuario | |
 | creado_en | DATETIME (UTC) | Fecha y hora del ticket (BR-025). |
+| clave_idempotencia | CHAR(36) ascii | UUID en minúsculas que el cliente manda en el header `Idempotency-Key` al confirmar (BR-054, D20). |
+| huella_solicitud | CHAR(64) ascii | SHA-256 (hex) de las selecciones pedidas, en orden. Distingue un reintento de otra solicitud con la misma clave (D20). |
 
-- Sus selecciones, partidos, pronósticos y tipos de apuesta se leen por `JOIN` a `seleccion`. Monedas usadas y puntos obtenidos son calculados (D14, D13); el ticket no tiene un catálogo de estados propio (`business-rules.md` solo define estados para `seleccion`, BR-027), así que su "estado" se muestra derivado de sus selecciones.
+- `UNIQUE(usuario_id, clave_idempotencia)`: un usuario no puede tener dos tickets con la misma clave. También sirve de índice para la FK a `usuario`.
+- Índice `idx_ticket_usuario_fecha (usuario_id, creado_en, id)` (T-11): los tickets de un usuario en el orden de "Mis apuestas", del más reciente al más antiguo.
+- `CHECK`: la clave tiene forma de UUID en minúsculas y la huella son 64 dígitos hexadecimales.
+
+- Sus selecciones, partidos, pronósticos y tipos de apuesta se leen por `JOIN` a `seleccion`. Monedas usadas y puntos obtenidos son calculados (D14, D13); el ticket no tiene un catálogo de estados propio (`business-rules.md` solo define estados para `seleccion`, BR-027), así que su "estado" se muestra derivado de sus selecciones. Regla (T-10, BR-025): `pendiente` si alguna selección está pendiente; si no, `anulado` si todas están anuladas, y `finalizado` en otro caso. Toda selección nace `pendiente` con `puntos_obtenidos` NULL.
 
 ### seleccion — una apuesta individual dentro de un ticket
 | Campo | Tipo | Notas |
@@ -294,6 +319,9 @@ Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general
 - `CHECK`: exactamente una de las dos formas de pronóstico tiene valor (igual patrón que la vieja `ck_mercado_objetivo`, sin depender de otra tabla).
 - **Backend:** que la forma usada corresponda al `tipo_apuesta` (por `codigo`), que el partido esté `programado` y dentro del plazo (BR-014, `fecha_hora − 24h`), y que el costo de 1 moneda (D11) no supere el saldo (BR-021).
 - `CHECK (puntos_obtenidos IN (0, 1, 3))`: son los únicos valores que produce la tabla de puntuación (BR-035 a BR-038).
+- Índice `idx_seleccion_ticket_estado (ticket_id, estado_seleccion_id, puntos_obtenidos)` (T-11): calcula el estado, las monedas y los puntos de cada ticket leyendo solo el índice. También es el índice de la FK a `ticket`, que antes tenía uno propio. Con 1000 tickets y 3000 selecciones de un usuario, la página de "Mis apuestas" pasó de unos 28 ms a 16 ms, y el resumen de 21 ms a 12 ms.
+- Índice `idx_seleccion_partido_estado (partido_id, estado_seleccion_id)` (T-14): las selecciones pendientes de un partido, que se liquidan al confirmar su resultado y que cuenta su vista previa. También es el índice de la FK a `partido`, que antes tenía uno propio (`fk_seleccion_partido`). Con 5000 selecciones pendientes en un partido, la liquidación hace 8 sentencias.
+- **Backend (T-14):** al confirmar el resultado, cada selección `pendiente` del partido pasa a `acertada` (con 3 o 1 puntos) o `no_acertada` (con 0), según la tabla de "Reglas del backend". Las `anulada` y las ya liquidadas no cambian, y ningún punto genera un movimiento de monedas (BR-039).
 - Varias selecciones por partido y por ticket, incluso contradictorias entre sí, están permitidas (BR-017, BR-018): no hay `UNIQUE` que las junte por `usuario_id`/`partido_id` como en el diseño anterior.
 
 ### tipo_movimiento — catálogo
@@ -331,9 +359,11 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | `validacion_usuario`, `modificacion_partido`, `registro_resultado`, `confirmacion_resultado`, `cancelacion_partido` (NFR-006) |
+| codigo | VARCHAR, único | Las 5 de NFR-006: `validacion_usuario`, `modificacion_partido`, `registro_resultado`, `confirmacion_resultado`, `cancelacion_partido`. Desde T-17, además: `confirmacion_pago`, `reversion_pago`, `creacion_administrador` y `promocion_administrador` (el comando `admin:create`, D-005), `alta_partido`, `borrado_partido`, y `alta_*`, `modificacion_*` y `borrado_*` de `deporte`, `competicion`, `equipo`, `jugador`, `plantel` y `gol`, más `alta_multimedia` y `borrado_multimedia`. |
 | nombre | VARCHAR | Etiqueta visible. |
-| entidad | VARCHAR | Qué tabla afecta esta acción (`usuario` o `partido`), siempre la misma por código. |
+| entidad | VARCHAR | Qué tabla afecta esta acción (`usuario`, `partido`, `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `gol` o `multimedia_partido`), siempre la misma por código. |
+
+El backend mapea cada acción de la aplicación a su código en un solo lugar (`server/src/lib/audit.ts`), y una prueba verifica que el catálogo y ese mapa coincidan.
 
 ### auditoria
 | Campo | Tipo | Notas |
@@ -343,6 +373,10 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 | accion_id | FK → accion_auditoria | |
 | entidad_id | BIGINT UNSIGNED | El id de la fila afectada. **Sin FK**: apunta a tablas distintas según `accion_id`, y MySQL no admite una FK condicional. Integridad a cargo del backend. |
 | creado_en | DATETIME (UTC) | Fecha y hora de la acción. |
+| detalle | JSON, opcional | T-17: un objeto breve (de hasta 8 niveles, con textos cortados sin partir caracteres) con lo que pasó (campos cambiados con su valor anterior y nuevo, lo creado o borrado, el marcador, las cifras de una cancelación). `CHECK`: objeto JSON de hasta 4 KB (`JSON_STORAGE_SIZE`). Nunca contraseñas, hashes, tokens, claves, correos ni saldos: lo filtra el backend. |
+
+- Índices (T-17): `idx_auditoria_fecha (creado_en, id)` para la consulta del admin (la más reciente primero); `idx_auditoria_accion_entidad (accion_id, entidad_id, creado_en)` para filtrar por acción y registro afectado (también es el de la FK a `accion_auditoria`); `idx_auditoria_usuario_fecha (usuario_id, creado_en)` para filtrar por administrador (también es el de la FK a `usuario`).
+- **Backend (T-17):** la fila se inserta en la misma transacción que la acción (el gancho `hooks.inTransaction`), así que una acción rechazada no deja registro y un fallo al registrar deshace la acción. Antes de insertar verifica que el autor sea admin, que el código exista con la entidad esperada y que la fila afectada exista (salvo en los borrados). Nadie actualiza ni borra filas de `auditoria`, y borrar la fila afectada no las borra (`entidad_id` no tiene FK). Una edición que no cambia nada no deja fila (D-004). En las filas de `admin:create` el autor es la propia cuenta creada o promovida (D-005).
 
 ---
 
@@ -361,13 +395,14 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 
 **Liquidar un partido.** Se dispara cuando el admin confirma el resultado y el partido pasa a `finalizado` (D10):
 1. Se compara `goles` de las dos filas de `partido_equipo`: gana local, gana visita o empate (D7).
-2. Cada `seleccion` de ese `partido_id` se evalúa según la tabla de arriba y pasa a `acertada` o `no_acertada`.
+2. Cada `seleccion` **pendiente** de ese `partido_id` se evalúa según la tabla de arriba y pasa a `acertada` o `no_acertada`, con sus `puntos_obtenidos`, en la misma transacción que la confirmación (T-14, `server/src/services/bets-settlement.service.ts`; los puntos están en `server/src/lib/points.ts`).
 3. Los goles y el estado del partido quedan bloqueados; nada de esto se puede deshacer desde la aplicación (BR-031, BR-032).
 
 **Partido cancelado (BR-045 a BR-047).** El `estado_partido` pasa a `cancelado`:
-1. Cada `seleccion` de ese `partido_id` pasa a `anulada` (sin importar el ticket al que pertenezca).
-2. Por cada una, se crea un `movimiento_moneda` de tipo `devolucion_cancelacion` con `cantidad = +1`, y se actualiza `usuario.saldo_monedas` en la misma transacción (BR-055).
+1. Cada `seleccion` **pendiente** de ese `partido_id` pasa a `anulada`, con `puntos_obtenidos` NULL (sin importar el ticket al que pertenezca). Las ya liquidadas o anuladas (solo posibles con datos cargados a mano) no cambian.
+2. Por cada una que tenga su débito (`seleccion_confirmada`), se crea un `movimiento_moneda` de tipo `devolucion_cancelacion` con `cantidad = +1` y su `seleccion_id` (D19), y se actualiza `usuario.saldo_monedas` en la misma transacción (BR-055). Una sin débito, o de una cuenta que hoy es admin (D-002 de `docs/decisiones.md`), se anula sin devolución.
 3. Las demás selecciones del mismo ticket, de otros partidos, no se tocan (BR-047).
+4. **Backend (T-16):** `server/src/services/match-cancellation.service.ts`, en `READ COMMITTED`. Bloquea primero los usuarios afectados y después el partido (orden usuario → partido), y empieza de nuevo si mientras tanto apostó un usuario que no había bloqueado. La cancelación es definitiva: `cancelado` bloquea la fila igual que `finalizado`. Un partido cancelado solo se borra si no tiene apuestas, goles, resultado ni multimedia (D-001). El marcador, los goles y la multimedia que tuviera se conservan, pero no son públicos.
 
 **Validar un usuario (BR-006 a BR-008).** El admin pone `estado_usuario = validado`:
 1. Se crea un `movimiento_moneda` de tipo `validacion` con `cantidad = +10`, y se actualiza `usuario.saldo_monedas`.
@@ -375,7 +410,21 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 
 **Ranking de la polla (BR-041 a BR-044).** `SUM(seleccion.puntos_obtenidos)` por usuario, orden `puntos DESC, aciertos DESC` (aciertos = `COUNT(seleccion.estado_seleccion = acertada)`). Empate total: comparten posición (BR-043 lo deja abierto).
 
-**Auditoría (NFR-006).** Cada una de las 5 acciones de `accion_auditoria` inserta una fila en `auditoria` con el admin, la acción y el id de la fila afectada, como parte de la misma operación.
+**Auditoría (NFR-006, T-17).** Cada acción de `accion_auditoria` inserta una fila en `auditoria` con el admin, la acción, el id de la fila afectada y su detalle, como parte de la misma operación.
+
+---
+
+## Herramienta de desarrollo: `dato_demo` (D-016)
+
+**No es parte del esquema de la aplicación**: no está en `db/init/` ni en el diagrama, y ningún código de la aplicación la lee ni la escribe. La crea el comando de datos de ejemplo (`server:seed:dev`, ver `server/README.md`), solo en la base de desarrollo, para anotar cada fila que carga.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| tabla | VARCHAR(50) | `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `partido`, `partido_equipo` o `usuario`. |
+| fila_id | BIGINT UNSIGNED | El id de la fila creada. |
+
+- `PRIMARY KEY (tabla, fila_id)`. Sin FK: las filas marcadas son de tablas distintas.
+- La limpieza borra solo las filas anotadas aquí (y lo que hicieron las cuentas de ejemplo), y se niega si hay datos reales colgados de ellas. Al terminar, la tabla queda vacía.
 
 ---
 

@@ -36,7 +36,8 @@ describe('sign in (/ingresar)', () => {
 		expect(field('Contraseña').invalid).toBe(true);
 		expect(field('Contraseña').described).toMatch(/Escribe tu contraseña/);
 		expect(screen.getByRole('alert').textContent).toMatch(/Revisa los datos marcados/);
-		expect(document.activeElement).toBe(field('Correo').input);
+		// The focus is moved by an effect, so it is waited for.
+		await waitFor(() => expect(document.activeElement).toBe(field('Correo').input));
 		expect(calls.filter((c) => c.url === '/api/auth/login')).toHaveLength(0);
 	});
 
@@ -48,13 +49,16 @@ describe('sign in (/ingresar)', () => {
 		await user.type(screen.getByLabelText('Contraseña'), 'clave-incorrecta');
 		await user.click(screen.getByRole('button', { name: 'Ingresar' }));
 
-		const alert = await screen.findByRole('alert');
+		// The answer comes from a request, so the message is waited for.
+		const alert = await screen.findByRole('alert', {}, { timeout: 5000 });
 		expect(alert.textContent).toBe('Correo o contraseña incorrectos.');
-		expect(document.activeElement).toBe(alert);
+		// The focus and the emptied password come from an effect (`useFocusOnError`),
+		// which runs after that render: both are waited for, never assumed.
+		await waitFor(() => expect(document.activeElement).toBe(alert));
+		await waitFor(() => expect((screen.getByLabelText('Contraseña') as HTMLInputElement).value).toBe(''));
 		expect(field('Correo').invalid).toBe(false);
 		expect(field('Contraseña').invalid).toBe(false);
 		expect((screen.getByLabelText('Correo') as HTMLInputElement).value).toBe('ana@liga.test');
-		expect((screen.getByLabelText('Contraseña') as HTMLInputElement).value).toBe('');
 	});
 
 	it('429: says how long to wait', async () => {
@@ -172,9 +176,10 @@ describe('sign up (/registro)', () => {
 		await waitFor(() => expect(field('Nombre a mostrar').invalid).toBe(true));
 		expect(field('Nombre a mostrar').described).toMatch(/Escribe tu nombre/);
 		expect(field('Correo').described).toMatch(/El correo no es válido/);
-		expect(field('Contraseña').described).toMatch(/al menos 10 caracteres/);
+		expect(field('Contraseña').described).toMatch(/muy corta: debe tener al menos 6 caracteres/);
 		// The hint stays tied to the field too.
-		expect(field('Contraseña').described).toMatch(/De 10 a 128 caracteres/);
+		expect(field('Contraseña').described).toMatch(/De 6 a 20 caracteres/);
+		expect(field('Contraseña').described).toMatch(/no hacen falta mayúsculas, números ni símbolos/);
 		expect(calls.some((c) => c.url === '/api/auth/register')).toBe(false);
 	});
 
@@ -221,8 +226,9 @@ describe('sign up (/registro)', () => {
 		expect(field('Contraseña').invalid).toBe(false);
 		expect(field('Nombre a mostrar').input.value).toBe('Ana');
 		expect(field('Correo').input.value).toBe('ana@liga.test');
-		expect(field('Contraseña').input.value).toBe('');
-		expect(document.activeElement).toBe(field('Nombre a mostrar').input);
+		// Emptying the password and moving the focus happen in an effect: both waited for.
+		await waitFor(() => expect(field('Contraseña').input.value).toBe(''));
+		await waitFor(() => expect(document.activeElement).toBe(field('Nombre a mostrar').input));
 	});
 
 	it('409 EMAIL_TAKEN: the email field says so, with a way to sign in', async () => {

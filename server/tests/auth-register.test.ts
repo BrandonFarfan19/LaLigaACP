@@ -88,8 +88,8 @@ describe('POST /auth/register (BR-003)', () => {
 	it.each([
 		['invalid email', { email: 'no-es-un-correo' }, 'email'],
 		['missing email', { email: undefined }, 'email'],
-		['short password', { password: 'corta' }, 'password'],
-		['too long password', { password: 'x'.repeat(129) }, 'password'],
+		['short password', { password: 'ab12x' }, 'password'],
+		['too long password', { password: 'x'.repeat(21) }, 'password'],
 		['blank name', { nombre: '   ' }, 'nombre'],
 		['missing name', { nombre: undefined }, 'nombre'],
 		// D-011: the same rules as the catalog's names (displayName).
@@ -109,7 +109,7 @@ describe('POST /auth/register (BR-003)', () => {
 		expect(res.body.error).toMatchObject({ code: 'VALIDATION_ERROR' });
 		expect(res.body.error.details).toEqual(expect.arrayContaining([expect.objectContaining({ path: field })]));
 		// The rejected password is never echoed back.
-		expect(JSON.stringify(res.body)).not.toContain('corta');
+		expect(JSON.stringify(res.body)).not.toContain('ab12x');
 	});
 
 	it('accepts names with accents, emoji next to letters, digits only, and trims them (D-011)', async () => {
@@ -125,5 +125,65 @@ describe('POST /auth/register (BR-003)', () => {
 
 		expect(res.status).toBe(400);
 		expect(res.body.error.code).toBe('VALIDATION_ERROR');
+	});
+
+	/** C-01: from 6 to 20 characters, and nothing else is asked for. */
+	describe('the password rule (BR-003, C-01)', () => {
+		it.each([
+			[5, false],
+			[6, true],
+			[20, true],
+			[21, false],
+		])('%i characters -> %s', async (length, accepted) => {
+			const res = await request(app)
+				.post('/auth/register')
+				.send(newUserBody({ password: 'a'.repeat(length) }));
+
+			expect(res.status, `${length} caracteres`).toBe(accepted ? 201 : 400);
+			if (!accepted) {
+				const detail = res.body.error.details.find((issue: { path: string }) => issue.path === 'password');
+				expect(detail.message).toMatch(length < 6 ? /muy corta/ : /muy larga/);
+			}
+		});
+
+		it('asks nothing about what the password is made of', async () => {
+			const passwords = [
+				'abcdef', // only letters
+				'123456', // only digits
+				'!!!!!!', // only symbols
+				'      ', // only spaces
+				'clave con espacios', // spaces in between
+				'ñandú áéíóü', // accents
+				'🦅🦅🦅🦅🦅🦅', // emoji, counted as characters
+				'password', // the most guessable of all: nothing rejects it
+				'aaaaaa', // repeated
+			];
+			for (const password of passwords) {
+				const res = await request(app).post('/auth/register').send(newUserBody({ password }));
+				expect(res.status, password).toBe(201);
+			}
+		});
+
+		it('counts characters, so a password of 20 emoji is accepted and 21 is not', async () => {
+			// Each emoji is two UTF-16 units: what counts is the character.
+			const twenty = await request(app)
+				.post('/auth/register')
+				.send(newUserBody({ password: '🦅'.repeat(20) }));
+			expect(twenty.status).toBe(201);
+			const twentyOne = await request(app)
+				.post('/auth/register')
+				.send(newUserBody({ password: '🦅'.repeat(21) }));
+			expect(twentyOne.status).toBe(400);
+		});
+
+		it('a password of exactly 6 characters really works to sign in', async () => {
+			const body = newUserBody({ password: 'seis12' });
+			await request(app).post('/auth/register').send(body).expect(201);
+
+			const res = await request(app).post('/auth/login').send({ email: body.email, password: 'seis12' });
+
+			expect(res.status).toBe(200);
+			expect(res.body.data.user.email).toBe(body.email);
+		});
 	});
 });

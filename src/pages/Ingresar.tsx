@@ -5,7 +5,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useFocusOnError } from '../hooks/useFocusOnError';
 import { login } from '../lib/auth';
 import { failureOf, type FormFailure } from '../lib/auth-messages';
-import { checkLogin, PASSWORD_MAX_LENGTH } from '../lib/auth-rules';
+import { checkLogin } from '../lib/auth-rules';
 import { guestOnly, homeFor } from '../lib/route-guards';
 import { safeNextPath } from '../lib/next-path';
 import styles from './AuthPage.module.css';
@@ -89,15 +89,10 @@ export default function Ingresar() {
 						key={`email-${defaultEmail}`}
 						error={errors.email}
 					/>
-					<TextField
-						label="Contraseña"
-						name="password"
-						type="password"
-						autoComplete="current-password"
-						required
-						maxLength={PASSWORD_MAX_LENGTH}
-						error={errors.password}
-					/>
+					{/* No maximum length here (D-024): an account created before C-01 may
+					    hold a password longer than the 20 characters a new one allows,
+					    and its owner has to be able to get in. */}
+					<TextField label="Contraseña" name="password" type="password" autoComplete="current-password" required error={errors.password} />
 					<button className={styles.button} type="submit" disabled={submitting} aria-busy={submitting || undefined}>
 						{submitting ? 'Ingresando…' : 'Ingresar'}
 					</button>

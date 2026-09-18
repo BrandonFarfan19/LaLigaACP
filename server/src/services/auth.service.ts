@@ -1,7 +1,7 @@
 import type { Pool } from 'mysql2/promise';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
-import { hashPassword, verifyAgainstDummy, verifyPassword } from '../lib/password.js';
+import { hashPassword, PASSWORD_VERIFY_MAX_LENGTH, verifyAgainstDummy, verifyPassword } from '../lib/password.js';
 import type { LoginInput, RegisterInput } from '../schemas/auth.schema.js';
 import { createSession, deleteSession, type NewSession } from './session.service.js';
 import { findCredentialsByEmail, findUserById, insertUser, isDuplicateEntry, type PublicUser } from './users.service.js';
@@ -43,8 +43,14 @@ export async function login(
 	options: { ttlMs: number; replacedToken: string | undefined },
 ): Promise<{ user: PublicUser; session: NewSession }> {
 	const credentials = await findCredentialsByEmail(pool, input.email);
-	if (!credentials) {
-		await verifyAgainstDummy(input.password);
+	// Longer than any password this server would ever hash (D-024): it is not
+	// verified against the stored hash, but it still runs one dummy
+	// verification and fails exactly like any other wrong password — same 401,
+	// same message, about the same time. The 6–20 rule of BR-003 is never
+	// applied here: an account created before C-01 keeps getting in.
+	const tooLongToVerify = input.password.length > PASSWORD_VERIFY_MAX_LENGTH;
+	if (!credentials || tooLongToVerify) {
+		await verifyAgainstDummy(input.password.slice(0, PASSWORD_VERIFY_MAX_LENGTH));
 		throw invalidCredentials();
 	}
 	if (!(await verifyPassword(credentials.passwordHash, input.password))) {
