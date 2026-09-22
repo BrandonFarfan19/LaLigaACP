@@ -1,4 +1,4 @@
-# Base de datos de La Liga ACP (MySQL 8.4 LTS).
+# Base de datos y backend de La Liga ACP.
 # Credenciales en .env (copiar desde .env.example). Esquema: EsquemaBD.md.
 services:
   db:
@@ -28,5 +28,55 @@ services:
       retries: 10
       start_period: 30s
 
+  # Modo desarrollo: código montado desde el host, nodemon (--legacy-watch,
+  # por polling) recarga en cada cambio (ver server/Dockerfile). DB_HOST/DB_PORT se pisan aquí a propósito:
+  # dentro de la red de compose el destino es el servicio db en su puerto
+  # interno fijo (3306), sin importar qué publique MYSQL_PORT en el host.
+  server:
+    build:
+      context: ./server
+    container_name: la-liga-acp-server
+    restart: unless-stopped
+    # Sin root (ver server/Dockerfile): /data/uploads pertenece a node.
+    user: node
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: ${PORT:-3001}
+      CORS_ORIGIN: ${CORS_ORIGIN:?definir CORS_ORIGIN en .env}
+      DB_HOST: db
+      DB_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?definir MYSQL_DATABASE en .env}
+      MYSQL_USER: ${MYSQL_USER:?definir MYSQL_USER en .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?definir MYSQL_PASSWORD en .env}
+      SESSION_SECRET: ${SESSION_SECRET:?definir SESSION_SECRET en .env}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      LOGIN_RATE_LIMIT_WINDOW_MS: ${LOGIN_RATE_LIMIT_WINDOW_MS:-900000}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-5}
+      REGISTER_RATE_LIMIT_WINDOW_MS: ${REGISTER_RATE_LIMIT_WINDOW_MS:-3600000}
+      REGISTER_RATE_LIMIT_MAX: ${REGISTER_RATE_LIMIT_MAX:-10}
+      PUBLIC_RATE_LIMIT_WINDOW_MS: ${PUBLIC_RATE_LIMIT_WINDOW_MS:-60000}
+      PUBLIC_RATE_LIMIT_MAX: ${PUBLIC_RATE_LIMIT_MAX:-120}
+      SESSION_READ_RATE_LIMIT_WINDOW_MS: ${SESSION_READ_RATE_LIMIT_WINDOW_MS:-60000}
+      SESSION_READ_RATE_LIMIT_MAX: ${SESSION_READ_RATE_LIMIT_MAX:-120}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      # D-016: base de los datos de ejemplo (vacía: el comando se niega).
+      DEV_SEED_DATABASE: ${DEV_SEED_DATABASE:-}
+      # T-13: imágenes subidas, en su propio volumen (fuera del código montado).
+      UPLOADS_DIR: /data/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+      UPLOAD_MAX_PIXELS: ${UPLOAD_MAX_PIXELS:-24000000}
+      UPLOAD_RATE_LIMIT_WINDOW_MS: ${UPLOAD_RATE_LIMIT_WINDOW_MS:-900000}
+      UPLOAD_RATE_LIMIT_MAX: ${UPLOAD_RATE_LIMIT_MAX:-60}
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - uploads-data:/data/uploads
+
 volumes:
   db-data:
+  uploads-data:

@@ -6,18 +6,45 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "server:install": "npm --prefix server install",
+    "server:dev": "npm --prefix server run dev",
+    "server:build": "npm --prefix server run build",
+    "server:test": "npm --prefix server test",
+    "server:typecheck": "npm --prefix server run typecheck",
+    "server:admin:create": "npm --prefix server run admin:create",
+    "server:coins:check": "npm --prefix server run coins:check",
+    "server:seed:dev": "npm --prefix server run seed:dev --",
+    "server:seed:dev:clean": "npm --prefix server run seed:dev:clean --",
+    "server:start": "npm --prefix server start"
   },
   "dependencies": {
     "@fontsource/press-start-2p": "^5.3.0",
     "@fontsource/silkscreen": "^5.3.0",
-    "astro": "^7.3.2",
-    "html-to-image": "^1.11.13"
+    "html-to-image": "^1.11.13",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^8.4.0"
   },
   "allowScripts": {
     "esbuild": true
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^26.6.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^28.1.0",
+    "sharp": "^0.35.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
   }
 }

@@ -21,8 +21,17 @@
 	--color-text-muted: #9aa0d8;
 
 	--color-accent: #3cf281;
+	/* The gold. Besides the coin and the leader of the table, it is what marks
+	   the pool and the account in the navbar, so they never read as one of the
+	   landing's sections (C-02, see `SessionBar.module.css`). */
 	--color-accent-alt: #ffd23f;
 	--color-danger: #ff4d6d;
+
+	/* The coin sprite of the navbar counter (BR-010, T-18): the gold of
+	   --color-accent-alt plus a highlight, a shade and a dark rim. */
+	--color-coin-light: #fff4a8;
+	--color-coin-shade: #c98a12;
+	--color-coin-rim: #5c3400;
 
 	/* ---- Type ----------------------------------------------------------
 	   Pixel faces only. Both are bitmap-derived, so sizes must stay whole
@@ -60,13 +69,23 @@
 	--cursor-default: url('/cursors/arrow.png') 0 0, auto;
 	--cursor-pointer: url('/cursors/hand.png') 9 0, pointer;
 
-	/* ---- Layout --------------------------------------------------------- */
-	--navbar-height: 64px;
+	/* ---- Layout ---------------------------------------------------------
+	   Below 64rem the navbar has two rows: the site links, then the session
+	   bar (sign in, coins, account). From 64rem both fit on one row. */
+	--navbar-row: 64px;
+	--session-row: 48px;
+	--navbar-height: calc(var(--navbar-row) + var(--session-row));
 }
 
 @media (min-width: 48rem) {
 	:root {
-		--navbar-height: 80px;
+		--navbar-row: 80px;
+	}
+}
+
+@media (min-width: 64rem) {
+	:root {
+		--session-row: 0px;
 	}
 }
 

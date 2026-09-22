@@ -1,0 +1,246 @@
+/* The account pages (T-18): sign in, sign up, my account, administration.
+   Same page frame and heading treatment as Posiciones and NotFound. */
+.page {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-6);
+	width: 100%;
+	max-width: 32rem;
+	min-height: 100vh;
+	min-height: 100svh;
+	margin-inline: auto;
+	padding-block: calc(var(--navbar-height) + var(--space-8)) var(--space-12);
+	padding-inline: var(--space-4);
+}
+
+.head {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.kicker {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.title {
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.lead {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+/* The form sits on a framed panel. */
+.panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-6);
+	margin: var(--px);
+	padding: var(--space-6) var(--space-4);
+}
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-6);
+}
+
+/* A raised 16-bit button: bevel + hard shadow; it sinks one fat pixel when pressed. */
+.button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 48px;
+	padding: var(--space-3) var(--space-6);
+	border: 0;
+	border-radius: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-sm);
+	font-weight: 400;
+	line-height: 1.4;
+	text-transform: uppercase;
+	text-decoration: none;
+	color: var(--color-bg);
+	background: var(--color-accent);
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.35),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 rgb(0 0 0 / 0.35),
+		var(--px) var(--px) 0 0 var(--color-shadow);
+}
+
+.button:hover,
+.button:focus-visible {
+	background: var(--color-accent-alt);
+}
+
+.button:active:not(:disabled) {
+	transform: translate(var(--px), var(--px));
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(0 0 0 / 0.35),
+		0 0 0 0 var(--color-shadow);
+}
+
+.button:disabled {
+	color: var(--color-text-muted);
+	background: var(--color-surface-raised);
+}
+
+/* A message box: an error (role="alert") or a notice (role="status"). */
+.alert,
+.notice,
+.success {
+	margin: var(--px);
+	padding: var(--space-3) var(--space-4);
+	font-size: var(--text-sm);
+	line-height: 1.5;
+}
+
+.alert {
+	color: var(--color-danger);
+}
+
+.notice {
+	color: var(--color-accent-alt);
+}
+
+.success {
+	color: var(--color-accent);
+}
+
+.alert p,
+.notice p,
+.success p {
+	margin: 0;
+}
+
+.alert p + p,
+.notice p + p,
+.success p + p {
+	margin-top: var(--space-2);
+}
+
+.alert:focus-visible,
+.notice:focus-visible,
+.success:focus-visible {
+	outline-offset: calc(var(--px) * 2);
+}
+
+.boxTitle {
+	margin: 0 0 var(--space-2);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	text-transform: uppercase;
+}
+
+/* "¿No tienes cuenta? Crear cuenta": text links with a 44px target. */
+.aside {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.textLink {
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	color: var(--color-accent);
+	text-decoration: underline;
+	text-decoration-thickness: 2px;
+	text-underline-offset: var(--px);
+	transition: color 120ms steps(2, end);
+}
+
+.textLink:hover,
+.textLink:focus-visible {
+	color: var(--color-accent-alt);
+}
+
+/* The account facts: label / value rows. */
+.facts {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: var(--space-4);
+	margin: 0;
+}
+
+.fact {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+/* A long value (the email) takes the whole row. */
+.factWide {
+	grid-column: 1 / -1;
+}
+
+.fact dt {
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.fact dd {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-size: var(--text-md);
+	overflow-wrap: anywhere;
+}
+
+.balance {
+	font-family: var(--font-display);
+	font-size: var(--text-lg);
+	color: var(--color-accent-alt);
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.tag {
+	padding: var(--space-1) var(--space-2);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	text-transform: uppercase;
+	color: var(--color-bg);
+	background: var(--color-accent);
+}
+
+.tagPending {
+	background: var(--color-accent-alt);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.textLink {
+		transition: none;
+	}
+}
+
+@media (min-width: 48rem) {
+	.page {
+		padding-inline: var(--space-8);
+	}
+
+	.title {
+		font-size: var(--text-xl);
+	}
+
+	.panel {
+		padding: var(--space-8);
+	}
+
+	.facts {
+		grid-template-columns: 1fr 1fr;
+	}
+}

@@ -1,0 +1,18 @@
+/* A 7×7 sprite, 2px per sprite pixel (14px), in the text color. */
+.icon {
+	--icon-px: 2px;
+	position: relative;
+	display: inline-block;
+	flex: none;
+	width: calc(var(--icon-px) * 7);
+	height: calc(var(--icon-px) * 7);
+	vertical-align: middle;
+}
+
+.pixel {
+	position: absolute;
+	top: 0;
+	left: calc(var(--icon-px) * -1);
+	width: var(--icon-px);
+	height: var(--icon-px);
+}

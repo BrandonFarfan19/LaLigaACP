@@ -1,5 +1,5 @@
 /**
- * Rasterizes a radar chart onto a small pixel grid at build time.
+ * Rasterizes a radar chart onto a small pixel grid when the card renders.
  *
  * A vector radar would be antialiased at any size, which is exactly the
  * modern-UI look the site avoids. Instead every cell of a GRID×GRID bitmap is

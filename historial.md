@@ -28,3 +28,1678 @@ Entradas en orden cronológico, la más reciente al final. Formato de cada entra
 - **Archivos:** `db/init/01-schema.sql`, `EsquemaBD.md`, `CLAUDE.md`.
 - **Verificación:** `npm run build` OK (5 páginas) · `src/` y `package.json` sin cambios · `docker compose down -v` + `up -d`: healthy, init 01 y 02 sin errores, 16 tablas · information_schema: `partido_id` y `disciplina_id` nullable, `ck_mercado_objetivo` presente y aplicado, sin FK compuesta (solo las simples a `partido` y `disciplina`) · con ROLLBACK: se aceptan `ganador_partido` con solo `partido_id` y `campeon_disciplina` con solo `disciplina_id`; se rechazan ambos, ninguno, el caso vóley sobre partido de fútbol y un UPDATE que llena los dos (3819) · `EsquemaBD.md`, `CLAUDE.md` y `01-schema.sql` coinciden, incluidas las reglas de backend de `apuesta`.
 - **Observaciones:** la base acepta un `ganador_partido` con solo `disciplina_id`: que la columna corresponda al tipo queda como regla de backend, tal como está documentado. Sigue pendiente con el usuario si agregar `UNIQUE(disciplina_id)` para un solo mercado de campeón por disciplina. `CLAUDE.md:101` todavía dice `disciplina.permite_empate` sin aclarar que es la disciplina del partido (no contradice).
+
+## 2026-09-15 — Un solo mercado de campeón por disciplina
+
+- **Cambio:** `mercado` agrega `uq_mercado_disciplina UNIQUE (disciplina_id)`, así solo puede haber un mercado `campeon_disciplina` por disciplina. Los mercados de partido no chocan porque tienen `disciplina_id` NULL. Esa regla deja de ser de backend; en backend solo queda que la columna corresponda al tipo. `CLAUDE.md` aclara que `permite_empate` es de la disciplina del partido.
+- **Archivos:** `db/init/01-schema.sql`, `EsquemaBD.md`, `CLAUDE.md`.
+- **Verificación:** `npm run build` OK (5 páginas) · `src/` y `package.json` sin cambios · `docker compose down -v` + `up -d`: healthy, init 01 y 02 sin errores, 16 tablas InnoDB · information_schema.STATISTICS: `uq_mercado_partido` y `uq_mercado_disciplina` únicos, sin índice duplicado sobre `disciplina_id` (el UNIQUE sirve de índice de la FK), `fk_mercado_disciplina` sigue presente · con ROLLBACK: campeones en disciplinas distintas se aceptan, segundo campeón en la misma disciplina y segundo mercado del mismo partido dan 1062, tres `ganador_partido` con `disciplina_id` NULL se aceptan, ambos o ninguno dan 3819, disciplina inexistente da 1452 · `EsquemaBD.md`, `CLAUDE.md` y `01-schema.sql` coinciden.
+- **Observaciones:** los cambios de las tareas 2 y 3 ya estaban en el commit `bd6b303` («Arreglo bd») cuando se probó; se verificó contra ese commit.
+
+## 2026-09-15 — Migración de Astro a React SPA (Vite + React Router)
+
+- **Cambio:** la app pasa de Astro a una SPA con Vite, React 19, TypeScript y React Router (modo data). Se borran `astro.config.mjs` y los 11 `.astro`. Se crean `index.html`, `vite.config.ts`, `tsconfig.app/node`, `src/main.tsx`, `src/App.tsx`, `src/layouts/Base.tsx`, los hooks `useDocumentTitle` y `useScrollManagement`, las páginas Home, Posiciones, Plantilla y NotFound con loaders sobre `src/lib/`, 7 componentes `.tsx` con CSS Modules, `PixelImage.tsx` y el plugin `vite-plugins/pixel-images.ts` (sharp) en lugar de `astro:assets`. `Team.crest` y `CarouselSlide.image` pasan a `PixelImageSet`. Requisito: funcionalidad, diseño y comportamiento idénticos.
+- **Archivos:** `package.json`, `package-lock.json`, `index.html`, `vite.config.ts`, `vite-plugins/pixel-images.ts`, `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`, `src/**` (App, main, layouts, hooks, pages, components, types, data/teams, vite-env.d.ts), `CLAUDE.md`, `README.md`, `.gitignore`, `.vscode/*`, `docs/migracion-react.md`.
+- **Verificación:** `npm ci` limpio · `npm run build` (`tsc -b && vite build`) sin errores ni avisos · `tsc -b --force` OK · sin `astro`/`@astrojs` en `package.json` ni en código · `dist/404.html` igual a `index.html` · 26 webp idénticas por SHA-256 a las de Astro, mismos tamaños 1x/2x, `srcset` y tamaño en pantalla · contra la línea base de Astro (`bd6b303`), con Chrome y los mismos flags: 33 de 34 capturas con 0 px de diferencia (`/`, `/posiciones` y las 3 plantillas a 390 y 1280, con y sin reduced motion, página completa, diálogo abierto y navbar desplazada). La restante es la fase de `logo-float` según el momento de montaje: congelada en el mismo instante quedan 40 px con Δ≤2 · layout computado (posición, tamaño y 18 propiedades de cada elemento visible) idéntico salvo nombres de clase · en ventana visible y con resultados iguales a Astro: scroll suave a `/#fixture` e `Inicio`, panel del navbar con `steps(4)` al desplazar, carrusel (autoplay 5 s, flechas y teclado en bucle, pausa con foco), ficha desde cancha y tabla, cierre con X, Esc y fondo con evento `close` y borrado del estado, foco a X y retorno al disparador, orden de Tab, `#stats-id`, radar de 340 celdas, compartir en escritorio (wa.me, facebook, copiar) y en móvil simulado (mismo PNG), reduced motion, navegación sin recarga con título y `aria-current`, Atrás/Adelante con scroll restaurado, 404 para id y ruta inexistentes, rutas profundas en `vite` y `vite preview` · capa de datos: páginas solo leen `src/lib` en loaders async, componentes por props · `CLAUDE.md` y `README.md` sin instrucciones de Astro, con las reglas de diseño, datos y BD intactas.
+- **Observaciones:** diferencia no declarada: al cargar `/plantilla/<id>#stats-<id>` a 1280px, Astro dejaba la página desplazada 50px y la ficha 50px más arriba; React la deja centrada y la página arriba (a 390px coinciden, y el enlace con hash solo se genera en móvil). Diferencias declaradas y aceptables: primera carga en blanco hasta el JS y nada sin JS; fechas con `Intl` en el navegador (iguales en Chrome); 404 nueva (en `vite preview` responde HTTP 200 y en un hosting estático con `404.html` las rutas profundas válidas responderían 404); Atrás/Adelante reinicia el carrusel y cierra la ficha (Astro lo conservaba por bfcache); marcado no visible distinto; `logo-float` sigue incumpliendo CLAUDE.md. Pendiente: `AGENTS.md` todavía da instrucciones de Astro (`astro dev --background`, `.astro`, `astro:assets`). Durante la prueba se detuvo un `astro dev` huérfano del 14/09 que bloqueaba `npm ci` en el `node_modules` del repo.
+
+## 2026-09-15 — AGENTS.md alineado con CLAUDE.md (Vite + React)
+
+- **Cambio:** `AGENTS.md` se reemplaza por el mismo contenido de `CLAUDE.md` y ya no da instrucciones de Astro.
+- **Archivos:** `AGENTS.md`.
+- **Verificación:** `AGENTS.md` y `CLAUDE.md` idénticos (diff sin diferencias, sin contar finales de línea) · ningún otro archivo cambió después de la prueba de la migración, salvo `historial.md` · única mención a Astro: la nota histórica de `astro:assets` sobre `pixel-images.ts` · `npm run build` OK · `npm run dev` (5173) y `npm run preview` (4173) sirven `/` y `/plantilla/boca-juniors`; ambos servidores se detuvieron.
+- **Observaciones:** quedan restos imprecisos fuera de alcance: comentarios «at build time» en `src/lib/matches.ts:23` y `src/lib/players.ts:14` (ahora la validación corre en el navegador) y `allowScripts.esbuild` en `package.json`. La migración sigue sin commitear, por lo que `git diff` no aísla este cambio; se verificó por contenido y fechas.
+
+## 2026-09-15 — HTTP 200 en las rutas profundas de la SPA
+
+- **Cambio:** reescrituras solo de las rutas reales de la app (`/posiciones` y `/plantilla/:id`, con y sin barra final, `:id` de un segmento) para que los hostings estáticos respondan 200, sin comodín `/*`. El plugin `vite-plugins/spa-rewrites.ts` genera `dist/_redirects` desde `SPA_ROUTES` (`vite.config.ts`), con destino `/` (Cloudflare Pages, que descarta `/index.html` por bucle) o `/index.html` si `NETLIFY=true`, y falla el build si `vercel.json` no coincide. Se borra `public/_redirects`; `vercel.json` queda con 4 reglas; `dist/404.html` sigue como respaldo. Corrige el primer intento, que en Cloudflare redirigía `/posiciones` a `/` e ignoraba `/plantilla/*`.
+- **Archivos:** `vite-plugins/spa-rewrites.ts`, `vite.config.ts`, `vercel.json`, `public/_redirects` (borrado), `README.md` (Despliegue), `CLAUDE.md`, `AGENTS.md`.
+- **Verificación:** `npm run build` OK con `dist/_redirects` de destino `/`; con `NETLIFY=true` el destino es `/index.html` (luego se limpió `dist` y se volvió al build normal) · guardia: quitar una regla de `vercel.json` hace fallar el build con el detalle esperado; restaurado con el mismo hash · `SPA_ROUTES` y `vercel.json` coinciden con las rutas de `src/App.tsx` · `wrangler pages dev` 4.132.0 sobre una copia de `dist`: «Parsed 4 valid redirect rules», sin avisos; `/`, `/posiciones`, `/posiciones/`, `/plantilla/<id>` y `/plantilla/<id>/` dan 200, igual que `/plantilla/no-existe`; `/plantilla/a/b`, `/plantilla`, `/plantilla/`, `/cualquier/cosa` y un asset inexistente dan 404 con la app; favicon, cursores, JS, CSS y webp dan 200; `/index.html` y `/404.html` dan 308 · en navegador, con y sin barra final: 0 px de diferencia, mismo título y `aria-current`, ficha por `#stats-p-10`, ficha y navegación desde `/plantilla/universitario/`, NotFound en las URLs 404 · `vite dev` y `vite preview` dan 200 con y sin barra final · ningún valor secreto de `.env` en `dist` (solo coincide el usuario `liga` dentro de los nombres de asset `la-liga-acp`) · README y CLAUDE.md describen lo probado y aclaran que Netlify y Vercel no se desplegaron · `AGENTS.md` idéntico a `CLAUDE.md` · `src/` sin cambios.
+- **Observaciones:** `.wrangler/` (estado local de miniflare, sin secretos) quedó en la raíz del repo sin seguimiento y sin estar en `.gitignore`: conviene borrarlo o ignorarlo. Netlify y Vercel siguen sin probarse en un despliegue real. Un `dist/` compilado fuera de Netlify y subido a Netlify lleva destino `/` (documentado en el README).
+
+## 2026-09-15 — Animación logo-float del Hero conforme a CLAUDE.md
+
+- **Cambio:** `logo-float` pasa de `ease-in-out` con `rotate` y sombra desenfocada a `steps(1, end)` en 5 s, con cuatro frames de 1,25 s cada uno: sube 0, −4, −8 y −4 px en múltiplos de `--px`. La sombra es dura (`drop-shadow` con radio 0, color `--color-shadow`) y se desplaza 8/12/16/12 px. La sombra en reposo de `.league-logo`, la que se ve con reduced motion, también queda sin blur. Se mantiene `animation: none` con reduced motion.
+- **Archivos:** `src/components/Hero.module.css`.
+- **Verificación:** único archivo modificado; el diff contra el CSS aprobado solo toca `.league-logo` y `@keyframes logo-float` · sin ease/linear, rotate, blur ni hex nuevos · `npm run build` OK · ventana visible (`visibilityState` visible), muestreo por rAF unas 10 veces por segundo durante 6,5 s a 390px y 1280px: solo 3 transformaciones (0, −4, −8 px) y 3 sombras (8, 12, 16 px, blur 0), frames de ~1,25 s sin valores intermedios, tamaño constante (115,2 y 120 px) · `Emulation.setEmulatedMedia` con reduced motion: animación `none`, logo quieto con sombra dura de 8 px · capturas contra el estado aprobado de la migración: `/posiciones`, las 3 plantillas y el layout de todas las páginas sin cambios; en `/` las diferencias quedan dentro de la caja del logo y su sombra.
+- **Observaciones:** incumplimientos previos fuera de alcance: `scroll-behavior: smooth` en `global.css` (se apaga con reduced motion); transiciones de color sin regla de reduced motion en Navbar (`.link`), Carousel (flechas) y Plantilla (`.back`); logo del Hero (115,2 px) y escudo de Plantilla escalados a tamaños no enteros; `docs/migracion-react.md` desactualizado.
+
+## 2026-09-15 — Fechas del fixture iguales en cualquier navegador y zona horaria
+
+- **Cambio:** `src/utils/format-date.ts` (nuevo) con `formatKickoff(iso)`, que devuelve `{ day: '05 sept', time: '20:00' }`. Usa meses fijos y aritmética UTC con la zona de la liga fija en UTC−5 (America/Lima), sin `Intl`. Acepta `Z` y `±HH:MM`; cualquier otro formato lanza error. `MatchCard.tsx` lo usa con el mismo marcado. Evita que otro motor abrevie el mes distinto o que la hora dependa de la zona del visitante.
+- **Archivos:** `src/utils/format-date.ts`, `src/components/MatchCard.tsx`.
+- **Verificación:** solo cambiaron esos dos archivos; `src/data` y CSS intactos; sin `Intl.` ni `toLocale` en `src` · prueba propia contra `Intl` (`es`, `America/Lima`) con 35 casos: las 6 fechas de `src/data`, los 12 meses, medianoche, 23:59, cambio de día y de año, entradas con `Z`, `+09:00`, `+05:30`, `-03:00` y `+00:00`, bisiesto, cambio de hora de EE. UU. y sin segundos. 0 fallos con `TZ` UTC, Asia/Tokyo, America/Los_Angeles y Pacific/Kiritimati, con salida idéntica en las 4 zonas · formatos inválidos lanzan un error claro · navegador (`vite preview` en 4500): los 6 `<time>` con el mismo `datetime` y el mismo texto que el HTML de Astro de la línea base · CDP `Emulation.setTimezoneOverride` con Tokyo, Los Ángeles y Kiritimati: textos iguales · capturas de `/` a 390 y 1280 contra el estado aprobado: 0 px en la página completa · `npm run build` OK.
+- **Observaciones:** un `kickoff` mal formado lanza error durante el render de `MatchCard`; la ruta `/` no tiene `ErrorBoundary` (solo `/plantilla/:id` tiene `RouteError`), así que un solo dato roto reemplazaría toda la página de inicio, navbar incluida, por el error por defecto de React Router (conclusión por lectura de `src/App.tsx`, no ejecutada). Además, valores fuera de rango con formato válido (mes 13, día 32, hora 25) no lanzan error y se normalizan en silencio (`2026-13-05` sale como «05 ene»). Conviene validarlos en la capa de datos. El dev del usuario en 5173 no se tocó.
+
+## 2026-09-15 — Ficha por hash en escritorio igual a Astro
+
+- **Cambio:** `SquadBoard` abre la ficha del hash (`#stats-<id>`) en un `useLayoutEffect`, antes de que el layout coloque el scroll, y `useScrollManagement` detecta la ficha abierta, espera `document.fonts.ready` y llama `scrollIntoView()` con el comportamiento CSS. Así la ficha queda bajo el navbar como en Astro. Además, Atrás/Adelante ya no la reabre (`isInAppHistoryTraversal`). Commit `91ade9c`.
+- **Archivos:** `src/hooks/useScrollManagement.ts`, `src/components/SquadBoard.tsx`.
+- **Verificación:** contra Astro `bd6b303` en un worktree temporal, 2 fichas × 3 cargas × caché fría y caliente × headless y ventana visible: a 1280 ambos terminan en `y=49` con la ficha en `top=80,11` (headless) y `y=48,8` / `top=80` (visible); a 390, `y=0` y `top=16`. Sin variación entre corridas en ninguno de los dos · sin regresiones: clic desde cancha y tabla, cierre con X, Esc y fondo, foco al abrir (botón X) y al volver al disparador, Atrás/Adelante sin reabrir la ficha y con el mismo scroll, recarga sin hash conservando `y=150`, y dev con StrictMode (una sola ficha abierta, `close` una vez, sin errores de consola) · `npm run build` OK.
+- **Observaciones:** (a) al llegar por hash Astro deja el foco en el `dialog` y React en el botón X. (b) `/#fixture` desde otra página: medido, Astro anima el scroll (~630 ms, con valores intermedios) porque es una carga de página con `scroll-behavior: smooth`, y React salta al destino (~50 ms). El ejecutor tiene razón; mi reporte de la tarea 4 midió el caso de la misma página, donde ambos animan igual (~500 ms). (c) **Diferencia nueva:** recargar (F5) una URL con hash a 1280 deja Astro en `y=49` / `top=80` y React en `y=0` / `top=129`, con la ficha centrada y visible; a 390 coinciden. Viene del retorno temprano de `useScrollManagement` cuando restaura con la ficha abierta. (d) `docs/migracion-react.md` sigue desactualizado en la sección 12 y en la diferencia 6.
+
+## 2026-09-15 — Ficha del jugador sin tabla de stats en móvil
+
+- **Cambio:** en `PlayerStatsDialog.module.css`, `.values` pasa a `display: none` por defecto (mobile first) y vuelve a `display: table` dentro del `@media (min-width: 48rem)` que ya existía. Pedido del usuario: en móvil basta el radar. Sin cambios de marcado ni de JS. Consecuencia aceptada: la imagen que se comparte desde un teléfono sale sin tabla (nombre, media, retrato y radar).
+- **Archivos:** `src/components/PlayerStatsDialog.module.css`.
+- **Verificación:** único archivo modificado; resto de `src/` intacto · 390px: la tabla no se ve, no ocupa espacio (`display: none`, rect 0x0) y no aparece en el árbol de accesibilidad (0 tablas, 0 filas, 0 textos de atributos; el fondo queda inerte por el modal). La ficha pasa de 812 a 700 px de alto y entra completa en 390x844 sin scroll interno · 1280px: ficha idéntica a la aprobada, 0 px de diferencia, con la tabla en su sitio · punto de corte: 767px sin tabla, 768px y 769px con tabla · redimensionar en vivo 390 → 1280 → 390 → 1280 con la ficha abierta: aparece y desaparece y sigue centrada (márgenes 16/16 y 192/192) · pantallas bajas 390x620 y 390x500: la ficha entra en la ventana, con scroll interno; al abrir se ve el botón Cerrar (44x44) y los de compartir (159x44) tras bajar; cierra con Esc y con el botón · compartir en móvil: la imagen sale sin tabla, completa y sin recortes (1170x1719), y WhatsApp, Facebook y Copiar enlace siguen funcionando · `/`, `/posiciones` y 2 plantillas con la ficha cerrada: 0 px a 390 y 1280 · `npm run build` OK.
+- **Observaciones:** en la imagen compartida el radar sale como un círculo negro sólido, sin anillo ni relleno. **No lo causa este cambio:** pasa igual a 1280 y la imagen de Astro `bd6b303` tiene el mismo defecto (a 1280 las dos son byte a byte iguales, 122 920 bytes). Al quitar la tabla, el radar queda como único dato de la imagen en móvil, así que conviene arreglarlo aparte (parece que `html-to-image` no resuelve los `<rect>` del SVG).
+
+## 2026-09-15 — Radar visible en la imagen compartida
+
+- **Cambio:** en `PlayerStatsDialog.tsx`, un `useLayoutEffect` recorre el `<svg>` del radar y copia el color ya resuelto (`getComputedStyle().fill`) como atributo de presentación `fill` en cada `<rect>`, por tipo (`disc`, `ring`, `fill`, `edge`). `html-to-image` clona el SVG sin los estilos de sus descendientes, así que los `rect` perdían el color de las clases del CSS Module y el radar salía como un círculo negro. Al ser atributo de presentación tiene la menor prioridad, así que en pantalla sigue mandando el CSS Module.
+- **Archivos:** `src/components/PlayerStatsDialog.tsx`.
+- **Verificación:** único archivo del cambio (`pixel-radar.ts`, `share-image.ts`, datos y tipos intactos) · pantalla idéntica: ficha a 390 y 1280 con 0 px de diferencia contra el estado aprobado · imagen compartida generada para 4 jugadores (p-01, p-03, p-10 y p-15) a 390 y 1280: el radar tiene anillo, disco, relleno y borde, sin píxeles negros · la forma del polígono coincide con la de pantalla en los 6 ejes (desvío máximo 1 %, ruido de medición) y las proporciones también (relleno sobre anillo 0,77–0,82 y relleno sobre disco 56–60 %, iguales en ambas), a escala 3× exacta · cada jugador da una forma distinta · colores desde los tokens: `disc` = `--color-surface-raised` (35,39,82), `ring` = `--color-border` (77,83,166), `edge` = `--color-accent-alt` (255,210,63) y `fill` = `color-mix` al 35 % (112,99,75); ningún `rect` sin atributo `fill` (340–360 por ficha) · robustez: 4 aperturas y cierres, cambio de jugador y redimensionar 390 → 1280 → 390 antes de compartir, más `prefers-reduced-motion` y una segunda captura del mismo jugador: el radar sale bien siempre · imágenes de 81–125 kB, completas y sin recortes · todo sobre el build servido con `vite preview` · `npm run build` OK.
+- **Observaciones:** el atributo copiado usa la sintaxis `color(srgb …)` que devuelve `getComputedStyle` para el `color-mix`; Chrome la interpreta bien en el clon exportado. En el árbol de trabajo hay dos cambios ajenos a esto: `.gitignore` ahora ignora `.wrangler/` (la observación que dejé en el pendiente 2) y `docs/business-rules.md` aparece vacío, sin seguimiento.
+
+## 2026-09-15 — T-01 · Esquema de la polla deportiva
+
+- **Cambio:** `EsquemaBD.md`, `db/init/` y la sección Database design de `CLAUDE.md` (copiada a `AGENTS.md`) se reescriben según `docs/business-rules.md`. Quedan 22 tablas, 27 FKs y 13 CHECK: `disciplina` se separa en `deporte` + `competicion`; desaparecen `mercado`, `apuesta`, `partido_jugador`, `estadistica_tipo` y `partido_jugador_estadistica`; se agregan `estado_usuario`, `estado_pago`, `gol`, `tipo_apuesta`, `resultado_general`, `estado_seleccion`, `ticket`, `seleccion`, `tipo_movimiento`, `movimiento_moneda`, `accion_auditoria` y `auditoria`. Monedas y puntos son enteros; `usuario.saldo_monedas` se guarda como columna y los puntos se calculan con `SUM`.
+- **Archivos:** `EsquemaBD.md`, `db/init/01-schema.sql`, `db/init/02-catalogos.sql`, `CLAUDE.md`, `AGENTS.md`, `docs/plan-polla.md`.
+- **Verificación:** cobertura regla por regla de las BR que tocan datos (BR-003 a BR-047 y NFR-006): todas tienen soporte; lo que no puede expresar el esquema queda como regla de backend y está documentado · la tabla de conflictos de `plan-polla.md` se cumple: varias selecciones por partido, ticket con selecciones, los dos tipos de apuesta, puntos enteros 3/1/3/0 (`CHECK ... IN (0,1,3)`), monedas enteras, estados de partido `programado`/`en_curso`/`finalizado`/`cancelado`, usuario con estado y pago, sin mercado de campeón · convenciones: MySQL 8.4.11, InnoDB en las 22 tablas, `utf8mb4_unicode_ci`, `snake_case` en español, todos los `id` `BIGINT UNSIGNED`, `DATETIME` sin `DEFAULT CURRENT_TIMESTAMP`, catálogos con `codigo` único, sin `DECIMAL`/`FLOAT`, nada calculado guardado salvo `saldo_monedas` · base recreada desde cero (`down -v` + `up -d`): healthy, init sin errores, 0 filas de datos y catálogos con acentos correctos · pruebas propias con ROLLBACK (0 filas después): FKs compuestas de `plantel`, `partido_equipo` y `gol` (1452), lados y camisetas duplicados (1062), email repetido (1062), saldo negativo bloqueado por el tipo (1690), `cantidad = 0`, puntos = 2 y pronóstico doble o ausente (3819), borrado de un deporte en uso (1451), movimiento repetido de la misma selección y tipo (1062), y devolución con otro tipo aceptada · casos de borde: dos tickets del mismo usuario, tercera selección contradictoria, movimiento sin selección, gol de un jugador ajeno al plantel y auditoría sin administrador · `npm run build` OK · `EsquemaBD.md`, el SQL, `CLAUDE.md` y `business-rules.md` coherentes, incluidas las dos resoluciones del usuario (BR-015: el empate depende de `deporte.permite_empate`, que sigue en el esquema y se aplicará en backend; BR-007: sin "Estado" suelto, bastan `estado_pago` y `estado_usuario`) · `AGENTS.md` idéntico a `CLAUDE.md`.
+- **Observaciones:** quedan a cargo del backend, sin barrera en la base: BR-008 «una sola vez» (probé dos movimientos de validación de +10 al mismo usuario y los acepta; se podría cerrar con una columna generada y un índice único); `usuario.saldo_monedas` puede desincronizarse de `SUM(movimiento_moneda)` (lo reproduje: columna 8 contra suma 19), así que conviene una prueba de consistencia periódica; `seleccion.puntos_obtenidos` admite valor con estado `pendiente`; `auditoria.usuario_id` no exige rol `admin` y `entidad_id` no tiene FK (documentado); `gol.minuto` no tiene tope y los goles registrados no tienen que cuadrar con `partido_equipo.goles`. Menores: no hay índice propio sobre `partido.fecha_hora`, que es el orden de BR-013, y `EsquemaBD.md:31` todavía explica el marcador `[preguntar]` aunque ya no queda ninguno. Ajeno a T-01: `src/components/Navbar.module.css` está modificado en el árbol (logo del navbar desde 64rem), sin relación con esta tarea.
+
+## 2026-09-16 — T-02 · Esqueleto del backend
+
+- **Cambio:** backend en `server/` con su propio `package.json`: Express 5 + TypeScript en capas `routes` → `controllers` → `services` → `db/pool.ts`, con el pool inyectado desde `app.ts`. La configuración se valida con zod en `config/env.ts`: si algo falta o es inválido, el proceso sale con exit 1, un mensaje claro y sin stack. Todas las respuestas usan el sobre `{ data }` / `{ error: { code, message, details? } }` y los errores esperados usan `HttpError`. `GET /health` consulta la base en vivo con un reintento: 200, o 503 `DATABASE_UNAVAILABLE`, y el servidor arranca aunque la base esté caída. El pool usa `timezone: 'Z'`. Seguridad: helmet, CORS solo para `CORS_ORIGIN`, rate limit (sin contar `GET`/`HEAD /health`) antes de un límite de body de 100 KB. Pruebas con Vitest + Supertest sobre `la_liga_acp_test`, recreada desde `db/init` en cada corrida. Servicio `server` en `compose.yaml` con nodemon `--legacy-watch`. Scripts `server:*` en la raíz, incluido `server:typecheck`.
+- **Archivos:** `server/**` (src, tests, `package.json`, `Dockerfile`, `.dockerignore`, `tsconfig*`, `vitest.config.ts`, `README.md`), `compose.yaml`, `.env.example`, `.gitignore`, `package.json`, `README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Historia de la prueba:** se reprobó dos veces.
+  - **Primer intento.** JSON mal formado, un cuerpo de más de 100 KB y un charset no soportado respondían 500 `INTERNAL_ERROR`. Además, con `NODE_ENV=development` exportado, las pruebas resolvían la base principal (`resetDatabase` la habría vaciado), y nada impedía que `MYSQL_DATABASE_TEST` fuera igual a `MYSQL_DATABASE`, en cuyo caso `global-setup` la habría borrado.
+    - **Corrección 1:** esos cuerpos pasan a dar 400 `INVALID_JSON`, 413 `PAYLOAD_TOO_LARGE` y 415 `UNSUPPORTED_MEDIA_TYPE`. `vitest.config.ts` fuerza `NODE_ENV=test`, `env.ts` rechaza bases iguales, y `global-setup` y `resetDatabase` abortan si el destino no es la base de pruebas. `resetDatabase` conserva los catálogos. `/health` sale del rate limit y el limitador pasa antes de `express.json`.
+  - **Segundo intento.** Un cuerpo gzip o brotli corrupto (error con status 400 y `expose`, pero sin `type`) seguía dando 500 y quedaba en el log.
+    - **Corrección 2:** todo error con `expose: true` y status 4xx es error de cliente (código específico si el `type` es conocido, `BAD_REQUEST` si no) y no se registra en el log. La exclusión de `/health` sigue el criterio de Express: sin distinguir mayúsculas, con o sin barra final, solo `GET`/`HEAD`.
+- **Verificación final:**
+  - **Instalación y pruebas:** `npm ci` en `server/`, `npm run server:typecheck` (exit 0) y las pruebas dos veces seguidas con `NODE_ENV=development` exportado (7 archivos, 30/30). `npm run build` del front OK.
+  - **Errores de cuerpo, contra el contenedor en 3001:** JSON mal formado 400 `INVALID_JSON`; 150 KB 413; charset desconocido 415; gzip, brotli y deflate corruptos y gzip truncado 400 `BAD_REQUEST`, sin detalles de zlib y sin log. Content-Encoding desconocido 415; JSON escalar y utf-16 400.
+  - **Errores internos:** `errorHandler` montado en una app temporal. Un error real de mysql2 (tabla inexistente), un `ECONNREFUSED`, un error con `expose` y status 500, uno 400 sin `expose` y uno con status en texto dan `INTERNAL_ERROR` genérico con un solo log y sin filtrar detalles.
+  - **Guardias, con una fila testigo en la base principal:** la suite con `NODE_ENV=development` usó `la_liga_acp_test`. Con `MYSQL_DATABASE_TEST=la_liga_acp`, el proceso y la suite se niegan antes de tocar nada, y un nombre con caracteres de inyección se rechaza. `resetDatabase` contra un pool de la principal aborta antes de pedir la conexión del truncate. La testigo siguió y después se borró.
+  - **Base de pruebas:** los catálogos quedan intactos tras el reset.
+  - **Rate limit, en instancia propia:** `/health`, `/HEALTH`, `/Health/` y `HEAD` no consumen ni llevan `RateLimit-*`. `POST /health`, `/health/extra`, `/healthz` y las demás rutas sí consumen, y un JSON inválido también cuenta. Se ve el 429 con sobre y `Retry-After`, y `/health` sigue en 200 después.
+  - **Configuración:** una configuración inválida da exit 1 sin stack.
+  - **Health y seguridad:** `/health` da 200, 503 con `db` detenida y vuelve a 200 sin reiniciar el server; 404 con sobre. CORS nunca refleja un origen ajeno, preflight incluido, y helmet está completo.
+  - **Docker:** `up -d --build` levanta `db` y `server`, `/health` responde también desde dentro del contenedor, la recarga en caliente tarda unos 2 s y la imagen no lleva secretos.
+  - **Documentación y front:** `CLAUDE.md` y `AGENTS.md` idénticos y coherentes; `src/` y `business-rules.md` sin cambios.
+- **Observaciones:**
+  - El 503 de `/health` tarda 8–9 s con la base caída (propuesta de `connectTimeout` de 2 s pendiente de decisión del usuario).
+  - `/health//` (doble barra) responde el health pero consume el límite; sin importancia.
+  - El preflight `OPTIONS` lo resuelve CORS antes del limitador.
+
+## 2026-09-16 — T-03 · Registro, login y roles (backend)
+
+- **Cambio:** autenticación y autorización en `server/`.
+  - **Rutas:** `POST /auth/register` (201, sin abrir sesión; siempre `apostador`, `pendiente`, pago `pendiente` y 0 monedas), `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` y `GET /admin/sesion` como prueba de protección.
+  - **Contraseñas:** argon2id, de 10 a 128 caracteres. Si el correo no existe, el login igual verifica un hash de relleno.
+  - **Credenciales incorrectas:** la respuesta es siempre la misma, 401 `INVALID_CREDENTIALS`.
+  - **Sesiones en servidor:** tabla `sesion` con el SHA-256 del token, `ON DELETE CASCADE`, `CHECK` de vencimiento e índice `idx_sesion_expira_en`. Cada login purga las sesiones vencidas de todos los usuarios. La cookie es HttpOnly, SameSite=Strict y Path=/, dura 12 h, y en producción es `Secure` con prefijo `__Host-`.
+  - **CSRF:** `Origin` más un token firmado con `SESSION_SECRET` en todo lo que no sea GET/HEAD/OPTIONS.
+  - **Middlewares:** `requireAuth` (401), `requireRole('admin')` (403) y `requireValidated` (403 `USER_NOT_VALIDATED`).
+  - **Límites:** login con 5 fallos por IP + correo cada 15 min (los éxitos no cuentan); registro con 10 por IP por hora (decisión del usuario: se mantiene el 409 `EMAIL_TAKEN`). `TRUST_PROXY` configurable, nunca `true`. `SESSION_SECRET` obligatorio y rechaza valores de ejemplo.
+  - **`admin:create`:** crea o promueve un administrador. Pide la clave sin eco y con confirmación, y también acepta `ADMIN_PASSWORD_FILE` o `ADMIN_PASSWORD_STDIN=1`. Al promover no toca contraseña, estado ni saldo, y avisa si ignoró una clave.
+  - **Pruebas:** `resetDatabase` pasa a usar `DELETE`.
+  - **Documentación:** `business-rules.md` alinea BR-003 y BR-004 (se entra con correo) y aclara BR-001: el panel no cambia roles, con nota en T-21 de `plan-polla.md`.
+- **Archivos:** `server/src/**` (cli, config/env.ts, app.ts, controllers, lib, middleware, routes, schemas, services, types), `server/tests/**`, `server/package.json`, `server/package-lock.json`, `db/init/01-schema.sql`, `EsquemaBD.md`, `compose.yaml`, `.env.example`, `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`, `docs/business-rules.md`, `docs/plan-polla.md`.
+- **Historia de la prueba:** se reprobó una vez. En el primer intento, `admin:create` recibía la clave en `ADMIN_PASSWORD` y los ejemplos de los dos README la escribían en la línea de comandos: quedaba en el historial de la terminal y, con `docker compose exec -e`, completa en la línea de comandos de `docker.exe` y `docker-compose.exe` (verificado escaneando procesos), aunque el README decía lo contrario.
+  - **Corrección:** prompt sin eco con confirmación, las fuentes `ADMIN_PASSWORD_FILE` y `ADMIN_PASSWORD_STDIN`, y README corregidos con la explicación del riesgo.
+  - **Observaciones incorporadas en la misma corrección:** rechazo del `SESSION_SECRET` de ejemplo, índice y purga global de sesiones, `TRUST_PROXY`, límite de registro por IP y mensajes más claros de `admin:create`.
+- **Verificación final:**
+  - **Instalación y pruebas:** `npm ci`, `npm run server:typecheck` (exit 0) y pruebas dos veces seguidas (14 archivos, 135/135). `npm run build` del front OK.
+  - **Base:** recreada desde cero con `down -v` + `up -d --build`, sin errores; 23 tablas; `sesion` con PK, único de `token_hash`, `idx_sesion_expira_en` e índice de la FK.
+  - **`admin:create` interactivo:** probado en una consola real (ConPTY con PowerShell y PSReadLine) siguiendo los ejemplos de los README, local y con `docker compose exec -it`.
+    - La clave no se muestra, no queda en el historial de PSReadLine ni aparece en la línea de comandos de ningún proceso del host o del contenedor (escaneado entre la clave y su confirmación).
+    - La confirmación distinta da «Las contraseñas no coinciden» con exit 1; Ctrl+C da «Cancelado» con exit 130.
+    - `ADMIN_PASSWORD_FILE` (con CRLF y segunda línea), `ADMIN_PASSWORD_STDIN=1` local y `docker compose exec -T ... < archivo` crean administradores que después entran con esa clave.
+    - Un archivo inexistente, dos fuentes a la vez, la falta de `ADMIN_EMAIL`, un correo nuevo sin clave ni terminal y una clave débil dan mensajes claros con exit 1.
+    - Al promover un apostador validado con saldo 7 y una clave en archivo, avisa que la ignoró y el hash, el saldo y el estado quedan iguales; la clave original sigue entrando y la repetición dice «Ya era administrador».
+  - **`SESSION_SECRET`:** se rechazan el valor de `.env.example`, `changeme…`, uno con «secreto», `Example…` y valores repetitivos o cortos; un secreto aleatorio arranca.
+  - **Purga de sesiones:** el login de otro usuario borró una sesión vencida y dejó intactas las vigentes; `EXPLAIN` de la purga usa `idx_sesion_expira_en`.
+  - **`TRUST_PROXY`:** sin configurar, cambiar `X-Forwarded-For` no evita el 429; con `1` la IP informada separa los contadores; `true`, `yes`, `-1` y un CIDR inválido se rechazan; `loopback`, una lista de rangos y `2` se aceptan.
+  - **Límite de registro:** éxito, 409 y 400 cuentan, el cuarto intento con límite 3 da 429 `RATE_LIMITED` con `Retry-After`, el 409 no cambió y el login no se ve afectado.
+  - **Casos propios del primer intento:** siguen pasando.
+    - **Registro:** ignora los campos de rol, saldo y estado, normaliza el correo y valida los campos.
+    - **Login:** fallo idéntico y con tiempos parecidos para correo inexistente y clave incorrecta; un éxito no reinicia el contador de fallos.
+    - **Sesión y cookie:** `/auth/me` no expone el hash, la sesión vencida da 401, el logout invalida la cookie vieja y los flags son correctos en desarrollo y en producción.
+    - **CSRF:** sin token, con token ajeno o de otra sesión, alterado, con Origin ajeno o `null` y en rutas en mayúsculas da 403, sin cortar la sesión; GET y HEAD no cambian nada.
+    - **Autorización:** 401, 403 y 200 según corresponde, con cambios de rol y de estado aplicados en la petición siguiente; `requireValidated` probado con el middleware real; cascada al borrar el usuario.
+    - **Repaso tras recrear la base:** registro, login, CSRF y autorización correctos.
+  - **Documentación:** BR-001, BR-003 y BR-004 coherentes con el resto; `CLAUDE.md` y `AGENTS.md` idénticos; README al día; `compose.yaml` y `.env.example` con las variables nuevas.
+  - **Limpieza:** los datos de prueba de la base de desarrollo se borraron (0 usuarios, 0 sesiones).
+- **Observaciones:**
+  - El `DELETE` de `resetDatabase` no debilita las guardias de T-02 y ninguna prueba depende de ids fijos.
+  - Si alguien escribe la clave antes de que aparezca el prompt, la terminal la toma como comando y queda en su historial (comportamiento normal de cualquier prompt; lo vi al principio por un error de mi propio script).
+
+## 2026-09-16 — T-04 · Validación de participantes (backend)
+
+- **Cambio:** API de administración para validar participantes (BR-005 a BR-008).
+  - **Tabla de inscritos:** `GET /admin/participantes`, paginada, con filtros de pago y validación, búsqueda por nombre o correo y orden por fecha de inscripción. Sin query string desconocida: un parámetro extra da 400.
+  - **Conteos:** `GET /admin/participantes/conteos` da inscritos y validados; no acepta query.
+  - **Acciones:** `POST /admin/participantes/:id/pago/confirmar`, `/pago/revertir` y `/validar`.
+    - Validar exige el pago confirmado y da +10 monedas una sola vez. Usa una transacción con UPDATE condicional desde `pendiente` y un movimiento `validacion` (`MONEDAS_POR_VALIDACION` en `lib/coins.ts`).
+    - El pago solo se revierte mientras el usuario sigue pendiente.
+  - **Cambio de alcance durante la tarea (pausa del coordinador):** los administradores no participan en la polla.
+    - La tabla y los conteos muestran solo apostadores y el filtro `rol` desapareció.
+    - Las acciones sobre un admin dan 404 `NOT_A_PARTICIPANT`.
+    - `requireRole` compara el rol exacto.
+    - `requireBettor` reemplaza a `requireValidated` y responde 403 `ADMIN_CANNOT_BET` o `USER_NOT_VALIDATED`.
+    - `admin:create` solo promueve cuentas limpias.
+  - **Query string:** `rejectQueryParams` en `/auth/*` y en las rutas de `/admin` sin parámetros. En login y registro va antes del limitador propio, así que un 400 por query no cuenta como fallo ni gasta cupo (el limitador general sí lo cuenta). Hay una nota para T-18 en `server/README.md` y en `docs/plan-polla.md`.
+  - **Mensajes de `page` y `pageSize`:** cada caso tiene el suyo (no es número, no es entero, menor que 1, mayor que el tope). `page` tiene tope 100000 y `pageSize` 100.
+- **Archivos:**
+  - **Rutas y controladores:** `server/src/routes/admin.route.ts`, `participants.route.ts`, `auth.route.ts`; `server/src/controllers/participants.controller.ts`.
+  - **Servicios:** `server/src/services/participants.service.ts`, `participant-validation.service.ts`, `admin-bootstrap.service.ts`.
+  - **Esquemas:** `server/src/schemas/participants.schema.ts`, `common.schema.ts`.
+  - **Middleware y utilidades:** `server/src/middleware/auth.ts`, `no-query.ts`; `server/src/lib/coins.ts`, `error-codes.ts`; `server/src/db/transaction.ts`.
+  - **Pruebas:** `server/tests/participants-list.test.ts`, `participants-actions.test.ts`, `query-params.test.ts`, `auth-rate-limits.test.ts`, `authorization.test.ts`, `create-admin.test.ts`.
+  - **Documentación:** `server/README.md`, `docs/plan-polla.md` (notas en T-09, T-10, T-15, T-16, T-17, T-18 y T-21).
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 224/224 pruebas dos veces seguidas; `npm run build` del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Reprobaciones y correcciones:**
+    - **Primera reprobación:** los conteos ignoraban la query (`?rol=admin` daba 200). Corregido: ahora dan 400.
+    - **Segunda reprobación:** un login con query y clave correcta daba 400 pero contaba como fallo, y el sexto intento bloqueaba con 429. Además, `page=100001` decía «page debe ser un número». Ambas cosas están corregidas.
+  - **Re-test final (instancia local con límite de registro 3):**
+    - **Login con query:** 6 intentos con `?next=/x` y clave correcta dieron 400 sin cookie, y 6 con clave incorrecta, 400. Después, el login sin query dio 200.
+    - **El límite de login sigue funcionando:** con clave incorrecta sin query hubo cinco 401 y el sexto dio 429 `RATE_LIMITED`. Mientras dura el bloqueo, la clave correcta da 429 y con query da 400. Otro correo desde la misma IP entra.
+    - **Registro:** 6 intentos con query dieron 400 y no crearon cuentas; después, el registro sin query dio 201. Sin query, el tercero dio 201 y el cuarto 429 sin crear la cuenta; con el cupo agotado, un intento con query da 400.
+    - **El limitador general sí descuenta los 400 por query:** `RateLimit-Remaining` baja en cada uno.
+    - **Mensajes de `page` y `pageSize`:** `abc`, `1.5`, `0`, `-3`, `100001` y `101` dan cada uno su mensaje. `page=100000` y `pageSize=100` dan 200, y si fallan los dos parámetros llegan los dos detalles.
+  - **Repaso de T-04 (script propio de 114 casos, sin fallos):**
+    - **Tabla:** solo apostadores, filtros, búsqueda con comodines escapados y paginación.
+    - **Conteos:** excluyen a los admins; con query dan 400.
+    - **Acciones:** confirmar, validar y revertir; validación doble; 10 validaciones en paralelo con un solo +10.
+    - **Admins:** las acciones sobre admins dan 404 sin efectos.
+    - **Middlewares:** `requireBettor` y `requireRole` exacto.
+    - **Query en `/auth/*` y `/admin/sesion`:** da 400 sin efectos.
+  - **Orden de las comprobaciones:** 401 (anónimo), luego 403 `FORBIDDEN` (apostador), luego 403 `CSRF_FAILED` (sin token u Origin ajeno) y por último 400 (query o id inválido). Ninguna de esas peticiones cambió al usuario. Login y registro con Origin ajeno y query dan 403. El logout con query da 400 y la sesión sigue viva. Como control positivo, confirmar y validar dan 200 con +10 y un solo movimiento.
+  - **Limpieza:** se borraron los datos de prueba de la base de desarrollo (usuarios, sesiones, movimientos, tickets, selecciones, partido, competición y deporte: todo en 0). La base y el server de Docker quedan corriendo.
+- **Observaciones:**
+  - **Detalles menores de los mensajes:** `page=` (vacío) responde «page debe ser 1 o mayor». Un número más allá del rango seguro, como `9007199254740993`, trae dos detalles («entero» y «mayor que 100000»). Los dos casos dan 400.
+  - **D19 (ya documentado):** un movimiento `validacion` con `seleccion_id` esquiva la barrera de unicidad, y dos movimientos del mismo tipo sin selección chocan.
+
+## 2026-09-16 — T-05 · Saldo y movimientos (backend)
+
+- **Cambio:** saldo y movimientos de monedas (BR-009, BR-010, BR-020 a BR-022, BR-046, BR-047, BR-055, tablas 27 y 28).
+  - **Un único punto que mueve monedas:** `services/coins.service.ts`. Su función principal es `applyCoinMovements(conn, usuario, movimientos)` y tiene tres atajos:
+    - `grantValidationCoins`, que T-04 ya usa;
+    - `debitSelections`, para T-10;
+    - `refundSelections`, para T-16.
+  - **Qué hace en la transacción del llamador:**
+    - Bloquea la fila del usuario y rechaza el saldo negativo con 409 `INSUFFICIENT_BALANCE`, sin efectos.
+    - Comprueba D19 y que cada selección sea del usuario.
+    - Exige que cada devolución tenga su débito y ninguna devolución previa: si no, responde 409 `SELECTION_NOT_DEBITED` o `MOVEMENT_ALREADY_APPLIED` con `details.selecciones`.
+    - Inserta los movimientos y fija el saldo.
+  - **Tipos y montos:** los tipos se buscan por código con `Object.hasOwn`; los montos están en `lib/coins.ts`.
+  - **Contrato de transacción exigido:** las funciones reciben `TransactionConnection`, que solo entrega `withTransaction`. Llamarlas con una conexión común no compila y, si se fuerza, se rechaza en ejecución antes de escribir.
+  - **Rutas:**
+    - `GET /monedas/saldo` y `GET /monedas/movimientos` (paginado, del más reciente al más antiguo) usan `requireParticipant`: un admin recibe 403 `NOT_A_PARTICIPANT`.
+    - `GET /admin/monedas/consistencia` es de solo lectura.
+  - **Consistencia:** `npm run coins:check` sale con 0 si todo cuadra, 1 si hay descuadres o admins con monedas, y 2 si no pudo correr.
+  - **Esquema:** índice nuevo `idx_movimiento_usuario_fecha`.
+  - **Reglas:** BR-009 y BR-046 precisados.
+- **Archivos:**
+  - **Servicios:** `server/src/services/coins.service.ts`, `coin-history.service.ts`, `coins-consistency.service.ts`, `participant-validation.service.ts`.
+  - **Base y utilidades:** `server/src/db/transaction.ts`; `server/src/lib/coins.ts`, `error-codes.ts`.
+  - **CLI, rutas y middleware:** `server/src/cli/coins-check.ts`; `server/src/routes/coins.route.ts`, `admin.route.ts`, `index.ts`; `server/src/controllers/coins.controller.ts`; `server/src/middleware/auth.ts`.
+  - **Esquemas:** `server/src/schemas/common.schema.ts`, `participants.schema.ts`.
+  - **Pruebas:** `server/tests/coins-service.test.ts`, `coins-routes.test.ts`, `helpers/participants.ts`.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md`, `docs/plan-polla.md` (notas en T-10 y T-16), `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`, `package.json`, `server/package.json`.
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 286/286 pruebas dos veces seguidas; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Reprobación:** en el primer test, `refundSelections` devolvía una selección que nunca se había debitado (el saldo pasó de 10 a 11). Además, los nombres del prototipo (`toString`, `constructor`, `__proto__`) pasaban la validación de tipo, y el contrato de transacción no se exigía: en autocommit, un lote con una selección repetida dejaba 2 movimientos sin tocar el saldo. Las tres cosas están corregidas.
+  - **Devoluciones (pruebas propias):**
+    - **Rechazos sin efectos:**
+      - Una selección nunca debitada da 409 `SELECTION_NOT_DEBITED` con `details.selecciones`, sin datos personales.
+      - Un lote mixto se rechaza entero.
+      - Una devolución repetida, duplicada en el lote o seguida de un nuevo débito da 409 `MOVEMENT_ALREADY_APPLIED`.
+      - Débito y devolución de la misma selección en un mismo lote se rechazan.
+      - Un débito cargado a nombre de otro usuario no cuenta.
+    - **Concurrencia:**
+      - 12 devoluciones paralelas de la misma selección: pasa una.
+      - Devolución contra débito de la misma selección (10 rondas): el saldo queda en 9 o 10, sin errores 500.
+      - Mezcla de 30 operaciones: 10 débitos y 8 devoluciones, saldo igual a la suma y ninguna devolución huérfana en la base.
+  - **Tipos:** `toString`, `constructor`, `__proto__`, `hasOwnProperty`, `valueOf`, `isPrototypeOf`, un número y `undefined` dan el mismo error de tipo desconocido, sin efectos.
+  - **Contrato de transacción:**
+    - Un archivo temporal con conexiones comunes (incluida una con `beginTransaction` manual) falla el typecheck exactamente en las 5 llamadas y en el tipo `bono`.
+    - Forzado en ejecución, en autocommit, con transacción manual o con una conexión que quedó de una `withTransaction` ya cerrada, se rechaza sin escribir.
+    - `withTransaction` deshace todo ante un `TypeError`, un string lanzado, un error SQL o `undefined`. Tras 40 fallos seguidos el pool sigue disponible.
+  - **Repaso de lo aprobado en el primer test (sigue pasando):**
+    - **Escritura:** ninguna otra parte de `server/src` escribe monedas.
+    - **Débitos:** saldo insuficiente sin efectos; lotes atómicos; 25 débitos paralelos sobre 10 monedas dejan pasar 10; débitos contra devoluciones y validación contra débitos sin errores 500 ni bloqueos mutuos.
+    - **T-04:** da +10 una sola vez; revalidar tras un reset manual da 409.
+    - **Rutas:** 401, 403, 400 de query estricta, pendiente con saldo 0, orden, fechas UTC, paginación, coherencia con `/auth/me`; la consistencia de admin es solo de lectura.
+    - **`coins:check`:** 0 con la base sana, 1 con un descuadre provocado y un admin con monedas, 2 con la base caída, un host inalcanzable o una configuración inválida.
+    - **Esquema:** base desde cero con 23 tablas, y `EXPLAIN` usa el índice nuevo.
+  - **Reglas:** BR-046 precisado es coherente con BR-045, BR-047 y BR-055.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones:**
+  - En la segunda corrida del primer test hubo un cuelgue aislado de Vitest: en `coins-routes.test.ts`, el `beforeEach` (`resetDatabase`) superó el tiempo límite tras 103 s. No se repitió en las tres corridas completas siguientes.
+  - Una selección duplicada dentro del lote responde «Esa selección ya se había devuelto» aunque no se hubiera devuelto antes. El código 409 es correcto; el texto es impreciso.
+
+## 2026-09-16 — T-06 · Catálogo deportivo (backend)
+
+- **Cambio:** CRUD de administración de deportes, competiciones, equipos, jugadores y planteles (BR-001, BR-011, BR-015, BR-048 a BR-050).
+  - **Operaciones:** bajo `/admin/{deportes,competiciones,equipos,jugadores,planteles}` hay lista paginada con filtros, ver, crear (201), `PATCH` parcial y borrar. Body y query se validan con zod estricto.
+  - **Slugs:**
+    - Se generan del nombre y se normalizan.
+    - Son únicos globalmente en deportes y únicos por deporte en competiciones, igual que en el esquema.
+    - Un slug repetido da 409 `SLUG_TAKEN`.
+    - Renombrar no cambia el slug; un `PATCH` con slug explícito sí lo cambia.
+  - **Plantel:**
+    - La competición sale del equipo; si el cliente manda otra, 409 `COMPETITION_MISMATCH`.
+    - Un jugador por competición (409 `PLAYER_ALREADY_ENROLLED`).
+    - Camiseta de 1 a 99, única por equipo (409 `SHIRT_NUMBER_TAKEN`).
+    - Sin transferencias (409 `TRANSFER_NOT_ALLOWED`).
+  - **Mover entre competiciones o deportes:**
+    - Un equipo solo cambia de competición si no tiene partidos, inscritos ni goles.
+    - Una competición solo cambia de deporte si no tiene partidos.
+  - **Borrado:** solo si nada usa el registro; si no, 409 `*_IN_USE` con las cantidades. No hay cascada ni borrado lógico.
+  - **`permite_empate` (BR-015 precisado):** solo cambia si ningún partido del deporte salió de `programado` y no hay apuestas; si no, 409 `DRAW_RULE_LOCKED`. La parte de apuestas es un `DrawRuleGuard` del módulo Polla, inyectado desde `routes/index.ts`, así que Informativo no importa Polla.
+  - **Escudo, foto y color:** escudo y foto aceptan una URL `https://` o una ruta relativa a una imagen, de hasta 255 caracteres; el color es `#rrggbb` y se guarda en minúsculas.
+  - **Errores de MySQL:** 1062, 1451, 1452, 1406, 1264 y 1366 se traducen en `lib/db-errors.ts` (nunca 500 ni el mensaje del driver).
+  - **Escrituras:** pasan por `runAdminAction`, que deja el gancho para la auditoría de T-17.
+  - **Corrección de T-05:** el duplicado dentro de un lote de devoluciones tiene su propio mensaje.
+- **Archivos:**
+  - **Servicios:** `server/src/services/sports.service.ts`, `competitions.service.ts`, `teams.service.ts`, `players.service.ts`, `enrollments.service.ts`, `bets-sport-guard.service.ts`, `admin-action.ts`, `catalog-query.ts`, `coins.service.ts`.
+  - **Esquemas y utilidades:** `server/src/schemas/catalog.schema.ts`, `common.schema.ts`; `server/src/lib/db-errors.ts`, `slug.ts`, `error-codes.ts`.
+  - **Controladores, rutas y middleware:** `server/src/controllers/catalog.controller.ts`; `server/src/routes/catalog.route.ts`, `admin.route.ts`, `index.ts`; `server/src/middleware/error-handler.ts`.
+  - **Pruebas:** `server/tests/catalog-access.test.ts`, `catalog-sports.test.ts`, `catalog-competitions-teams.test.ts`, `catalog-players-enrollments.test.ts`, `helpers/catalog.ts` y la de servicio de monedas.
+  - **Documentación:** `server/README.md`, `EsquemaBD.md`, `docs/business-rules.md` (BR-015), `docs/plan-polla.md` (notas en T-08, T-09, T-13 y T-17), `CLAUDE.md`, `AGENTS.md`. Sin cambio de esquema.
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 383/383 pruebas dos veces seguidas; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos; base creada desde cero (23 tablas) sin errores.
+  - **Pruebas propias (12 casos, dos corridas sin fallos):**
+    - **CRUD de las cinco entidades:**
+      - **Operaciones:** crear, ver, listar (orden por nombre y luego id, paginación), filtros (`q` con `%` y `_` literales, `permiteEmpate`, `deporteId`, `competicionId`, `equipoId`, `jugadorId`), `PATCH` parcial y `foto: null`.
+      - **Borrado:** da `{ id }` y después 404.
+      - **Rechazos:** ids inválidos (`abc`, `0`, `-1`, `1.5`, `1e3`, `01`, 17 dígitos) dan 400; inexistentes, 404. Campos o query desconocidos, `PATCH {}`, tipos incorrectos, arrays, `null` y ids en texto dan 400, sin efectos.
+      - **Respuestas:** sin datos de otros módulos.
+    - **Slugs:**
+      - **Generación:** acentos, ñ, espacios y símbolos se normalizan. Un nombre sin letras ni números (cirílico, emojis, `¡¡¡`, `---`) da 400 pidiendo un slug explícito. Con 100 caracteres, el slug queda dentro de 100.
+      - **Unicidad:** mayúsculas, acentos, espacios o guion bajo repetidos dan 409 `SLUG_TAKEN`. Un slug explícito inválido da 400.
+      - **Cambios:** renombrar conserva el slug y un `PATCH` con slug lo cambia; si choca, 409 sin efectos.
+      - **Competiciones:** el mismo slug se puede repetir en distintos deportes. Mover una competición a un deporte donde su slug ya existe da 409.
+      - **Concurrencia:** 8 `POST` paralelos con el mismo nombre dan un 201 y siete 409.
+    - **Plantel:**
+      - **Rechazos:** `COMPETITION_MISMATCH` (otra competición o una inexistente); `PLAYER_ALREADY_ENROLLED` (en el mismo equipo o en otro); `SHIRT_NUMBER_TAKEN`. Camiseta 0, 100, 1.5, `"7"`, `null`, −1 o 1000 da 400.
+      - **Transferencias:** cambiar equipo o jugador da 409 `TRANSFER_NOT_ALLOWED`; mandar el mismo equipo con otra camiseta está permitido.
+      - **Concurrencia:** 6 inscripciones paralelas con la misma camiseta dan un 201; el mismo jugador en 5 equipos a la vez, uno.
+    - **Mover equipos y competiciones:**
+      - Un equipo con plantel o con partidos da 409 `TEAM_IN_USE` con las cantidades. Hacia una competición inexistente, 404. Un equipo libre se mueve.
+      - Un `UPDATE` directo en la base se frena por las FKs compuestas y se traduce a 409.
+      - Una competición con partidos no cambia de deporte (409); sin partidos, sí.
+    - **Errores de MySQL provocados a mano:** todos se traducen:
+      - **1062:** slug, camiseta y jugador;
+      - **1451:** deporte, competición y jugador;
+      - **1452:** equipo, competición y plantel de otra competición;
+      - **1406, 1264 y 1366:** dan 400.
+      - Un error que no es de MySQL no se traduce. Nombres con caracteres raros nunca dan 500.
+    - **Borrado en uso:** con partidos y goles insertados a mano, las cantidades son exactas:
+      - deporte: 2 competiciones;
+      - competición: 3 equipos, 2 partidos y 2 inscritos;
+      - equipo: 2 partidos, 2 inscritos y 2 goles;
+      - jugador: 1 inscripción y 2 goles;
+      - plantel: 2 goles.
+      - Sin dependencias, el borrado responde 200. Borrar el padre mientras se crea un hijo (8 rondas por tipo) no dio errores 500 ni dejó huérfanos.
+    - **`permite_empate`:**
+      - **Libre:** con partidos programados se puede cambiar.
+      - **Bloqueos:** con un partido en curso, finalizado o cancelado da 409 `DRAW_RULE_LOCKED` sin aplicar el resto del `PATCH`; con una apuesta en un partido programado, también (con los dos motivos a la vez si coinciden).
+      - **Sin bloqueo:** otro deporte no se ve afectado, y cambiar solo el nombre está permitido.
+      - **Módulos:** Informativo no importa Polla (revisé los imports y las consultas).
+      - **Guard:** sin guard no hay error. Un guard o un gancho de auditoría que falla deshace la transacción.
+    - **Escudo, foto y color:**
+      - **Aceptados:** `https://`, rutas relativas con extensión de imagen, 255 caracteres, espacios recortados.
+      - **Rechazados:** `http:`, `javascript:`, `data:`, `ftp:`, `file:`, `..`, `%2f`, `/` inicial, `//`, `\`, `?`, extensión no imagen, `.png.exe`, usuario y clave en la URL, 256 caracteres y vacío.
+      - **Colores:** `#fff`, `#GGGGGG`, `rgb()`, `red`, vacío, `null` y un número dan 400; ` #A1B2C3 ` se guarda como `#a1b2c3`.
+    - **Seguridad:** en las cinco rutas, el anónimo recibe 401 y el apostador validado 403. Sin token, con token ajeno u Origin ajeno se responde 403 `CSRF_FAILED`, sin efectos. El rate limit general corta con 429.
+  - **Otros:**
+    - BR-015 precisado es coherente, y las notas del plan y `server/README.md` están al día.
+    - El mensaje de T-05 para el duplicado dentro del lote quedó corregido.
+    - El server de Docker sirve las rutas nuevas.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Escudo y foto:** aceptan cualquier host `https` (incluidos `localhost` y `169.254.169.254`), URLs sin extensión de imagen, fragmentos con `"><script>` (se guardan tal cual) y SVG en rutas relativas. Hoy no hay riesgo, porque el server nunca descarga esas URLs y React escapa el texto. Pero T-13 no debería descargarlas del lado del servidor sin una lista de hosts permitidos, y el front debería mostrarlas solo con `<img>`.
+  - **Nombres:** se aceptan caracteres de control (`\u0000`) y surrogates sueltos.
+  - **Slugs:** `ß` queda como separador (`Straße` → `stra-e`), y `Ł`, `Æ` y `Ø` desaparecen.
+  - **Concurrencia de borrado:** en las carreras de borrar contra crear, el orden fue siempre el mismo. Las FKs garantizan que no queden huérfanos igual.
+
+## 2026-09-16 — T-07 · Partidos (backend)
+
+- **Cambio:** administración de partidos bajo `/admin/partidos` (BR-011 a BR-014, precisados), más las observaciones del tester en T-06.
+  - **CRUD y estado:** CRUD con zod estricto, más `POST /:id/estado`.
+  - **Alta:**
+    - Crea el partido y sus dos filas de `partido_equipo` (goles NULL) en una transacción, siempre en `programado`.
+    - La fecha es ISO con zona y segundos, se guarda en UTC y tiene que ser futura (400 `MATCH_DATE_IN_PAST`).
+    - Los equipos tienen que ser distintos (400 `SAME_TEAM`) y de la competición (409 `COMPETITION_MISMATCH`).
+  - **Listado:**
+    - Filtros por deporte, competición, equipo, estado y rango desde-hasta.
+    - Orden por proximidad en `lib/match-order.ts`, definido en BR-013: primero los próximos en orden ascendente, después los pasados en orden descendente, y a igual fecha por id.
+    - Cada partido trae `cierreApuestas` (`lib/betting.ts`, 24 h).
+  - **Estados:**
+    - Solo se permiten `programado` → `en_curso` (después del cierre de apuestas) y `en_curso` → `programado` (sin goles).
+    - `finalizado`, `cancelado` y cualquier otro cambio dan 409 `INVALID_STATE_TRANSITION`.
+  - **Edición:**
+    - Un partido finalizado o cancelado da 409 `MATCH_LOCKED`.
+    - Competición, equipos y fecha solo cambian en `programado` (409 `MATCH_NOT_PROGRAMMED`).
+    - Con apuestas no cambian equipos ni competición, y la fecha solo se posterga (409 `MATCH_HAS_BETS`); postergar reabre las apuestas hasta el nuevo cierre (BR-014 precisado).
+    - Con goles, los equipos no cambian.
+  - **Borrado:** solo sin apuestas, sin goles y no finalizado; las dos filas se borran en la misma transacción.
+  - **Bloqueos y módulos:**
+    - La fila del partido queda bloqueada `FOR UPDATE` en toda escritura.
+    - El conteo de apuestas es un `MatchBetsProbe` de Polla, inyectado desde `routes/index.ts`.
+  - **Esquema:** índice nuevo `idx_partido_fecha_hora`.
+  - **Observaciones de T-06 aplicadas:**
+    - Los nombres (y la sede) rechazan caracteres de control y surrogates sueltos.
+    - Los slugs transliteran (ß → ss, æ → ae, œ → oe, ø → o, ł → l, đ/ð → d, þ → th, ı → i, ħ → h).
+    - Hay notas en el plan para T-13, T-18, T-21 y T-22 sobre las URLs de imágenes.
+- **Archivos:**
+  - **Servicios:** `server/src/services/matches.service.ts`, `bets-match-probe.service.ts`, `catalog-query.ts`, `admin-action.ts`.
+  - **Utilidades:** `server/src/lib/match-order.ts`, `betting.ts`, `slug.ts`, `db-errors.ts`, `error-codes.ts`.
+  - **Esquemas:** `server/src/schemas/matches.schema.ts`, `catalog.schema.ts`.
+  - **Rutas:** `server/src/routes/catalog.route.ts`, `admin.route.ts`, `index.ts`.
+  - **Pruebas:** `server/tests/matches.test.ts`, `catalog-names.test.ts`, `helpers/catalog.ts` y ajustes en las pruebas del catálogo.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md` (BR-011 a BR-014), `docs/plan-polla.md` (notas para las tareas siguientes), `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación:**
+  - **Chequeos:** `npm run server:typecheck` sin errores; 469/469 pruebas dos veces seguidas; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos; base creada desde cero (23 tablas) sin errores.
+  - **Pruebas propias (8 casos, dos corridas sin fallos):**
+    - **Observaciones de T-06:**
+      - Rechazados en las cinco entidades de nombre y en la sede, al principio, en medio y al final: NUL, TAB, LF, CR, ESC, DEL, U+0085, surrogate alto o bajo suelto, par invertido y medio emoji. También en `PATCH`.
+      - Aceptados: emojis, ñ y acentos combinados. TAB y LF en los bordes se recortan.
+      - Las 12 transliteraciones dan el slug esperado (`Straße Æ` → `strasse-ae`).
+    - **Alta:**
+      - Las dos filas quedan con local y visita correctos, goles NULL y la competición del partido. La fecha con `-05:00` se guarda en UTC (23:30) y `cierreApuestas` es 24 h antes.
+      - **Fechas rechazadas (400):** sin zona, con espacio, sin segundos, offset `+2:00`, `+25:00` o `+0200`, 30 de febrero, mes 13, hora 24, segundo 60, año 2100 o posterior, timestamp numérico, vacío, `null` y minúsculas.
+      - **Fechas aceptadas:** milisegundos y microsegundos (se truncan al segundo), `+14:00` y 2099-12-31. Las fechas pasadas dan 400 `MATCH_DATE_IN_PAST`.
+      - **Otros rechazos:** `SAME_TEAM`, `COMPETITION_MISMATCH` (visita, local o competición), equipo o competición inexistente (404), jornada 0, 1000, 1.5, `"1"` o −1, sede de 151 caracteres o vacía, `estado` o goles en el body, id en texto y cada campo faltante: todo sin efectos.
+      - **Límites y rollback:** jornada 999 y sede de 150 caracteres se aceptan. Si el gancho falla, la transacción se deshace y no queda ningún partido con menos de dos filas.
+    - **Listado:**
+      - **Orden exacto verificado:** uno en curso a +30 s, dos a +5 h (por id), +10 h, +100 h, y después los pasados de −2 h (dos, por id) y −50 h. Coincide con `compareByProximity` y con BR-013.
+      - **Borde de «ahora»:** con `now` igual a la fecha de un partido, ese partido queda primero entre los próximos; 1 ms después pasa a los pasados.
+      - **Filtros:** combinados funcionan.
+      - **Rango:** `desde` y `hasta` son inclusivos (también con `+00:00`) y un segundo de diferencia deja el partido afuera. El rango invertido da 400 con mensaje.
+      - **Paginación:** correcta.
+      - **Query estricta:** estados inválidos o en mayúsculas, fechas sin zona, parámetros repetidos y desconocidos dan 400.
+      - **Índice:** `EXPLAIN` del rango usa `idx_partido_fecha_hora`.
+    - **Estados:**
+      - `en_curso` a +25 h da 409; a +23 h, 200.
+      - Repetir el mismo estado da 409; `finalizado` y `cancelado` por la API, 409.
+      - `en_curso` → `programado` sin goles da 200 y con goles, 409.
+      - Desde `finalizado` o `cancelado` puestos a mano, las cuatro transiciones dan 409.
+      - Valores inválidos o con campo extra dan 400; un partido inexistente, 404.
+      - **Borde del cierre:** 1 ms antes da 409 y en el cierre exacto se permite. Usa `HORAS_CIERRE_APUESTAS` = 24 de `lib/betting.ts`.
+    - **Edición (sin efectos en cada rechazo):**
+      - **Body:** `{}`, goles, estado o `cierreApuestas` dan 400. Los mismos valores dan 200 sin cambios.
+      - **Equipos y competición:** intercambiar local y visita funciona. Cambiar a un mismo equipo da `SAME_TEAM`, y cambiar solo la competición da `COMPETITION_MISMATCH`. Cambiar competición y equipos juntos reescribe las dos filas con la competición nueva.
+      - **Fecha:** una fecha pasada da 400.
+      - **Con una apuesta a mano:** cambiar equipos, intercambiarlos, cambiar la competición o adelantar la fecha da 409 `MATCH_HAS_BETS`. Postergar da 200, con el cierre recalculado.
+      - **Con goles:** cambiar equipos da `MATCH_HAS_GOALS`; la fecha sí se cambia.
+      - **En curso:** fecha y equipos dan `MATCH_NOT_PROGRAMMED`; sede y jornada se cambian.
+      - **Finalizado o cancelado:** `MATCH_LOCKED`.
+      - Ninguna ruta escribe goles.
+    - **Borrado:**
+      - Con apuesta (también si está cancelado) da `MATCH_HAS_BETS`; con goles, `MATCH_HAS_GOALS`; finalizado, `MATCH_LOCKED`. Todos traen el motivo y las cantidades.
+      - Libre, o cancelado sin apuestas, da 200 y borra las dos filas.
+      - Un gancho que falla deshace la transacción.
+    - **Sin probe:** `deleteMatch` y `updateMatch` con cambio de fecha lanzan `TypeError` antes de escribir, y la transacción se deshace. Un cambio sin fecha ni equipos funciona. En la app el probe es obligatorio por tipos.
+    - **Concurrencia:** 6 rondas de 7 operaciones simultáneas (cambios de equipos, fecha, competición, estado y borrado) sin errores 500. Ningún partido quedó con un número de filas distinto de 2, ni con el mismo equipo de los dos lados o con competiciones distintas. De 10 `PATCH` de fecha paralelos, la fecha final es una de las enviadas.
+    - **Seguridad:** anónimo 401, apostador 403, y sin token, con token ajeno u Origin ajeno 403 `CSRF_FAILED`, sin efectos, incluido `/estado`.
+    - **Módulos:** Informativo (partidos) no importa Polla.
+  - **Documentación:** BR-011 a BR-014 son coherentes entre sí y con BR-028 a BR-032 y BR-045. Las notas del plan y `server/README.md` están al día. El server de Docker sirve `/admin/partidos`.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Apuesta contra adelanto de fecha:** en 5 de 5 carreras, una apuesta insertada a mano mientras se adelantaba la fecha no impidió el adelanto. Es esperable, porque el insert a mano no bloquea el partido. T-10 tiene que bloquear la fila del partido al apostar, como dice su nota.
+  - **Caracteres invisibles:** los nombres aceptan caracteres de formato como U+202E (inversión de texto) y U+200B (espacio de ancho cero).
+  - **Partidos con cierre ya pasado:** se puede crear un partido a menos de 24 h, que nace con las apuestas cerradas.
+  - **Ordenamiento:** el orden por proximidad no usa el índice (hace un sort); el índice sirve para el filtro por rango.
+
+## 2026-09-16 — T-08 · API pública (backend)
+
+- **Cambio:** lecturas públicas sin sesión bajo `/public`, solo del Módulo Informativo (BR-013, BR-014, BR-048 a BR-050; BR-014, BR-049 y BR-050 precisados).
+  - **Rutas:**
+    - `GET /public/deportes`.
+    - `GET /public/competiciones` (paginado, filtro por deporte), `/competiciones/:id`, `/competiciones/:id/equipos` y `/competiciones/:id/posiciones`.
+    - `GET /public/partidos`: fixture paginado con filtros por deporte, competición, equipo, estado, jornada y fechas, en el orden de `lib/match-order.ts`.
+    - `GET /public/partidos/:id` con goles, y `GET /public/equipos/:id` con plantel.
+  - **Goles y marcador:**
+    - Solo se muestran en partidos `finalizado` y con los dos lados cargados; si no, los dos lados son `null` y el detalle trae `goles: null`.
+    - Los cancelados se muestran con su estado.
+  - **Tabla de posiciones:**
+    - Se calcula en cada pedido, 3/1/0 (`lib/standings.ts`), y solo cuenta partidos finalizados con los dos goles.
+    - Los equipos sin partidos aparecen en cero.
+    - Orden: puntos, diferencia, goles a favor, nombre (sin mayúsculas ni acentos) e id.
+  - **Límite y caché:** rate limit público propio (`PUBLIC_RATE_LIMIT_*`) y `Cache-Control: public, max-age=30` en las respuestas exitosas. El resto de la API y todos los errores, incluido cualquier 429, van con `no-store`.
+  - **Parámetros mal codificados:** un `%` mal codificado en la URL da 400 `INVALID_URL_ENCODING` sin log.
+  - **Validación:** la query es estricta, los nombres más estrictos (invisibles y vacíos se rechazan) y hay topes para ventanas, máximos, puertos y pool en la configuración.
+  - **Esquema e índices:** índice nuevo `idx_partido_jornada`. El filtro por deporte se reescribió como `IN` sobre `competicion`, y el de equipo como `IN` sobre `partido_equipo` (también en `/admin/partidos`).
+  - **Documentación:** el mapeo a `src/types` para T-22 está en `server/README.md`, y hay notas en el plan para T-10, T-12, T-13 y T-22 (con los pendientes a, b y c del contrato).
+- **Archivos:**
+  - **Rutas, esquemas y servicios:** `server/src/routes/public.route.ts`, `index.ts`; `server/src/schemas/public.schema.ts`, `catalog.schema.ts`; `server/src/services/public.service.ts`, `matches.service.ts`.
+  - **Utilidades, middleware y configuración:** `server/src/lib/standings.ts`, `error-codes.ts`; `server/src/middleware/security.ts`, `error-handler.ts`; `server/src/app.ts`; `server/src/config/env.ts`.
+  - **Pruebas:** `server/tests/public-api.test.ts`, `url-encoding.test.ts`, `catalog-names.test.ts`, `rate-limit.test.ts` y otras actualizadas.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md`, `docs/plan-polla.md`, `server/README.md`, `.env.example`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers):**
+  - **Parte A, funcional (tester_liga), aprobada en la primera ronda.** Pruebas propias (7 casos, dos corridas sin fallos, en `la_liga_acp_test`):
+    - **Rutas:** las 8 dan formas exactas, fechas ISO en UTC con `Z`, orden por nombre y paginación. Los ids inexistentes dan 404 con `no-store`; los ids inválidos (`abc`, `0`, `01`, `1.5`, 17 dígitos) y la query desconocida dan 400 en todas. Otros métodos dan 404.
+    - **Fixture:**
+      - **Filtros:** cada uno funciona solo y combinado. Jornada 1 y 999 se aceptan; 0, 1000, `01` y repetida dan 400.
+      - **Fechas:** `desde` y `hasta` son inclusivos con `Z`, `+00:00` y `-05:00`; un rango invertido da 400.
+      - **Orden:** exacto, igual al de `/admin/partidos` y al de `compareByProximity` (BR-013).
+      - **Cancelados:** visibles con su estado.
+    - **Goles:** en `programado`, `en_curso` y `cancelado` no aparecen marcador, autores, minutos, imagen ni video por ninguna ruta. En `finalizado` salen ordenados por minuto y luego id, con autor, foto, equipo, imagen y video; sin goles, la lista está vacía.
+    - **Tabla:**
+      - Coincide con un cálculo independiente (7 equipos, resultados pseudoaleatorios, partidos no finalizados ignorados).
+      - Los desempates dirigidos (diferencia, goles a favor, nombre sin mayúsculas ni acentos, id) funcionan.
+      - Una diferencia negativa no desborda.
+      - Un equipo sin partidos queda en cero, otra competición no cuenta y una competición sin equipos da filas vacías.
+    - **Plantel:** ordenado por camiseta, con foto `null` o URL. Un equipo sin plantel da lista vacía, y un jugador de otra competición no se mezcla.
+    - **Privacidad:** con usuarios, saldo, apuestas, sesiones y auditoría en la base, ninguna respuesta contiene esas claves ni valores. La respuesta es idéntica sin sesión, con apostador y con admin, y no envía cookies. Solo aparecen claves esperadas.
+    - **Contrato para T-22:** faltaba decidir la competición de la landing, recorrer el fixture paginado y tratar 400 y 404 como «no encontrado»; quedaron como notas a, b y c del plan.
+    - **Detalle menor:** un finalizado con un solo lado cargado mostraba un marcador parcial.
+  - **Parte B, seguridad, rendimiento, nombres y regresión (tester_liga_2): la primera ronda se reprobó** por dos bloqueantes:
+    - un `%` mal codificado en los parámetros daba 500 y llenaba el log;
+    - el 429 del límite general no llevaba `no-store`.
+  - **Re-test de la parte A (tester_liga), aprobado:**
+    - **Marcador entero o null:** un finalizado con un solo lado cargado (2-null, null-2, 0-null) muestra `null` en los dos lados y en `goles` del detalle, en el fixture con y sin filtros. Ninguna ruta deja ver el lado cargado ni las imágenes de sus goles, y la tabla lo ignora. Con ambos lados (0-0, 2-2, 3-1) salen enteros y cuentan.
+    - **Documentación y regresión:** las notas a, b y c de T-22 están en el plan. La regresión funcional (incluidos el filtro por deporte con `IN` y la jornada con el índice nuevo) no cambió resultados. README y `CLAUDE.md` son coherentes, y `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Re-test de la parte B (tester_liga_2), aprobado:**
+    - **Codificación:** 12 codificaciones malas dan 400 `INVALID_URL_ENCODING` sin log, en rutas públicas y de admin. Solo se trata así el `URIError` del router; otros errores siguen siendo 500 con log.
+    - **Límites y configuración:** todos los 429 llevan `no-store`, y se verificaron los máximos de ventanas, MAX, puertos y pool.
+    - **Nombres:** se rechazan 34 invisibles o vacíos y se aceptan 27 razonables.
+    - **Índices:** jornada usa `idx_partido_jornada`; deporte y los filtros combinados, índices; entre 3 y 17 ms sobre 3800 partidos.
+    - **Suite y build:** 568/568 dos veces en `la_liga_acp_test_2`; build del front OK.
+  - **Estado final:** la base y el server de Docker siguen corriendo; la parte A no usó la base de desarrollo.
+- **Observaciones (no bloquean):**
+  - **README:** atribuye «marcador entero o nada» a BR-049 y BR-050, pero esas reglas no lo dicen explícitamente.
+  - **Caracteres de control literales:** `server/src/cli/read-secret.ts` y su prueba los tienen escritos tal cual. Funcionan, pero conviene escaparlos.
+  - **Banderas con tags:** los emojis de bandera con tags se rechazan en los nombres.
+  - **Invisibles que pasan:** algunos invisibles de categoría Mn y los espacios U+2000 a U+200A todavía se aceptan dentro de nombres con letras.
+  - **Consultas sin índice:** un rango de fechas amplio y el listado de admin filtrado por deporte recorren la tabla (17 ms).
+
+## 2026-09-16 — T-09 · Selecciones y cierre (backend)
+
+- **Cambio:** reglas de las selecciones y del cierre de apuestas, sin crear tickets todavía (BR-014 a BR-021, BR-051, BR-052; BR-049 y BR-050 precisados), más el orden de bloqueo de toda la aplicación.
+  - **Rutas:** todas bajo `/apuestas`, con `requireAuth` y `requireBettor`.
+    - `GET /apuestas/partidos`: paginado, en orden de proximidad. Cada partido trae `apuesta: { estado, cierre, pronosticosAdmitidos }`. Filtros: deporte, competición, fechas y `estadoApuesta`.
+    - `POST /apuestas/vista-previa`: evalúa el ticket sin escribir nada. Devuelve los errores de cada selección, el costo y los saldos actual y posterior. Lleva CSRF y no acepta query.
+  - **Reglas:**
+    - **Tipos y formas:** hay dos tipos, resultado general y marcador exacto. Una forma que no corresponde al tipo da 400.
+    - **Empate:** solo en deportes que lo admiten; un marcador exacto empatado cuenta como empate.
+    - **Cierre:** `fechaHora − 24 h`, y solo en partidos `programado`. `BETTING_CLOSED` lleva el mensaje sin fecha y un campo `cierre` aparte.
+    - **Costo y saldo:** 1 moneda por selección; el saldo tiene que cubrir el costo total.
+    - **Límites:** hasta 50 selecciones y hasta 999 goles por lado.
+    - **Repetidas:** se permiten y se marcan con `repiteA`.
+  - **Para T-10:** `evaluateTicketInTransaction` hace las mismas comprobaciones con las filas bloqueadas y rechaza la promesa si la conexión no viene de `withTransaction`.
+  - **Orden de bloqueo:**
+    - Cada tabla se bloquea con su propia sentencia por PRIMARY, por id ascendente, en este orden: usuario → partido → plantel → equipo → jugador → competición → deporte.
+    - Lo que decide una regla se lee con una lectura con bloqueo.
+    - Está documentado en `server/README.md` y se aplicó también a `checkTeams`, las monedas y el plantel.
+  - **Reintento:**
+    - `withTransaction` reintenta un deadlock (1213) hasta 3 veces.
+    - Si persiste, o ante un 1205, responde 409 `CONCURRENT_UPDATE`, nunca 500.
+  - **Paso 0:**
+    - `server/src/cli/read-secret.ts` y su prueba usan escapes en vez de caracteres de control literales.
+    - BR-049 y BR-050 comparten la regla del marcador completo.
+    - `docs/pendientes.md` tiene una sección Backend con las observaciones de T-08.
+- **Archivos:**
+  - **Rutas, controladores, esquemas y servicios:** `server/src/routes/betting.route.ts`, `index.ts`; `server/src/controllers/betting.controller.ts`; `server/src/schemas/betting.schema.ts`; `server/src/services/betting.service.ts`, `public.service.ts`, `matches.service.ts`, `enrollments.service.ts`, `coins.service.ts`.
+  - **Base y utilidades:** `server/src/db/transaction.ts`; `server/src/lib/betting.ts`, `db-errors.ts`, `error-codes.ts`; `server/src/cli/read-secret.ts`.
+  - **Pruebas:** `server/tests/betting.test.ts`, `transaction-retry.test.ts`, `concurrency-stress.test.ts`, `helpers/locks.ts`, `read-secret.test.ts`, y ajustes en `public-api.test.ts`, `catalog-sports.test.ts` y `env.test.ts`.
+  - **Documentación:** `docs/business-rules.md`, `docs/plan-polla.md` (nota para T-10), `docs/pendientes.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers):**
+  - **Parte A, reglas de negocio (tester_liga), aprobada en la primera ronda:**
+    - **Tipos:** los dos tipos se aceptan, y 40 formas inválidas dan 400.
+    - **Empate:** depende del deporte, tanto en resultado general como en marcador exacto.
+    - **Cierre:** los bordes, probados con `now` inyectado, dan cerrado en el instante exacto y abierto un instante antes.
+    - **Estados:** solo `programado` antes del cierre recibe selecciones; en curso, finalizado y cancelado dan `MATCH_NOT_PROGRAMMED`.
+    - **Repetidas:** se aceptan y se marcan con `repiteA`.
+    - **Costo y saldo:** correctos, incluido el saldo insuficiente. 50 selecciones se aceptan y 51 dan 400.
+    - **Errores por selección:** todos a la vez, con `valida: false`.
+    - **Listado:** los 5 estados de apuesta, los filtros y el orden por proximidad.
+    - **Sin escrituras:** la vista previa no escribe nada.
+  - **Parte B, seguridad, bloqueos, concurrencia y rendimiento (tester_liga_2): la primera ronda se reprobó** por un deadlock reproducible entre `evaluateTicketInTransaction` y `changeMatchState`.
+    - **Síntoma:** 6 deadlocks en 8 rondas de estrés, en 3 corridas.
+    - **Causa:** la consulta con bloqueo usaba un JOIN sin plan fijo. Con ciertas estadísticas entraba por `estado_partido` y tomaba next-key locks en `fk_partido_estado` (53 bloqueos más el supremum para un ticket de 3 partidos), que chocaban con el `UPDATE` de estado.
+    - **Efecto:** el error 1213 llegaba como 500.
+    - **Lo demás ya pasaba:**
+      - **Autorización y CSRF:** correctos.
+      - **Validación:** 37 cuerpos y 19 queries inválidos dan 400.
+      - **Sin efectos:** 120 vistas previas en paralelo no escribieron nada.
+      - **Bloqueos:** en los dos órdenes, contra T-07 y contra `permite_empate`, el segundo espera y se evalúa con los datos bloqueados.
+      - **Rendimiento:** correcto.
+    - **Corrección:**
+      - Los bloqueos se toman por PRIMARY en el orden fijo, y el reintento cubre 1213 y 1205.
+      - Pruebas nuevas: `transaction-retry` (deadlock simulado y real), `data_locks` (solo bloqueos de registro en PRIMARY) y `concurrency-stress` (25 rondas; con el plan viejo forzado detecta de 10 a 19 deadlocks, y con el nuevo ninguno).
+      - Además, el rechazo de `evaluateTicketInTransaction` pasó a ser por promesa.
+  - **Re-test de la parte A (tester_liga), aprobado:** el campo `cierre` de `BETTING_CLOSED` es igual a `fechaHora − 24 h`, y BR-049 tiene la regla del marcador en una sola viñeta. La regresión de reglas no cambió resultados.
+  - **Re-test de la parte B (tester_liga_2), aprobado:**
+    - **Estrés:** 48 rondas en 5 corridas, con estadísticas distintas (sin `ANALYZE`, con `ANALYZE`, con 60 partidos finalizados, en curso o cancelados, con `STATS_PERSISTENT=0`, y una corrida más).
+      - En cada ronda corrieron 3 tickets junto con postergar, adelantar, pasar a `en_curso` y volver, renombrar un deporte y alternar `permite_empate`.
+      - Resultado: 0 deadlocks, reintentos, `CONCURRENT_UPDATE` y 500, y ningún deadlock nuevo en `SHOW ENGINE INNODB STATUS`.
+      - Durante un ticket, `performance_schema.data_locks` muestra solo bloqueos de registro en PRIMARY: usuario X; partido, competición y deporte S.
+    - **Combinaciones (0 deadlocks y 0 reintentos):**
+      - validar un usuario contra 4 tickets suyos;
+      - ticket contra devolución y otro ticket del mismo usuario (el saldo coincide con los movimientos);
+      - inscripciones y cambio de camiseta contra borrar el equipo;
+      - crear partido contra mover o borrar la competición, mover el equipo y `permite_empate`;
+      - `permite_empate`, borrar partido y renombrar competición contra tickets.
+    - **Reintento:**
+      - Con un deadlock real en el primer intento, la transacción corre 2 veces y queda un solo ticket, un solo débito y saldo 9.
+      - Con un deadlock persistente hace 3 intentos, no deja la fila insertada y responde 409 `CONCURRENT_UPDATE` con `no-store`, un aviso y sin log de error.
+      - Un 1205 da 409 sin reintento, y `ER_DUP_ENTRY` tampoco se reintenta.
+    - **Menores:** el rechazo es por promesa, y los demás errores por selección traen solo `code` y `message`.
+    - **Rendimiento** (3800 partidos, entorno más cargado que en la primera ronda):
+      - vista previa de 50 selecciones en 6 a 8 ms (31 a 36 ms por HTTP);
+      - evaluación dentro de la transacción en 15 a 20 ms;
+      - listados filtrados en 6 a 28 ms.
+    - **Chequeos:** `npm run server:typecheck` sin errores; 623/623 pruebas dos veces en `la_liga_acp_test_2`; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Id inexistente:** con un `partidoId` que no existe, el ticket toma un gap lock S sobre el supremum de `partido.PRIMARY`, y `createMatch` espera mientras dura el ticket. No hubo deadlocks. El README dice que no hay bloqueos de hueco.
+  - **Hooks en el reintento:** los hooks de `runAdminAction` se repiten en cada intento y sus cambios se deshacen. La auditoría de T-17 debe escribir solo en la base.
+  - **BR-049:** ya no dice explícitamente que, con un solo lado cargado, tampoco se muestran los goles.
+
+## 2026-09-16 — T-10 · Confirmación del ticket (backend)
+
+- **Cambio:** confirmación del ticket y comprobante (BR-019, BR-022 a BR-025, BR-053 y BR-054, precisados), con idempotencia por clave del cliente (EsquemaBD D20).
+  - **Confirmación (`POST /apuestas/tickets`):**
+    - Lleva `requireBettor`, CSRF y el header `Idempotency-Key` con un UUID. Corre en una transacción `READ COMMITTED`.
+    - **Pasos:** bloquea al usuario, busca la clave, evalúa las selecciones con `evaluateTicketInTransaction`, crea el ticket y sus selecciones (`pendiente`, sin puntos) y debita una moneda por selección con `debitSelections`.
+    - **Si algo no es válido:** 409 `TICKET_REJECTED`, con la evaluación completa en `details` (la misma forma que la vista previa), y sin escrituras.
+    - **Respuestas:** 201 con `Location`; la repetición de la misma confirmación da 200 con `Idempotent-Replayed: true`. CORS expone esas dos cabeceras.
+  - **Comprobante (`GET /apuestas/tickets/:id`):**
+    - Trae id, usuario, fecha UTC, estado, cantidad de selecciones, monedas utilizadas y devueltas, y puntos. Cada selección lleva su partido, tipo, pronóstico, estado, costo y puntos.
+    - Un ticket ajeno, pedido por un admin o inexistente da el mismo 404 `TICKET_NOT_FOUND`.
+    - El estado del ticket se calcula: `pendiente` si queda alguna selección pendiente, `anulado` si todas están anuladas y `finalizado` en otro caso.
+  - **Idempotencia:**
+    - `ticket` tiene dos columnas nuevas, `clave_idempotencia` y `huella_solicitud`, con `UNIQUE(usuario_id, clave_idempotencia)` y CHECKs de formato.
+    - **Misma clave:** con el mismo cuerpo devuelve el mismo ticket; con otro, da 409 `IDEMPOTENCY_KEY_REUSED`.
+    - **Clave inválida:** 400 `IDEMPOTENCY_KEY_INVALID`.
+    - La clave dura lo que el ticket. Un intento rechazado no guarda nada, así que su clave queda libre.
+  - **Paso 0:**
+    - BR-049 dice explícitamente que, con un solo lado cargado, tampoco se muestran los goles.
+    - Los ids de partido inexistentes se descartan antes de bloquear, así un id que no existe ya no toma un gap lock que haga esperar a `createMatch`.
+    - Hay una nota en T-17: el reintento de `withTransaction` también repite los `hooks.inTransaction`.
+- **Archivos:**
+  - **Servicios y rutas:** `server/src/services/tickets.service.ts`, `betting.service.ts`; `server/src/controllers/betting.controller.ts`; `server/src/routes/betting.route.ts`; `server/src/schemas/betting.schema.ts`.
+  - **Utilidades y middleware:** `server/src/lib/betting.ts`, `db-errors.ts`, `error-codes.ts`; `server/src/middleware/security.ts`.
+  - **Pruebas:** `server/tests/tickets.test.ts` y ajustes en `betting.test.ts`, `concurrency-stress.test.ts`, `catalog-access.test.ts`, `helpers/catalog.ts` y `helpers/participants.ts`.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md` (D20), `docs/business-rules.md`, `docs/plan-polla.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; las dos partes se aprobaron en la primera ronda):**
+  - **Parte A, reglas de negocio e idempotencia (tester_liga):** pruebas propias (5 casos, dos corridas sin fallos, en `la_liga_acp_test`):
+    - **Ticket válido:**
+      - Con 6 selecciones (mismo partido, contradictorias, repetidas, dos deportes, marcador exacto) da 201 con `Location` y los campos de BR-025. La fecha es UTC al segundo, las selecciones traen el partido público y puntos `null`.
+      - En la base: selecciones `pendiente` con puntos NULL y un débito de −1 por selección con su `seleccion_id`; el saldo baja en N y es igual a la suma de los movimientos.
+      - Dos tickets idénticos con claves distintas son dos tickets. El `GET` devuelve lo mismo que la creación.
+    - **Rechazo total:**
+      - Dan 409 `TICKET_REJECTED`, con `details` idéntico a la vista previa y sin ticket, selecciones, débitos ni cambio de saldo: partido cerrado, empate o marcador empatado prohibidos, partido inexistente, en curso, finalizado o cancelado, y saldo insuficiente.
+      - El saldo exacto pasa y queda en 0.
+      - 50 selecciones se aceptan; 51, lista vacía, goles inválidos, campos extra y query dan 400 sin escrituras.
+    - **Idempotencia:**
+      - **Repetición:** la misma clave y el mismo cuerpo dan 200 con `Idempotent-Replayed` y el mismo ticket, sin escribir, también con saldo 0 y con el partido ya cerrado.
+      - **Qué es la misma clave y el mismo cuerpo:** en mayúsculas o con espacios alrededor, la clave es la misma. Un JSON con los campos reordenados y espacios tiene la misma huella. Otro orden de selecciones es otra huella y da 409 `IDEMPOTENCY_KEY_REUSED`; es razonable, porque el orden define los índices.
+      - **Rechazos:** otro cuerpo da 409 con `details.ticketId`. Clave faltante, vacía, sin guiones, con llaves, dos claves, nil o no hexadecimal dan 400 `IDEMPOTENCY_KEY_INVALID` (se valida antes que el cuerpo). Un UUID v1 se acepta.
+      - **Otro usuario:** con la misma clave no choca.
+      - **Clave de un intento rechazado:** se puede reutilizar (con el mismo cuerpo o con otro), coherente con BR-054 y D20.
+      - **Concurrencia:** 6 confirmaciones paralelas con la misma clave dan un 201 y cinco 200, con un solo ticket y un solo débito.
+      - **Base:** el CHECK rechaza claves en mayúsculas.
+    - **Comprobante:**
+      - Ajeno, admin, apostador pendiente e inexistente reciben el mismo 404. El anónimo recibe 401; ids inválidos y query, 400.
+      - No expone clave, huella, saldo ni correo. `PUT`, `PATCH` y `DELETE` dan 404.
+      - Confirmar como pendiente, como admin o sin CSRF se rechaza sin escrituras.
+    - **Estado del ticket (estados forzados a mano):**
+      - `pendiente` con alguna pendiente.
+      - `finalizado` con todas acertadas, con mezcla, con todas no acertadas y con anuladas mezcladas con liquidadas.
+      - `anulado` con todas anuladas.
+      - Los puntos son la suma; las monedas devueltas, las anuladas. El resultado real aparece solo con el partido finalizado y el marcador completo.
+    - **Documentación:** BR-049 es explícito. BR-023 a BR-025, BR-053, BR-054, D20, `01-schema.sql` y el README son coherentes, y `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Parte B, concurrencia, aislamiento, seguridad, rendimiento y regresión (tester_liga_2):**
+    - **Aislamiento:** `READ COMMITTED` es correcto: el usuario se bloquea `FOR UPDATE` antes de buscar la clave, las decisiones se toman sobre filas bloqueadas, la UNIQUE queda de respaldo y no hay decisiones por rango.
+    - **Concurrencia por HTTP (0 errores 500, 0 deadlocks, todas las invariantes de monedas y selecciones en 0):**
+      - 25 `POST` con saldo 10 dejan pasar 10.
+      - 20 con la misma clave dan 1 ticket y 1 cobro. Se probó también la misma clave con cuerpos distintos.
+      - 20 rondas de tickets contra postergar, adelantar, pasar a `en_curso`, cambiar `permite_empate` y borrar el partido; también contra validar al usuario y contra una devolución doble.
+    - **Reintento:** no duplica, y la clave queda libre tras `CONCURRENT_UPDATE`. `createMatch` ya no espera por ids inexistentes.
+    - **Seguridad:** 12 claves raras rechazadas. El 404 es idéntico en cuerpo, cabeceras, largo y tiempo.
+    - **Rendimiento:**
+      - la búsqueda por clave es de tipo `const`;
+      - confirmar 1 selección tarda de 79 a 91 ms y 50 selecciones, de 266 a 307 ms;
+      - un replay, 13 ms.
+    - **Regresión:** 660/660 pruebas dos veces en `la_liga_acp_test_2`. El esquema es igual en el SQL, en `EsquemaBD.md` y en la base.
+  - **Limpieza:** la base y el server de Docker siguen corriendo; la parte A no usó la base de desarrollo.
+- **Observaciones (no bloquean):**
+  - **Gap lock residual (documentado):** si un partido se borra entre la lectura de existencia y el bloqueo, todavía puede tomarse un gap lock.
+  - **Cantidad de sentencias:** confirmar hace unas 30 sentencias para 1 selección y 130 para 50, porque inserta fila por fila. Se podría agrupar con un INSERT de varias filas si hiciera falta.
+  - **Cabeceras grandes:** una cabecera de 20 KB da el 431 de Node.
+
+## 2026-09-16 — T-11 · Mis apuestas (backend)
+
+- **Cambio:** historial de apuestas del participante (BR-026, BR-027; BR-042 precisado).
+  - **Rutas (`requireParticipant`):**
+    - `GET /apuestas/mis-apuestas`: una fila por selección, con los datos de su ticket, del ticket más reciente al más antiguo y, dentro de cada ticket, en el orden en que se hicieron las selecciones.
+      - Cada fila trae el partido, `resultadoReal`, el tipo, el pronóstico, el estado, el costo, los puntos y los totales del ticket completo.
+      - Filtros estrictos: `estado`, `estadoTicket`, `ticketId`, `partidoId`, `deporteId`, `competicionId`, `desde` y `hasta`.
+    - `GET /apuestas/mis-apuestas/resumen`: tickets por estado, selecciones por estado, monedas utilizadas y devueltas, puntos y aciertos. No acepta query.
+    - Un pendiente ve listas vacías y el resumen en ceros; un admin recibe 403 `NOT_A_PARTICIPANT`.
+  - **Consulta en dos pasos:**
+    - Primero se eligen los ids de la página, solo con `ticket` y `seleccion`.
+    - Después se leen esas filas con su partido y los totales, en una sola sentencia.
+    - Con 3000 selecciones, la página bajó de 190 a 28 ms.
+  - **Índices nuevos:**
+    - `idx_ticket_usuario_fecha (usuario_id, creado_en, id)`;
+    - `idx_seleccion_ticket_estado (ticket_id, estado_seleccion_id, puntos_obtenidos)`, que cubre el cálculo de los totales y reemplaza al índice de la FK a `ticket`.
+    - Con ellos, la página tarda 16 ms.
+  - **Paso 0:** nota en `docs/pendientes.md` sobre la cantidad de sentencias al confirmar un ticket.
+- **Archivos:**
+  - **Servicios y rutas:** `server/src/services/bet-history.service.ts`, `tickets.service.ts`, `catalog-query.ts`; `server/src/controllers/betting.controller.ts`; `server/src/routes/betting.route.ts`; `server/src/schemas/betting.schema.ts`; `server/src/lib/betting.ts`.
+  - **Pruebas:** `server/tests/bet-history.test.ts` y ajustes en `tickets.test.ts`.
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md` (BR-042), `docs/plan-polla.md` (notas para T-15 y T-20), `docs/pendientes.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; las dos partes se aprobaron en la primera ronda):**
+  - **Parte A, funcional (tester_liga):**
+    - **Escenario:** 2 apostadores, 5 tickets y 4 partidos: uno finalizado 2-2, uno con un solo lado cargado, uno en curso con goles y uno cancelado con goles.
+    - **Filas:** las 8 tienen valores exactos. `resultadoReal` aparece solo con el partido finalizado y el marcador completo.
+    - **Orden y paginación:** el orden es estable, y la paginación da lo mismo con tamaños 1, 2, 3 y 5.
+    - **Filtros:** funcionan solos y combinados; un ticket ajeno da una lista vacía, y 19 queries inválidas dan 400.
+    - **Totales:** los del ticket son los del ticket completo aunque el filtro oculte filas.
+    - **Resumen:** exacto y coherente con la lista, los comprobantes y los débitos.
+    - **Estado del ticket:** coincide en las 64 combinaciones de 3 selecciones.
+    - **Otros:** el comprobante incluye `resultadoReal`; los casos de pendiente y admin se comportan como se espera; BR-026 y BR-042 son coherentes.
+  - **Parte B, privacidad, seguridad, rendimiento, índices y regresión (tester_liga_2):**
+    - **Privacidad:**
+      - Con dos usuarios con tickets, 14 filtros cruzados (tickets y partidos ajenos, inexistentes o compartidos, deporte, competición, estado del ticket y combinaciones) no dejan ver datos ajenos.
+      - Un `ticketId` ajeno responde idéntico a uno inexistente.
+      - Ninguna respuesta contiene email, saldo, clave de idempotencia, huella ni `usuarioId`.
+    - **Seguridad:**
+      - En la lista y en el resumen: anónimo 401, pendiente 200 vacío, admin 403 `NOT_A_PARTICIPANT` (también con validado forzado) y cookie basura 401.
+      - 30 queries inválidas dan 400, sin texto del driver: parámetros desconocidos, repetidos o en mayúsculas, ids gigantes o mal formados, `%` mal codificado, fechas sin zona, rango invertido y páginas fuera de tope.
+      - Todo va con `no-store`, sin 500 ni errores en el log.
+    - **Rendimiento** (12 000 tickets y 36 000 selecciones, con un usuario de 2000 tickets):
+      - Como máximo 3 sentencias por página, sin N+1.
+      - Se usan los índices nuevos, sin recorrer `ticket` ni `seleccion` completas.
+      - Tiempos: de 2 a 39 ms según el filtro, 15 ms el resumen y unos 22 ms por HTTP.
+    - **Índices:** coinciden en `01-schema.sql`, `EsquemaBD.md` y las bases de desarrollo y de pruebas, sin duplicados.
+    - **Concurrencia:** 104 lecturas de la lista y del resumen mientras se confirmaban tickets y se cambiaban estados a mano, sin errores. Dentro de cada respuesta de la lista, los totales de cada ticket coinciden con sus filas.
+    - **Chequeos:**
+      - `npm run server:typecheck` sin errores; build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos.
+      - Suite en `la_liga_acp_test_2`: una corrida dio 685/686 por un timeout transitorio de conexión en `public-api.test.ts`; las otras dos dieron 686/686, incluido el estrés.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Resumen:** sale de dos sentencias y, con cambios concurrentes, puede quedar incoherente consigo mismo. En 12 de 104 lecturas, `monedasDevueltas` no coincidía con `selecciones.anulada`. Se resolvería con una sola sentencia o una transacción de solo lectura con foto consistente.
+  - **Lista en dos pasos:** si un estado cambia entre los pasos, una fila puede salir con un estado que ya no cumple el filtro, o el total puede diferir de la página. Es menor.
+  - **Filtros por partido, competición y deporte:** recorren las selecciones de todos los usuarios en esos partidos antes de filtrar por usuario. Hoy tardan de 4 a 35 ms, pero crecen con el total de apuestas de esos partidos.
+  - **Índice:** la columna `id` al final de `idx_ticket_usuario_fecha` es redundante, porque InnoDB ya la incluye.
+  - **Timeout transitorio:** `public-api.test.ts` superó el tiempo límite una vez con el entorno cargado (`connect ETIMEDOUT`).
+
+## 2026-09-16 — T-12 · Registro de resultados (backend)
+
+- **Cambio:** carga, vista previa y confirmación del resultado oficial (BR-028 a BR-032, precisados), con la liquidación de apuestas inyectada desde Polla.
+  - **Rutas:** bajo `/admin/partidos/:id/resultado`, con sesión de admin, CSRF en las escrituras y sin query.
+    - `GET`: vista previa sin efectos ni bloqueos.
+    - `PUT { golesLocal, golesVisitante }`: carga o corrige.
+    - `POST /confirmar { confirmar: true, golesLocal, golesVisitante }`: confirmación definitiva.
+  - **Carga:**
+    - Se permite en `en_curso`, o en `programado` con la fecha ya pasada (al cargar pasa a `en_curso`), sin plazo máximo.
+    - Se rechaza en `programado` antes de su fecha (409 `RESULT_NOT_ALLOWED_YET`), en `finalizado` (409 `RESULT_ALREADY_CONFIRMED`) y en `cancelado` (409 `MATCH_LOCKED`).
+    - Los dos lados van juntos, de 0 a 999. El resultado cargado no es público hasta confirmar.
+  - **Confirmación:**
+    - Bloquea el partido, la competición y el deporte.
+    - Exige los dos lados (409 `RESULT_INCOMPLETE`) y que el marcador sea el que vio el admin (409 `RESULT_CHANGED`). Rechaza el empate en un deporte sin empate (409 `DRAW_NOT_ALLOWED`).
+    - Pasa el partido a `finalizado` y llama una sola vez al `MatchSettler` de Polla (`settleMatchBets`, vacío hasta T-14) en la misma transacción. Si algo falla, se deshace todo.
+  - **Inmutabilidad:**
+    - Después de confirmar, toda escritura sobre el partido da 409.
+    - Con un resultado cargado, T-07 ya no deja volver a `programado` ni borrar (409 `MATCH_HAS_RESULT`).
+  - **Resultado derivado:** solo en `lib/match-result.ts` (`resultOfScore`, `officialResult`). La API pública suma el campo `resultado`, y el comprobante y el historial lo usan en `resultadoReal`.
+  - **Auditoría y notas:** la auditoría pasa por `runAdminAction` (`registrar_resultado`, `confirmar_resultado`), y hay notas en el plan para T-13, T-14 y T-17.
+  - **Paso 0:** «Mis apuestas» lee dentro de una instantánea de solo lectura (`withReadSnapshot`), así el conteo y la página son coherentes entre sí.
+  - Sin cambios de esquema.
+- **Archivos:**
+  - **Servicios:** `server/src/services/results.service.ts`, `bets-settlement.service.ts`, `bets-match-probe.service.ts`, `matches.service.ts`, `public.service.ts`, `admin-action.ts`, `bet-history.service.ts`.
+  - **Utilidades, base, rutas y esquemas:** `server/src/lib/match-result.ts`, `betting.ts`, `error-codes.ts`; `server/src/db/transaction.ts`; `server/src/routes/catalog.route.ts`, `index.ts`; `server/src/schemas/matches.schema.ts`.
+  - **Pruebas:** `server/tests/results.test.ts` y ajustes en `public-api.test.ts` y otras.
+  - **Documentación:** `docs/business-rules.md` (BR-028 a BR-032), `docs/plan-polla.md` (notas para T-13, T-14 y T-17), `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; las dos partes se aprobaron en la primera ronda):**
+  - **Parte A, reglas del resultado (tester_liga):** pruebas propias (5 casos, dos corridas sin fallos, en `la_liga_acp_test`).
+    - **Carga:**
+      - **Aceptada:** en `en_curso`, y en `programado` con fecha pasada (también de 2020), que pasa a `en_curso`.
+      - **Rechazada:** `programado` futuro 409, `finalizado` 409, `cancelado` 409, inexistente 404. También negativos, decimales, texto, 1000, un solo lado, `null`, campos extra y query dan 400.
+      - **Correcciones y límites:** 999 se acepta y cuatro correcciones seguidas funcionan.
+      - **Borde de la fecha (con `now` inyectado):** 1 ms antes se rechaza, la fecha exacta se permite.
+    - **Resultado derivado:** `local_gana`, `empate` y `visitante_gana` coinciden en la vista previa, la API pública (solo finalizado), el comprobante y «Mis apuestas».
+    - **Vista previa:**
+      - **Contenido:** competición, deporte, marcador, resultado y ganador (`null` en empate), más los goles insertados a mano por minuto con su autor y la advertencia de definitivo.
+      - **`seleccionesPendientes`:** exactamente 3, de dos usuarios; no cuenta anuladas, acertadas ni selecciones de otro partido.
+      - **Confirmabilidad:** `puedeConfirmar` y `problemas`.
+      - **Sin efectos** y sin datos de usuarios.
+    - **Rechazos de la confirmación (todos sin efectos):**
+      - sin `confirmar: true` (o con `false`, texto o 1), sin marcador visto, con campos extra o con query: 400;
+      - marcador visto distinto: 409 `RESULT_CHANGED`;
+      - sin marcador, o con un solo lado cargado a mano: 409 `RESULT_INCOMPLETE`;
+      - empate en básquet: 409 `DRAW_NOT_ALLOWED`. Se puede cargar pero no confirmar; con 81-80 confirma.
+    - **Confirmación correcta:** el partido queda `finalizado`, el marcador y el resultado son públicos, la tabla lo cuenta y las selecciones siguen `pendiente`.
+    - **Settler:**
+      - Se llama una sola vez, con id, competición, goles y resultado, con el partido ya `finalizado` dentro de la transacción.
+      - Si falla (incluso después de escribir), o si falla el hook de auditoría, todo se deshace.
+      - Un segundo intento de confirmar no lo llama.
+    - **Inmutabilidad:**
+      - **Después de confirmar, todo 409 sin efectos:**
+        - `PUT` (igual o distinto) y confirmar otra vez;
+        - `PATCH` de sede, jornada, fecha, equipos o con los mismos valores;
+        - los cuatro cambios de estado y `DELETE`;
+        - `permite_empate` del deporte y borrar el equipo o la competición.
+      - **Vista previa:** sigue en 200 con `RESULT_ALREADY_CONFIRMED`.
+      - **Con resultado cargado sin confirmar** (también 0-0 o un solo lado a mano): no vuelve a `programado` ni se borra. La sede sigue editable.
+    - **En curso con goles:** la API pública, el fixture, «Mis apuestas» y la tabla no muestran marcador, resultado ni goleadores.
+    - **Acceso:** anónimo 401, apostador 403; sin CSRF, 403.
+    - **Documentación:** BR-028 a BR-032, las notas del plan, el README y `CLAUDE.md` son coherentes, y `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Parte B, concurrencia, seguridad, paso 0, rendimiento y regresión (tester_liga_2):**
+    - **Paso 0:** 202 lecturas concurrentes y 0 incoherencias (en T-11 fueron 12 de 104). `withReadSnapshot` es de solo lectura, no bloquea y deja el pool sano.
+    - **Concurrencia del resultado:**
+      - Se probó confirmar contra confirmar, contra `PUT`, contra tickets, contra `permite_empate` y contra T-07.
+      - Resultado: 0 errores 500 y 0 deadlocks. Nunca se confirmó un marcador distinto del visto ni un empate en un deporte sin empate.
+      - `data_locks` muestra solo `REC_NOT_GAP` en PRIMARY.
+    - **Settler:** se deshace si falla; una espera de 700 ms no produce deadlock, y la repetición con reintento se deshace.
+    - **Módulos:** Informativo no importa Polla.
+    - **Seguridad:** 16 cuerpos inválidos, CSRF, ids y `%` mal codificado.
+    - **Rendimiento con 70000 selecciones:** vista previa en 17 ms y confirmación en 16 ms.
+    - **Regresión:** 730/730 pruebas dos veces en `la_liga_acp_test_2`.
+  - **Limpieza:** la base y el server de Docker siguen corriendo; la parte A no usó la base de desarrollo.
+- **Observaciones (no bloquean):**
+  - **Carga antes de la fecha:** un partido `en_curso` con fecha futura (T-07 permite `en_curso` después del cierre de 24 h) acepta la carga del resultado, contra lo que dice BR-028 («nunca antes de la fecha del partido»).
+  - **Paso automático a `en_curso`:** BR-028 y BR-012 no mencionan que cargar el resultado en un partido `programado` con fecha pasada lo pasa a `en_curso`; solo lo dice el README.
+  - **Índice:** un índice compuesto `seleccion (partido_id, estado_seleccion_id)` evitaría el `index_merge` del conteo de pendientes y serviría a T-14.
+  - **Vista previa durante la confirmación:** puede mostrar `en_curso` un instante antes de que el partido quede `finalizado`.
+  - **Reintentos:** el settler se repite en cada reintento de la transacción (documentado).
+
+## 2026-09-16 — T-13 · Autores de goles y multimedia (backend)
+
+- **Cambio:** goles con autor, equipo y minuto, e imágenes y videos del gol y del partido (BR-001, BR-033). Además, el estado efectivo automático del partido (BR-012 precisado, EsquemaBD D21).
+  - **Estado efectivo (paso 0):**
+    - Un partido `programado` cuya `fecha_hora` ya pasó se trata como `en_curso`, y dura 60 minutos. Nada escribe la columna en ese momento.
+    - Se aplica igual en la API pública, los filtros, el orden, las apuestas, «Mis apuestas» y el admin (`lib/match-state.ts`).
+    - T-07 ya no tiene cambios de estado manuales (`POST /estado` da 404).
+    - El resultado se carga desde la hora del partido y se confirma desde los 60 minutos (409 `MATCH_NOT_ENDED`).
+  - **Goles (`/admin/partidos/:id/goles`):**
+    - CRUD con jugador inscrito en el equipo (`PLAYER_NOT_IN_TEAM`), equipo del partido (`TEAM_NOT_IN_MATCH`) y minuto de 1 a 120.
+    - Los goles no pueden superar el marcador (`GOALS_EXCEED_SCORE`), y el marcador no puede quedar por debajo de los goles registrados (`SCORE_BELOW_GOALS`).
+    - Después de confirmar, los goles quedan bloqueados.
+  - **Imágenes:**
+    - Se suben por multipart, en el campo `imagen`, al gol (`PUT .../goles/:golId/imagen`) o al partido (`POST .../multimedia/imagenes`, hasta 20).
+    - El tipo se decide por los magic bytes; solo se aceptan JPEG, PNG, WebP y GIF, nunca SVG.
+    - Límites: 5 MB (413) y un máximo de píxeles de entrada (`UPLOAD_MAX_PIXELS`).
+    - Se reprocesan con sharp a WebP, sin metadatos, con 1600 px por lado como máximo y un nombre aleatorio de 32 hex.
+    - Tienen su propio rate limit de subida.
+    - Se guardan en el volumen `uploads-data`. Los archivos nunca se tocan dentro de la transacción: se guardan antes, se borran si la transacción falla, y el archivo viejo se borra después del commit.
+  - **Servido:**
+    - `/admin/archivos/:nombre` y `/public/archivos/:nombre`, siempre como `image/webp`, con `nosniff` y CSP con sandbox.
+    - La ruta pública solo sirve imágenes de partidos con resultado oficial, con `public, max-age=86400`.
+    - Una fila sin archivo da 404 `FILE_NOT_FOUND`.
+  - **Videos:**
+    - Solo enlaces `https` de YouTube y Vimeo, normalizados a una URL canónica, con su `embedUrl` (`lib/video-links.ts`). Hasta 10 por partido, sin repetidos.
+    - El servidor nunca los descarga.
+  - **Después de confirmar:** se puede agregar y quitar multimedia; los goles no.
+  - **Esquema:**
+    - `gol` tiene CHECKs de minuto, imagen y video, y `UNIQUE(imagen)`.
+    - Tabla nueva `multimedia_partido`.
+  - **Despliegue:** `compose.yaml` tiene el volumen y las variables `UPLOADS_DIR`, `UPLOAD_MAX_BYTES`, `UPLOAD_MAX_PIXELS` y `UPLOAD_RATE_LIMIT_*`, validadas en `env.ts` y documentadas en `.env.example`. El server se reconstruyó con sharp y multer.
+- **Archivos:**
+  - **Servicios:** `server/src/services/goals.service.ts`, `match-media.service.ts`, `media-storage.ts`, `matches.service.ts`, `results.service.ts`, `public.service.ts`, `sports.service.ts`, `admin-action.ts`.
+  - **Controladores, rutas, middleware y esquemas:** `server/src/controllers/media.controller.ts`; `server/src/routes/catalog.route.ts`, `admin.route.ts`, `public.route.ts`, `index.ts`; `server/src/middleware/upload.ts`, `security.ts`; `server/src/schemas/goals.schema.ts`.
+  - **Utilidades y configuración:** `server/src/lib/images.ts`, `video-links.ts`, `match-state.ts`, `db-errors.ts`, `error-codes.ts`; `server/src/config/env.ts`.
+  - **Pruebas:** `server/tests/goals-media.test.ts`, `media-lib.test.ts`, `match-state.test.ts`, `helpers/app.ts`, y ajustes en `matches.test.ts`, `results.test.ts`, `public-api.test.ts`, `concurrency-stress.test.ts` y `url-encoding.test.ts`.
+  - **Base de datos, despliegue y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md` (D21), `compose.yaml`, `.env.example`, `server/package.json`, `docs/business-rules.md`, `docs/plan-polla.md`, `docs/pendientes.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; las dos partes se aprobaron en la primera ronda):**
+  - **Memoria:** la máquina tenía menos de 1 GB libre, así que solo tester_liga_2 corrió la suite completa y el build, en primer plano; tester_liga corrió solo sus pruebas propias.
+  - **Parte A, estado, goles y API pública (tester_liga):**
+    - **Estado efectivo:**
+      - Con `now` inyectado en los bordes (fecha − 1 ms, fecha, fecha + 60 min − 1 ms, fecha + 60 min, fecha + 30 días) y con la hora real.
+      - Se comporta igual en la API pública, los filtros, el orden, las apuestas, «Mis apuestas» y el admin.
+    - **Reglas de T-07 con partidos empezados:** 409 `MATCH_NOT_PROGRAMMED`; la sede y la jornada siguen editables; `POST /estado` da 404.
+    - **Resultado:** se carga desde la hora del partido y se confirma desde los 60 minutos (`MATCH_NOT_ENDED`).
+    - **Goles:**
+      - `PLAYER_NOT_IN_TEAM`, `TEAM_NOT_IN_MATCH`, `GOALS_EXCEED_SCORE`, `SCORE_BELOW_GOALS`, minuto de 1 a 120.
+      - Se bloquean al confirmar, y la multimedia sigue permitida.
+    - **API pública:** sin fugas mientras el partido está en curso, y completa al confirmar.
+    - **Otros:** `FILE_NOT_FOUND` sin 500; la documentación es coherente.
+  - **Parte B, imágenes, videos, seguridad de archivos, concurrencia y regresión (tester_liga_2):**
+    - **Subida:**
+      - **Aceptadas:** JPEG con EXIF, GPS y XMP, PNG con un chunk de texto con script, WebP, GIF (también animado), 3000x2000, 1x1 y 100x4000. Dan 201 y se guardan como WebP sin EXIF, XMP ni ICC, y sin la marca ni el GPS en los bytes. Se reducen a 1600x1067 y 40x1600, con nombres de 32 hex distintos. TIFF y AVIF dan 400.
+      - **Rechazadas con 400,** sin archivo ni fila, sin texto interno y con `no-store`: SVG (también como .jpg), HTML o texto con extensión de imagen, GIF falso con JS, archivos vacíos, truncados o corruptos, ELF, ZIP, RIFF que no es WebP y bombas PNG de pocos KB (20000x20000, 1x60 000 000, 65535x65535).
+      - **Políglotas válidos** (PNG con HTML al final, JPEG con PHP al final): se aceptan, y el reprocesado elimina el contenido extra.
+      - **Límites y forma del envío:**
+        - 5 MB exactos pasan; 5 MB + 1 byte y 12 MB dan 413.
+        - Varios archivos, campos extra, 200 campos, multipart roto o sin boundary, y el archivo en otro campo, dan 400; JSON da 415.
+      - **Nombre original:** con `../`, barras invertidas, rutas absolutas o caracteres raros se ignora; con NUL da 400.
+    - **Servido:**
+      - Cabeceras: `image/webp`, `nosniff`, CSP con sandbox, `inline` y sin `Accept-Ranges`. Admin con `private, no-store`; público con `public, max-age=86400`.
+      - En público, la imagen de un partido en curso (de la multimedia o de un gol) da 404 aunque se conozca el nombre, y después de confirmar da 200 con los bytes idénticos.
+      - 23 rutas de traversal o nombres raros dan 404 o 400, nunca 500 ni un archivo.
+      - `/admin/archivos` da 401 al anónimo y 403 al apostador.
+    - **Borrado y huérfanos:**
+      - Reemplazar, quitar o borrar una imagen (o su gol) borra el archivo.
+      - Un hook que falla después de guardar no deja archivo.
+      - Con un deadlock real en el primer intento quedan una fila y un archivo; con un deadlock persistente, ninguno.
+      - 10 subidas en paralelo al mismo gol dejan un solo archivo, el de la base. 26 al mismo partido dejan 20 filas y 20 archivos.
+      - Al final, el disco y la base coincidían sin huérfanos ni faltantes.
+      - Borrar un partido con multimedia da 409, también si estaba guardado como programado y ya empezó.
+    - **Videos:**
+      - 11 formas válidas de YouTube y Vimeo se normalizan.
+      - 32 se rechazan: `http`, dominios parecidos, `@`, `xn--`, puertos, credenciales, `javascript:`, `data:`, ids inválidos, 3000 caracteres, entre otras.
+      - El servidor no hizo ninguna petición.
+    - **Después de confirmar:** agregar y quitar multimedia del partido y del gol funciona; crear, editar o borrar goles da 409.
+    - **Seguridad:**
+      - En 8 rutas: anónimo 401, apostador 403, CSRF 403, sin archivos.
+      - El rate limit de subida corta con 429, `no-store` y `Retry-After`.
+      - Informativo no importa Polla.
+    - **Esquema:** `gol` y `multimedia_partido` coinciden en `01-schema.sql`, `EsquemaBD.md` y las bases de desarrollo y de pruebas; `compose.yaml` monta el volumen; las variables están validadas y documentadas.
+    - **Docker real:**
+      - Con datos `t2_` temporales, una foto con GPS se guardó en el volumen como WebP sin metadatos.
+      - Se sirvió solo después de confirmar el resultado.
+      - Al borrarla se quitó el archivo; después se eliminaron los datos y el volumen quedó vacío.
+    - **Chequeos:** `npm run server:typecheck` sin errores; 840/840 pruebas dos veces en primer plano en `la_liga_acp_test_2` (incluido el estrés); build del front sin errores ni advertencias; `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Limpieza:** la base de desarrollo quedó sin datos de prueba y sin archivos de prueba; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Mensaje del 409:** en un partido empezado pero guardado como `programado`, el 409 dice que solo se cambia con el partido programado; sería más claro decir que ya empezó.
+  - **Datos viejos de T-07:** un partido guardado `en_curso` con fecha futura acepta la carga del resultado.
+  - **Caché pública:** las imágenes públicas se cachean 24 h, aunque se borren antes.
+  - **Commit con respuesta perdida:** si se pierde la respuesta del commit, el servicio borra el archivo y la fila queda sin archivo (se sirve 404 `FILE_NOT_FOUND`).
+  - **Contenedor como root:** el server corre como root.
+  - **Imágenes grandes:** con el límite de 40 MP, una imagen grande puede usar cientos de MB al decodificarse. No se probó por la poca memoria de la máquina.
+
+## 2026-09-16 — T-14 · Cálculo de puntos (backend)
+
+- **Cambio:** liquidación de las apuestas al confirmar el resultado (BR-034 a BR-040; BR-034 y BR-040 precisados).
+  - **Liquidador:** `settleMatchBets` en `services/bets-settlement.service.ts` implementa el `MatchSettler` de T-12. Corre una sola vez, dentro de la transacción de la confirmación y con el partido bloqueado.
+  - **Regla de puntos:** solo en `lib/points.ts` (`settleSelection`: ganador +3, empate +1, marcador exacto +3, fallo 0).
+  - **UPDATE por lotes:** la misma regla se aplica con un `CASE`, en lotes de 1000 por clave primaria. Toca solo las selecciones `pendiente` de ese partido, que pasan a `acertada` o `no_acertada` con sus puntos.
+  - **Sin monedas:** la liquidación no crea movimientos (BR-039).
+  - **Salvaguarda:** si un UPDATE cambia menos filas de las esperadas, lanza un error y se deshace toda la confirmación.
+  - **Índice:** nuevo `idx_seleccion_partido_estado (partido_id, estado_seleccion_id)`, forzado en la lectura de las pendientes (también en el conteo de la vista previa).
+  - **Documentación:** BR-034 y BR-040 precisados; notas en el plan para T-15 y T-16.
+- **Archivos:**
+  - **Código:** `server/src/services/bets-settlement.service.ts`, `bets-match-probe.service.ts`; `server/src/lib/points.ts`.
+  - **Pruebas:** `server/tests/settlement.test.ts` (34 casos).
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `EsquemaBD.md`, `docs/business-rules.md`, `docs/plan-polla.md`, `docs/pendientes.md`, `server/README.md`, `.env.example`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; las dos partes se aprobaron en la primera ronda).** Por la poca memoria libre de la máquina, **solo tester_liga_2 corrió la suite completa y el build**; tester_liga corrió solo sus pruebas propias, de a una y en primer plano.
+  - **Parte A, reglas de puntos y efectos visibles (tester_liga):** pruebas propias (4 casos, dos corridas sin fallos, en `la_liga_acp_test`).
+    - **Tabla completa por la API** (confirmación real):
+      - 4 resultados (2-1, 1-1, 0-0, 0-3) contra 13 pronósticos cada uno: los tres de resultado general y 10 marcadores (exactos, 0-0, invertido, mismo ganador con otro marcador, etc.).
+      - Los 52 estados y puntos coinciden con un cálculo independiente.
+    - **Independencia (BR-038):**
+      - resultado y marcador correctos del mismo partido: 3 + 3;
+      - empate acertado más 1-1 exacto: 1 + 3;
+      - las repetidas puntúan cada una, y de las contradictorias solo la correcta.
+    - **Alcance:**
+      - **Qué se liquida:** solo las pendientes del partido confirmado.
+      - **Qué no cambia:** una anulada, una acertada forzada con 1 punto y una no acertada forzada quedan igual.
+      - **Otro partido:** la selección del otro partido en el mismo ticket, y el ticket de otro usuario sobre ese partido, siguen pendientes hasta confirmarlo.
+      - **Monedas:** cero movimientos nuevos y saldos iguales en todas las confirmaciones.
+      - **Reliquidar:** volver a liquidar el mismo partido, aun con otro resultado, no cambia nada.
+      - **CHECK:** rechaza puntos 2 (3819).
+    - **Efectos visibles (dos usuarios, tickets de dos partidos):**
+      - **Comprobante:** estado, puntos y `resultadoReal` por selección.
+      - **Estado del ticket:** `pendiente` mientras quede una pendiente (4 puntos parciales) y `finalizado` al confirmar el otro partido (5 puntos).
+      - **«Mis apuestas»:** el resumen da aciertos y puntos exactos para los dos usuarios, y la lista, los puntos por fila con los totales del ticket.
+    - **Básquet 81-80:** `local_gana` suma 3, `visitante_gana` 0, 81-80 exacto 3 y 80-81 0. Un empate y un 80-80 forzados a mano quedan `no_acertada` con 0, porque el resultado confirmado nunca es empate.
+    - **Settler que falla después de liquidar:** el partido sigue en curso (también en la API pública), y las selecciones y las monedas quedan intactas.
+    - **Documentación:** BR-034 a BR-040, las notas de T-15 y T-16, el índice y el CHECK en el SQL y `EsquemaBD.md`, el README y `CLAUDE.md` son coherentes, y `AGENTS.md` idéntico.
+  - **Parte B, rendimiento, concurrencia, observaciones de T-13 y regresión (tester_liga_2):**
+    - **Rendimiento sobre 90000 selecciones:**
+      - **Tiempos:** 5000 pendientes en 314 ms con 15 sentencias, 20000 en 583 ms y 50000 en 1466 ms.
+      - **Memoria y exactitud:** RSS +2 MB y liquidación exacta.
+      - **Planes:** la lectura va por `idx_seleccion_partido_estado` y el UPDATE, por rango de PRIMARY.
+    - **Índice:** igual en el SQL, en `EsquemaBD.md` y en las bases.
+    - **Concurrencia:** dos partidos de 8000 selecciones y 60 tickets compartidos, con 0 errores 500, 0 deadlocks y ninguna lectura a medio liquidar. El reintento es exacto, y `data_locks` fue revisado.
+    - **Salvaguarda:** un escritor externo espera por la FK. Forzada desde la misma transacción, se deshace todo.
+    - **Observaciones de T-13 verificadas:** el mensaje, el partido `en_curso` con fecha futura, el server como `node` en el Docker real, 24 MP sin decodificar y con cola, y la caché de 1 h.
+    - **Regresión:** 876/876 pruebas dos veces, build del front OK y `coins:check` 0.
+  - **Estado final:** la base y el server de Docker siguen corriendo; la parte A no usó la base de desarrollo.
+- **Observaciones (no bloquean):**
+  - **Índice forzado:** si falta o se renombra, la confirmación y la vista previa dan 500 sin plan de respaldo.
+  - **Bloqueos:** la liquidación toma bloqueos S sobre cada ticket de las selecciones y algunos next-key. T-16 y T-17 deben respetar ese orden.
+  - **Salvaguarda:** responde un 500 genérico.
+  - **Caché:** el `Cache-Control` de las imágenes públicas es una constante, no una variable de entorno.
+  - **Estado y puntos:** la base no los ata entre sí. Una selección acertada con 0 puntos o una anulada con puntos pasan el CHECK; hoy solo el liquidador escribe esos campos.
+
+## 2026-09-16 — T-15 · Ranking de la polla (backend)
+
+- **Cambio:** ranking de la polla y estadísticas para el administrador (BR-041 a BR-044, precisadas en `business-rules.md`; BR-001).
+  - **`GET /ranking`** (cualquier sesión, sin query): `{ top, propia, participantes, posicionesTop }`.
+    - Filas `{ posicion, participante: { nombre }, puntos, aciertos, esPropia }`, solo con el nombre a mostrar.
+    - `propia` trae `enTop`, o es `null` para un pendiente o un admin.
+    - No hay versión pública (`/public/ranking` da 404).
+  - **Quiénes y cómo:**
+    - Solo apostadores validados, incluidos los que tienen 0; nunca admins ni pendientes.
+    - Puntos: `SUM(puntos_obtenidos)`. Aciertos: selecciones `acertada` (definiciones de T-11).
+    - Orden por puntos y después por aciertos, con `RANK()`: un empate total comparte la posición y el siguiente salta (1, 1, 3).
+    - Dentro de un empate, la lista va por nombre y después por id, solo para mostrar.
+    - El top incluye todas las posiciones de 1 a 10, así que un empate en el 10 agrega filas.
+  - **Admin:**
+    - `GET /admin/polla/ranking`: el ranking completo, paginado, con el id de cada participante.
+    - `GET /admin/polla/estadisticas`: participantes, tickets y selecciones por estado, monedas utilizadas, devueltas y disponibles, puntos y aciertos, solo de apostadores.
+  - **Cálculo:**
+    - Se calcula en cada lectura (`services/ranking.service.ts`), en una sola sentencia con `RANK()` sobre índices de cobertura, así que se actualiza solo (BR-044).
+    - La página del admin se lee dentro de `withReadSnapshot`.
+    - `rankParticipants` (`lib/ranking.ts`) es la misma regla en TypeScript.
+  - **Correcciones de T-14:**
+    - `FORCE INDEX` se reemplazó por la pista de optimizador `INDEX` (`pendingIndexHint`) en la lectura de pendientes, en el conteo de la vista previa y en los totales de la liquidación. Sin el índice, MySQL solo da un aviso (3128) y la consulta sigue funcionando.
+    - Se agregaron notas en T-16 y T-17 del plan y dos entradas en `docs/pendientes.md`.
+- **Archivos:**
+  - **Código:** `server/src/services/ranking.service.ts`, `server/src/lib/ranking.ts`, `server/src/controllers/ranking.controller.ts`, `server/src/routes/ranking.route.ts`, `admin.route.ts`, `index.ts`; `server/src/services/bet-history.service.ts`, `bets-settlement.service.ts`, `bets-match-probe.service.ts`.
+  - **Pruebas:** `server/tests/ranking.test.ts` (14 casos) y ajustes en `settlement.test.ts`.
+  - **Documentación:** `docs/business-rules.md`, `docs/plan-polla.md`, `docs/pendientes.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; las dos partes se aprobaron en la primera ronda).**
+  - **Memoria:** por la poca memoria libre de la máquina, **solo tester_liga_2 corrió la suite completa y el build**, en primer plano.
+  - **Contexto:** el contexto de tester_liga_2 se reinició antes de esta revisión; releyó los documentos del proyecto antes de empezar.
+  - **Parte A, reglas del ranking y efectos visibles (tester_liga):**
+    - **Orden:**
+      - Por puntos y después por aciertos, con posiciones compartidas y salto (4, 4, 4, 4 y 8).
+      - Dentro de un empate, por nombre y después por id.
+      - Coincide con un cálculo propio, con el gemelo `lib/ranking.ts` y con el ranking paginado del admin.
+    - **Top 10:**
+      - 11 participantes.
+      - Empate en el puesto 10: 13 filas.
+      - Empate desde el puesto 9: 13 filas, y el siguiente queda en el 14.
+      - 2 participantes, y el ranking vacío.
+    - **Participantes:**
+      - Solo los validados, incluidos los que tienen 0.
+      - Pendientes y admins quedan afuera aunque tengan puntos forzados.
+      - Un usuario validado por el flujo real aparece.
+    - **Fila propia:** correcta en todos los casos, dentro y fuera del top.
+    - **Actualización:** inmediata tras confirmar dos partidos reales y tras una anulación, con las mismas cifras que el resumen de «Mis apuestas».
+    - **Estadísticas:** exactas y sin admins.
+    - **Acceso y documentación:** coherentes.
+  - **Parte B, privacidad, seguridad, rendimiento, concurrencia, observaciones de T-14 y regresión (tester_liga_2):**
+    - **Privacidad:**
+      - `/ranking` con apostador, pendiente y admin trae solo `posicion`, `nombre`, `puntos`, `aciertos`, `esPropia` y `enTop`. Nunca un correo, saldo, id, clave de idempotencia ni huella, ni como clave ni como valor.
+      - Nombres con comillas, `<script>`, barra invertida, U+2028 y emoji vuelven intactos en un JSON válido, con `nosniff`.
+      - `/public/ranking` (y sus variantes) da 404.
+      - `/admin/polla/*`: anónimo 401; apostador y pendiente 403. El admin no recibe correo ni saldo.
+    - **Seguridad:**
+      - Anónimo, cookie basura, sesión vencida o cerrada: 401. Un cambio de rol se aplica en la petición siguiente.
+      - Query en `/ranking` y en las estadísticas: 400.
+      - Paginación del admin estricta y con topes: `page` 0 o 100001, `pageSize` 0 o 101, valores repetidos, arrays y parámetros desconocidos dan 400.
+      - `%` mal codificado: 404. POST, PUT, PATCH y DELETE: 404 (403 sin CSRF).
+      - `no-store` en todas las respuestas, ningún 500 y nunca el texto del driver.
+    - **Rendimiento:**
+      - **Volúmenes:** 3000 validados, 200 pendientes y 20 admins con selecciones (64 000 en total), y otra carga de 10 000 validados con 204 000 selecciones.
+      - **Tiempos con 3000:** el ranking, la página profunda del admin y las estadísticas tardan de 90 a 100 ms.
+      - **Tiempos con 10 000:** de 260 a 310 ms.
+      - **Plan:** con `EXPLAIN ANALYZE`, los usuarios se leen por estado, y `ticket` y `seleccion` solo con índices de cobertura.
+      - **Memoria:** MySQL arma el ranking entero en cada consulta, pero a Node llegan solo el top y la fila propia (11 filas). La memoria se mantuvo estable en 200 lecturas.
+      - **Exactitud:** el top, una página intermedia, la última página y las estadísticas coinciden con un cálculo independiente.
+    - **Concurrencia:**
+      - Se leyeron el ranking y las estadísticas por HTTP y por el servicio, sin parar, mientras se confirmaban partidos de 8000 y 15 000 selecciones pendientes y se creaban 18 tickets reales.
+      - Resultado: 0 errores. Las estadísticas mostraron estados intermedios (60036, 45036, 15036 y 36 pendientes), siempre coherentes entre sí.
+      - Las posiciones fueron coherentes en cada respuesta, y el ranking final quedó exacto.
+    - **Observación a de T-14:**
+      - Con `idx_seleccion_partido_estado` presente, `EXPLAIN` lo usa.
+      - Con el índice renombrado, o borrado (con un índice simple por `partido_id` para la FK), se ve el aviso 3128 y otro plan. La vista previa y la confirmación siguen en 200 y liquidan exacto las 3000 selecciones.
+      - Borrar el último índice de `partido_id` lo impide MySQL (1553).
+      - El índice quedó restaurado.
+      - Las notas b (plan) y c (`pendientes.md`) están presentes.
+    - **Chequeos:**
+      - `npm run server:typecheck` sin errores.
+      - 890/890 pruebas dos veces, en primer plano, en `la_liga_acp_test_2` (incluido el estrés).
+      - Build del front sin errores ni advertencias, y `coins:check` en 0.
+      - `CLAUDE.md` y `AGENTS.md` idénticos; Informativo no importa Polla.
+  - **Limpieza:** se borraron las pruebas temporales; no quedaron datos `t2_` en la base de desarrollo; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Orden de presentación con ñ:** con nombres empatados que tienen ñ, el SQL (la collation trata la ñ como n) y `lib/ranking.ts` (`Intl` la trata aparte) los listan en distinto orden. Las posiciones no cambian.
+  - **Polla recién abierta:** con todos en 0, el top trae a todos los participantes (3001 filas, 285 KB por consulta).
+  - **Tiempo:** crece en forma lineal con las selecciones de toda la polla. Una página vacía del admin hace 2 sentencias (540 ms con 10 000 participantes).
+  - **Paginación:** el esquema común acepta `page=1e3` y `page=0x10`.
+  - **CORS:** responde siempre con el origen configurado, también ante otro `Origin` (el navegador lo bloquea igual).
+
+## 2026-09-17 — T-16 · Cancelación de partidos (backend)
+
+- **Cambio:** cancelación de un partido con anulación y devolución de sus apuestas (BR-045 a BR-047, BR-055; BR-012, BR-042 y BR-043 precisados), más correcciones del ranking de T-15.
+  - **Rutas:**
+    - `GET /admin/partidos/:id/cancelacion`: vista previa sin efectos (selecciones a anular, monedas a devolver, selecciones sin débito, usuarios, tickets y tickets que quedan anulados, `puedeCancelar`, `problemas` y advertencia).
+    - `POST /admin/partidos/:id/cancelacion/confirmar` con `{ confirmar: true }`. No hace falta repetir las cifras de la vista previa.
+  - **Servicios:**
+    - `services/match-cancellation.service.ts` (Polla) llama a `markCancelled` (Informativo).
+    - `refundSelectionsBatch` (en `coins.service.ts`) devuelve una moneda por cada selección con débito, en la misma transacción.
+    - Orden de bloqueo: usuarios, partido y selecciones. Si aparecen apostadores nuevos entre la lectura y el bloqueo, la operación reinicia (hasta 3 intentos y después 409 `CONCURRENT_UPDATE`).
+  - **Decisiones:**
+    - **Qué se cancela:** la cancelación es definitiva. Se puede cancelar un partido programado o en curso, aunque tenga apuestas abiertas, marcador, goles o multimedia; esos datos se conservan y nunca son públicos.
+    - **Selecciones:** las anuladas quedan con puntos NULL. Una pendiente sin débito se anula sin devolver nada, y las selecciones ya liquidadas o anuladas no se tocan.
+    - **Rechazos:** un partido finalizado da 409 `MATCH_ALREADY_FINISHED`; uno ya cancelado, 409 `MATCH_ALREADY_CANCELLED`.
+  - **Ranking:**
+    - El top trae como máximo 50 filas (`maxFilasTop`), con `topSinMostrar`; la fila propia trae `enLista`.
+    - Los nombres empatados se ordenan con `utf8mb4_es_0900_ai_ci`, igual que `Intl.Collator('es')` (la ñ después de la n).
+    - La página de admin sale en una sola sentencia.
+- **Archivos:**
+  - **Servicios:** `server/src/services/match-cancellation.service.ts`, `coins.service.ts`, `matches.service.ts`, `ranking.service.ts`, `bets-settlement.service.ts`, `bets-match-probe.service.ts`, `bet-history.service.ts`, `admin-action.ts`.
+  - **Controladores y rutas:** `server/src/controllers/match-cancellation.controller.ts`, `ranking.controller.ts`; `server/src/routes/match-cancellation.route.ts`, `ranking.route.ts`, `admin.route.ts`, `index.ts`.
+  - **Utilidades y esquemas:** `server/src/lib/ranking.ts`, `error-codes.ts`; `server/src/schemas/matches.schema.ts`.
+  - **Pruebas:** `server/tests/cancellation.test.ts`, `ranking.test.ts` y ajustes en `concurrency-stress.test.ts` y `settlement.test.ts`.
+  - **Documentación:** `docs/business-rules.md`, `docs/plan-polla.md` (notas para T-17, T-20 y T-21), `docs/pendientes.md`, `server/README.md`, `EsquemaBD.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; las dos partes se aprobaron en la primera ronda).** Por la poca memoria libre de la máquina, **solo tester_liga_2 corrió la suite completa y el build**; tester_liga corrió solo sus pruebas propias, de a una y en primer plano.
+  - **Parte A, reglas de cancelación, efectos visibles y ranking (tester_liga):** pruebas propias (3 casos, dos corridas sin fallos, en `la_liga_acp_test`).
+    - **Vista previa exacta** (3 usuarios, 4 tickets con uno mixto, una pendiente sin débito, una acertada y una anulada forzadas):
+      - cifras: 6 selecciones, 5 monedas, 1 sin débito, 3 usuarios, 4 tickets y 2 que quedan anulados;
+      - sin efectos, y query 400.
+    - **Rechazos de la cancelación (todos sin efectos):**
+      - sin `confirmar: true` (o con `false`, texto, campos extra o cifras): 400;
+      - sin CSRF: 403;
+      - ya cancelado: 409 `MATCH_ALREADY_CANCELLED`; finalizado: 409 `MATCH_ALREADY_FINISHED` (la vista previa los marca con cifras en 0);
+      - inexistente: 404; apostador: 403.
+    - **Efectos exactos:**
+      - **Selecciones:** partido `cancelado`, 6 anuladas con puntos NULL y las dos forzadas intactas.
+      - **Devoluciones:** 5 movimientos de +1 con su `seleccion_id`, ninguno para la selección sin débito. Los saldos subieron +4, +1 y +0, y la diferencia entre saldo y movimientos no cambió.
+      - **Casos cancelados:** programado futuro con apuestas abiertas (+2) y sin apuestas, programado con la hora pasada, y en curso con marcador, gol y multimedia (que se conservan).
+    - **Tickets mixtos:** la selección del otro partido sigue pendiente y se liquida al confirmarlo (3 y 0). Los tickets pasan por `anulado`, `pendiente` y `finalizado` según corresponde.
+    - **Cancelación definitiva:** 14 acciones rechazadas sin efectos:
+      - con 409 `MATCH_LOCKED`: `PATCH`, postergar, cargar o confirmar el resultado, alta, edición y borrado de un gol, su video y su imagen, y agregar o borrar multimedia;
+      - otras: cancelar otra vez (409), borrar con apuestas (409) y la ruta de estado (404).
+      - Además, la vista previa de apuestas y la confirmación de un ticket lo rechazan.
+    - **Público:** detalle, fixture y filtro `cancelado` muestran el partido cancelado sin marcador, goles, autores ni multimedia, aunque existan; el archivo de imagen da 404. Apuestas y admin lo muestran cancelado.
+    - **Vistas del apostador:**
+      - **Comprobante:** muestra las anuladas y las monedas devueltas.
+      - **«Mis apuestas»:** filtros `anulada` y `estadoTicket=anulado`, y el resumen con las devoluciones.
+      - **Ranking y estadísticas de admin:** no suman puntos de anuladas.
+    - **Ranking:**
+      - **Orden de nombres:** 14 empatados (con n, ñ, acentos y mayúsculas) salen en el mismo orden en `/ranking`, en el admin paginado de a 3 y en `lib/ranking.ts`.
+      - **Tope de 50:** con 85 empatados en 0 hay 50 filas y `topSinMostrar` 35; el último tiene `enTop` true y `enLista` false, el primero `enLista` true, y las 50 filas son iguales al admin.
+      - **Casos sin tope:** con 14 en el top hay 14 filas y `topSinMostrar` 0. El empate en el puesto 10 que no supera el tope se comporta igual que antes, y fuera del top `enLista` es false.
+      - **Admin paginado:** igual a `rankParticipants` en posiciones e ids.
+    - **Documentación:** BR-012, BR-025, BR-045 a BR-047, BR-055, las notas de T-17, T-20 y T-21, el README y `CLAUDE.md` son coherentes, y `AGENTS.md` idéntico.
+  - **Parte B, bloqueos, concurrencia, rendimiento y regresión (tester_liga_2):**
+    - **Orden de bloqueo sin ciclos:** usuarios X por PRIMARY, partido X, selecciones X y tickets S, sin gap ni next-key.
+    - **Concurrencia por HTTP (0 deadlocks, 0 errores 500):**
+      - contra tickets, con 17 reinicios;
+      - contra la confirmación del mismo partido, 20 rondas con un solo ganador;
+      - 6 rondas mixtas.
+    - **Usuario nuevo entre la lectura y el bloqueo:** la operación reinicia y lo incluye; con 3 intentos fallidos responde 409 sin efectos. El reintento no devuelve dos veces.
+    - **Rendimiento de la cancelación:**
+      - 3000 selecciones en 316 ms con 26 sentencias; 20000 en 1,3 s; 50000 en 3,8 s;
+      - memoria +26 MB.
+    - **Seguridad:** revisada.
+    - **Ranking:** con 3001 participantes en 0 bajó a 50 filas, 4,9 KB y 29 ms (antes 285 KB). La página de admin sale en una sola sentencia.
+    - **Módulos:** revisados.
+    - **Regresión:** 905/905 pruebas dos veces, build del front OK y `coins:check` 0.
+  - **Estado final:** la base y el server de Docker siguen corriendo; la parte A no usó la base de desarrollo.
+- **Observaciones (no bloquean):**
+  - **Monedas devueltas:** `monedasDevueltas` (comprobante, resumen, estadísticas) cuenta 1 por anulada, no las devoluciones reales; con datos a mano mostró 7 cuando se devolvieron 5. Resuelto por el coordinador en `docs/decisiones.md` (D-003); se corrige en T-17.
+  - **Ex apostador vuelto admin:** una selección pendiente suya (solo con datos a mano) bloquea toda la cancelación con 403 `NOT_A_PARTICIPANT`, sin efectos. Ver D-002; se corrige en T-17.
+  - **Borrado de un cancelado:** un partido cancelado sin apuestas, goles ni resultado todavía se puede borrar. Ver D-001; se documenta en T-17.
+  - **Tickets anulados:** el cálculo de `ticketsAnulados` crece con el cuadrado de las selecciones por ticket (14,8 s con 1000 por ticket, solo con datos a mano).
+  - **`refunds.set` con spread:** es cuadrático por usuario.
+  - **Volumen:** 50000 selecciones tardan de 4 a 5 s con los usuarios bloqueados.
+  - **Carrera con la confirmación:** frente a una cancelación simultánea, la confirmación del resultado gana casi siempre.
+
+## 2026-09-17 — T-17 · Auditoría (backend)
+
+- **Cambio:** registro de las operaciones administrativas (NFR-006) y paso 0 con las correcciones pendientes de T-16. Se aplicaron las decisiones del coordinador D-001 a D-005 (`docs/decisiones.md`).
+  - **Registro:**
+    - Cada escritura del admin inserta una fila en `auditoria` dentro de su propia transacción, con el admin, la acción, la fecha UTC, el registro afectado y un `detalle` JSON breve.
+    - Se auditan las 5 acciones mínimas de NFR-006 y, además, pagos, altas, ediciones y borrados del catálogo, partidos, goles y multimedia, y el comando `admin:create`.
+    - **Punto de entrada:** `services/audit.service.ts` (`recordAudit`), que verifica que el autor sea admin, que el código exista con su entidad y que la fila afectada exista (salvo en los borrados).
+    - **Ganchos:** se inyectan en `routes/index.ts`, así que Informativo no importa Auditoría.
+    - **Errores y reintentos:** un fallo al registrar responde 500 y deshace la operación. Un reintento por deadlock deja un solo registro.
+  - **Detalle (`lib/audit.ts`):**
+    - `sanitize` quita claves prohibidas (secretos y datos personales) comparando palabras completas.
+    - Corta los textos a 200 puntos de código, cambia las mitades sueltas de un emoji por U+FFFD y limita la profundidad (8), las claves (50) y los elementos de un array (20).
+    - Se guardan como máximo 3000 bytes de texto, con un tope binario conservador (`tamanoBinario`) por debajo del CHECK de 4 KB.
+    - `cambios()` decide sobre los valores reales y recorta solo al mostrar, con `recortado: true`.
+  - **Consulta:**
+    - `GET /admin/auditoria` es de solo lectura, paginada y con filtros por acción, entidad, registro, admin y fechas.
+    - Trabaja en dos pasos: primero los ids por `idx_auditoria_fecha` y después las filas.
+  - **Esquema:**
+    - `auditoria.detalle` JSON (CHECK: objeto de hasta 4 KB) y 3 índices nuevos.
+    - `accion_auditoria` pasa de 5 a 31 códigos. En la base de desarrollo se aplicó con ALTER e INSERT, sin recrearla.
+  - **Paso 0 (correcciones de T-16):**
+    - `ticketsAnulados` se calcula por ticket y las devoluciones se agrupan con `push`.
+    - **D-001:** se puede borrar un partido cancelado que no tiene apuestas, goles, resultado ni multimedia.
+    - **D-002:** las selecciones de una cuenta que hoy es admin se anulan sin devolución.
+    - **D-003:** las monedas devueltas salen de los movimientos reales.
+  - **Decisiones de la tarea:**
+    - **D-004:** una edición sin cambios no deja registro. Se amplió al registro de un marcador igual, y la comparación usa siempre los valores reales.
+    - **D-005:** `admin:create` se audita con la propia cuenta como autor y entidad, y con origen «comando admin:create».
+    - `escudo` y `foto` rechazan mitades sueltas de un emoji, caracteres de control e invisibles.
+- **Archivos:**
+  - **Código:** `server/src/lib/audit.ts`, `error-codes.ts`; `server/src/services/audit.service.ts`, `admin-bootstrap.service.ts`, `admin-action.ts`, `goals.service.ts`, `matches.service.ts`, `match-cancellation.service.ts`, `coins.service.ts`, `tickets.service.ts`, `bet-history.service.ts`; `server/src/routes/audit.route.ts`, `admin.route.ts`, `participants.route.ts`, `index.ts`; `server/src/controllers/participants.controller.ts`; `server/src/schemas/audit.schema.ts`, `catalog.schema.ts`.
+  - **Pruebas:** `server/tests/audit.test.ts`, y ajustes en `create-admin.test.ts`, `catalog-names.test.ts`, `cancellation.test.ts`, `bet-history.test.ts`, `tickets.test.ts`, `results.test.ts` y `concurrency-stress.test.ts` (corre con la auditoría activa).
+  - **Base de datos y documentación:** `db/init/01-schema.sql`, `db/init/02-catalogos.sql`, `EsquemaBD.md`, `docs/business-rules.md` (BR-012, BR-045, NFR-006), `docs/decisiones.md` (del coordinador), `docs/plan-polla.md`, `docs/pendientes.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; aprobada en la tercera ronda, tras dos correcciones).**
+  - **Memoria:** por la poca memoria libre de la máquina, **solo tester_liga_2 corrió la suite completa y el build**, en primer plano; tester_liga corrió solo sus pruebas propias.
+  - **Contextos:** los contextos de los tres agentes (ejecutor_liga, tester_liga y tester_liga_2) se reiniciaron durante la tarea, y cada uno releyó los documentos antes de seguir.
+  - **Ronda 1:**
+    - **Parte A (tester_liga), aprobada:** 40 escrituras dejan un registro cada una; 33 rechazos no dejan ninguno; la consulta y D-001 a D-003 funcionan.
+    - **Parte B (tester_liga_2), reprobada por un defecto:**
+      - **Defecto:** `sanitize` cortaba los textos por unidades UTF-16. Un emoji partido en el carácter 200 hacía fallar el insert de auditoría (MySQL 3141), la API respondía 500 y la operación no se hacía.
+      - **Caso reproducido:** crear un jugador, o crear o editar un equipo, con una `foto` o un `escudo` válidos. Antes de T-17 funcionaba.
+    - **Resto de la parte B, aprobado:**
+      - **Integridad:** con un trigger que hace fallar el insert, validar, confirmar, cancelar, subir una imagen y editar se deshacen sin archivos huérfanos.
+      - **Integridad de `recordAudit`:** rechaza autor no admin, acción desconocida, fila inexistente y entidad incoherente.
+      - **Reintentos:** con un deadlock real, cada acción se reintenta una vez y deja un solo registro.
+      - **Concurrencia:** 147 éxitos y 147 registros, sin registros de rechazos, sin 500 ni deadlocks; el insert solo toma bloqueos S sin hueco.
+      - **Privacidad:** ningún detalle trae contraseñas, hashes, tokens, claves, huellas ni correos.
+      - **Rendimiento:** con 60000 registros la consulta respondía en 12 a 190 ms, y auditar agregaba poco a confirmar y cancelar. Con el paso 0, cancelar 20 tickets de 1000 selecciones bajó de 16,3 s a 1,1 s.
+  - **Ronda 2:**
+    - **Corrección:**
+      - **Detalle y `sanitize`:** corte por puntos de código, claves prohibidas ampliadas, profundidad 8, 50 claves y tope binario.
+      - **Decisiones:** D-004 (edición sin cambios, sin registro) y D-005 (`admin:create` auditado).
+      - **Goles y consulta:** detalle de goles sin archivo y consulta por `idx_auditoria_fecha`.
+    - **Parte A, aprobada.**
+    - **Parte B, reprobada por un defecto nuevo:** `cambios()` comparaba los valores ya recortados. Un cambio de `foto` o `escudo` después del carácter 200 respondía 200 y se guardaba, pero no dejaba registro.
+    - **Resto de la parte B, aprobado:**
+      - **Multibyte:** 9 caracteres multibyte en cada posición de 176 a 205, sin 500.
+      - **Límites de `sanitize`:** 9 formas extremas se guardan sin 3819 ni 3157.
+      - **Tope binario:** `tamanoBinario` nunca queda por debajo de `JSON_STORAGE_SIZE` (400 estructuras al azar y 12 bordes).
+      - **Consulta:** resultados idénticos a una consulta independiente en 11 combinaciones; sin filtros usa el índice sin ordenar en memoria, en 12 a 25 ms por HTTP con 60000 registros (antes 91 a 190).
+      - **Integridad, reintentos y concurrencia:** repetidas con `admin:create` en paralelo (64 éxitos y 64 registros).
+  - **Ronda 3:**
+    - **Corrección:**
+      - **Detalle:** `cambios()` sobre valores reales con `recortado: true`, y detalles solo con campos guardados.
+      - **Decisiones:** D-004 ampliada al resultado.
+      - **Claves:** `claveProhibida` por palabras completas.
+      - **Validación y comando:** `admin:create` en carrera con mensajes claros; `escudo` y `foto` sin mitades de emoji, control ni invisibles.
+    - **Parte A (tester_liga), aprobada:** los 31 códigos cubiertos, y carreras de `admin:create` con el CLI real.
+    - **Parte B (tester_liga_2), aprobada:**
+      - **El hueco:**
+        - El caso exacto da 1 registro con `recortado`, y repetir el valor da 0.
+        - Una barrida de 134 PATCH de jugador y equipo con URLs de 255 caracteres (cambios en cada posición de 190 a 250, extensión, largo y bordes) dejó siempre 1 registro, sin pasar los topes.
+      - **`claveProhibida`:**
+        - Quita 57 de 58 variantes prohibidas (mayúsculas, camelCase, guiones, guion bajo, acentos, anidadas) y 24 de 28 claves pegadas.
+        - Conserva las 67 legítimas probadas (`hashtag`, `passport`, `compass`, `secretaria`, `mailing`, `clavel`, `pinned`, `spinner`, `opinion` y las claves reales de los detalles).
+        - `emailVerificado` se conserva solo con valor booleano o null.
+      - **`escudo` y `foto`:** en POST y PATCH, las mitades de emoji, los caracteres de control, los invisibles, los de dirección y los separadores dan 400 sin efectos; las URLs con emojis, acentos, CJK y banderas se aceptan.
+      - **Integridad y reintentos:** con el insert fallando, nada cambia. Con un deadlock real en validar, editar un jugador y cancelar, cada uno se reintenta una vez con un registro y una sola devolución.
+      - **Concurrencia:** 67 éxitos y 67 registros, sin 500 ni deadlocks.
+      - **Chequeos:**
+        - `npm run server:typecheck` sin errores.
+        - 952/952 pruebas dos veces, en primer plano, en `la_liga_acp_test_2` (incluido el estrés).
+        - Build del front sin errores ni advertencias, y `coins:check` en 0.
+        - `CLAUDE.md` y `AGENTS.md` idénticos.
+        - `auditoria` y `accion_auditoria` iguales en desarrollo y pruebas.
+  - **Limpieza:** se borraron las pruebas, los triggers y las tablas temporales; no quedaron datos `t2_` en la base de desarrollo; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Rellenos en blanco:** `escudo` y `foto` aceptan U+3164 y U+115F, que los nombres ya rechazan.
+  - **Claves que pasan:** `claveProhibida` deja pasar `SeSiOn` (mayúsculas mezcladas) y las pegadas en minúsculas `emailaddress`, `correoelectronico`, `pinnumber` y `privatekey`; ningún detalle real las usa.
+  - **Banderas de más:** quita claves de bandera legítimas como `tokenActivo`, `tieneEmail` o `hasPassword`, aun con valor booleano.
+  - **`admin:create`:** no pasa por la API; su autor en la auditoría es la propia cuenta (D-005).
+
+## 2026-09-17 — T-18 · Entrar y monedas (primera tarea de pantallas)
+
+- **Cambio:** pantallas de registro e ingreso, rutas protegidas por rol y contador de monedas siempre visible en el navbar (BR-010, NFR-004, NFR-005). Es la primera tarea de pantallas de la polla. Se aplicaron las decisiones del coordinador D-006 a D-011 (`docs/decisiones.md`).
+  - **Cliente de la API:** `src/lib/api.ts` es el único cliente.
+    - **Origen (D-006):** llama a `/api` en el mismo origen. En desarrollo, el proxy de Vite (`API_PROXY_TARGET`) lo reenvía sin el prefijo; en producción, un proxy inverso hace lo mismo.
+    - **Sobre y CSRF:** desarma el sobre `{ data }`/`{ error }` y guarda el token CSRF solo en memoria, que se renueva ante un `CSRF_FAILED`.
+    - **Seguridad:** nunca reenvía parámetros de la URL de la página.
+  - **Sesión:** `src/lib/auth.ts` y `useSession()`.
+    - **Páginas protegidas** (`/cuenta`, `/admin`), `/ingresar` y `/registro`: leen `/auth/me` siempre en su loader y muestran solo la sesión viva.
+    - **Páginas públicas:** usan una copia en memoria de 60 s (D-009).
+    - **Cambios de sesión:** un 401 en una página protegida lleva a `/ingresar?next=`, y un cambio de rol vuelve a correr el loader.
+  - **Páginas:**
+    - `/registro`: errores por campo y aviso de cuenta pendiente.
+    - `/ingresar`: mensaje único para el 401 y contraseña vaciada tras cada fallo.
+    - `/cuenta`: estado de validación, pago y saldo.
+    - `/admin`: panel en construcción.
+    - Las cuatro están en `SPA_ROUTES` y `vercel.json`.
+  - **Guardas y destino** (`src/lib/route-guards.ts`):
+    - `requireUser`, `requireRole` (403 propio) y `guestOnly`.
+    - `?next=` pasa por `safeNextPath` (`src/lib/next-path.ts`), que valida el texto y la ruta normalizada y es idempotente.
+    - Sin `next`, el apostador va a `/cuenta` y el admin a `/admin` (D-008).
+  - **Navbar:** `SessionBar` y `CoinIcon`.
+    - **Contador:** una moneda de 8×8 dibujada con `box-shadow` (tokens `--color-coin-*`), y el aviso de pendiente.
+    - **Por rol:** el admin no tiene contador y tiene un enlace a la administración.
+    - **Dos filas (D-007):** debajo de 64rem la barra ocupa una segunda fila (`--navbar-height` de 112/128 px).
+  - **Backend:**
+    - **Límites (D-009):** `GET /auth/me` queda fuera del límite general, con su propio límite (`SESSION_READ_RATE_LIMIT_*`), y todo 429 trae `details.limite`.
+    - **Tuteo (D-010):** en los mensajes del backend y del front.
+    - **Nombre de la cuenta (D-011):** el registro usa la validación de nombres del catálogo (`displayName`).
+  - **Mensajes:** el ingreso habla de intentos de ingreso solo con el límite de ingreso, y `/cuenta` muestra el 429 real con la espera.
+  - **Pruebas del front:** Vitest con Testing Library (`vitest.config.ts`, `src/test/`).
+- **Archivos:**
+  - **Front:**
+    - **Código:** `src/lib/api.ts`, `auth.ts`, `auth-messages.ts`, `auth-rules.ts`, `next-path.ts`, `route-guards.ts`; `src/hooks/useSession.ts`, `useFocusOnError.ts`; `src/types/api.ts`.
+    - **Componentes:** `src/components/SessionBar.tsx`, `CoinIcon.tsx`, `TextField.tsx` (con sus módulos CSS), `Navbar.tsx`, `Navbar.module.css`.
+    - **Páginas:** `src/pages/Ingresar.tsx`, `Registro.tsx`, `Cuenta.tsx`, `Admin.tsx`, `AuthPage.module.css`, `NotFound.tsx`.
+    - **Resto:** `src/layouts/Base.tsx`, `src/App.tsx`, `src/styles/global.css`, `src/utils/format-date.ts`.
+    - **Configuración:** `vite.config.ts`, `vercel.json`, `vitest.config.ts`, `tsconfig.node.json`, `package.json`, `package-lock.json`.
+  - **Pruebas del front:** `src/lib/api.test.ts`, `auth.test.ts`, `next-path.test.ts`; `src/components/SessionBar.test.tsx`; `src/layouts/Base.test.tsx`; `src/pages/auth-pages.test.tsx`; `src/test/`.
+  - **Backend:** `server/src/middleware/security.ts`, `auth-rate-limits.ts`, `error-handler.ts`, `upload.ts`; `server/src/config/env.ts`; `server/src/schemas/auth.schema.ts`; `server/src/routes/auth.route.ts`; `server/src/lib/http-error.ts`, `db-errors.ts`; `server/src/cli/admin-password.ts`; mensajes en tuteo en varios servicios y controladores; y sus pruebas.
+  - **Documentación:** `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`, `.env.example`, `compose.yaml`, `docs/business-rules.md` (BR-003), `docs/decisiones.md` (del coordinador), `docs/plan-polla.md` (notas para T-19, T-21 y T-22), `docs/pendientes.md`.
+- **Verificación (revisión repartida entre dos testers; aprobada en la segunda ronda, tras una corrección).**
+  - **Navegador y suites:** por la poca memoria libre de la máquina, **solo tester_liga usó el navegador** (Chrome, con iframes del ancho exacto) y **solo tester_liga_2 corrió las suites y el build**, en primer plano.
+  - **Instancias:** tester_liga probó contra su propia instancia del backend en el puerto 3950 (base de desarrollo, datos `t1_`), con los límites ajustados a cada prueba.
+  - **Ronda 1:**
+    - **Parte A (tester_liga, navegador), reprobada por un defecto:**
+      - **Defecto:** con la sesión borrada en la base, la primera navegación a `/cuenta` o `/admin` mostraba los datos viejos (nombre, correo, validación y saldo), mientras el navbar ya decía «Ingresar», y no redirigía.
+      - **Causa:** el loader confiaba en la sesión en memoria, y `/cuenta` volvía a los datos del loader.
+    - **Resto de la parte A, aprobado:**
+      - **Flujos:** registro (con errores del cliente y del servidor, correo repetido y 429), ingreso (401 único, contraseña vaciada, foco en la alerta y 429), salir (la fila de sesión se borra), pendiente, validado, admin, 403 y anónimo redirigido.
+      - **`?next`:** los destinos internos se respetan y los externos se ignoran.
+      - **Contador:** aparece en todas las páginas y se actualiza al navegar.
+      - **D-007:** sin roturas en la landing. El navbar mide 112, 128 y 80 px; `/#fixture` queda justo debajo; la ficha abre por hash; atrás restaura el scroll; sin scroll horizontal.
+      - **Pixel art y accesibilidad:** sin redondeos, sombras borrosas ni gradientes suaves; fuentes con peso 400; `steps()`; targets de 44 px en lo nuevo; foco visible, orden de tabulación, labels, `aria-invalid`, `aria-describedby` y `role=alert`.
+      - **Observación:** el front consultaba `/auth/me` en cada cambio de página y agotaba el límite general del backend. Esto dio origen a D-009.
+    - **Parte B (tester_liga_2, sin navegador), reprobada por un defecto:**
+      - **Defecto:** redirección abierta. `safeNextPath` devolvía la ruta normalizada, así que `/.//evil.com` terminaba en `//evil.com` y el router salía del sitio, tanto en el loader como en el ingreso.
+    - **Resto de la parte B, aprobado:** cliente de la API, CSRF en memoria, rutas en `SPA_ROUTES` y `vercel.json`, proxy, sin XSS, 40 pruebas del front y el paso 0 del backend.
+  - **Corrección:**
+    - **Destino:** `safeNextPath` valida la ruta normalizada y es idempotente.
+    - **Sesión:** las páginas protegidas leen `/auth/me` siempre y redirigen sin mostrar datos viejos.
+    - **Decisiones:** D-009, D-010 y D-011, más correcciones menores.
+    - **Incidente:** un reemplazo en PowerShell corrompió letras en 8 archivos del backend. El ejecutor los restauró; dos se reconstruyeron línea por línea.
+  - **Ronda 2:**
+    - **Parte A (tester_liga, navegador), aprobada:**
+      - **Sesión vencida:** con la sesión borrada en la base o cerrada en otra pestaña, «Mi cuenta» y «Admin» llevan a `/ingresar?next=`. Un observador del DOM confirmó que nunca se muestra contenido viejo. En `/cuenta`, al volver a la pestaña después de 60 s, la página se vacía y redirige.
+      - **Admin degradado:** `/admin` da 403 sin datos de admin.
+      - **Redirecciones maliciosas:** 13 variantes (`/.//evil.com`, `/..//evil.com`, `/%2e//evil.com`, `/a/..//evil.com`, `/.///evil.com/x` y otras), con sesión y al iniciar sesión, nunca salen del sitio.
+      - **D-009:**
+        - 45 navegaciones públicas sin lecturas a la API; las protegidas leen una vez cada una, siempre con 200.
+        - 110 lecturas de `/auth/me` no gastan el límite general, y su propio 429 trae `limite: sesion`.
+        - Un saldo nuevo se ve a los 50 s en las páginas públicas y al instante en las protegidas.
+      - **Mensajes:** los límites de ingreso y general se distinguen, `/cuenta` muestra la espera real y no hay voseo en `src` ni en `server/src`.
+      - **D-011:** los nombres hechos solo de emoji o de invisibles, o con control o dirección, dan error en el campo y también en el backend; los nombres con acentos y emojis junto a letras se aceptan.
+      - **Regresión a 390 y 1280 px:** flujos, contador en todas las páginas, landing con dos filas (`/#fixture`, ficha por hash, atrás) y pixel art.
+    - **Parte B (tester_liga_2), aprobada:**
+      - **Incidente revisado, sin daños:** diffs contra HEAD (T-14), `match-cancellation.service.ts` leído completo, pruebas de monedas y cancelación con concurrencia repetidas y escaneo de 228 archivos limpio.
+      - **Redirección:** 108 casos, 20000 al azar y el router real.
+      - **Correcciones:** D-009, D-011 y las menores; sin voseo.
+      - **Chequeos:** 982/982 pruebas del backend dos veces, 59/59 del front dos veces, build sin errores y `coins:check` en 0.
+  - **Limpieza:** se borraron los datos `t1_` y `t2_` de la base de desarrollo (en el caso de tester_liga, con sus sesiones, movimientos y registros de auditoría); pestañas cerradas, Vite y las instancias locales detenidos; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Navbar tras un 429:** si `/auth/me` responde 429 al recargar, el navbar muestra «Ingresar» aunque haya sesión, hasta la siguiente lectura correcta.
+  - **Emoji de familia:** `escudo` y `foto` rechazan URLs con un emoji de familia (ZWJ); la versión con `%XX` pasa.
+  - **Escapes `\u`:** las herramientas de edición pueden convertirlos en caracteres literales. Hay que repetir el escaneo después de cada edición que los use.
+  - **Git:** el último commit es T-14; lo aprobado de T-15 a T-18 no tiene respaldo en git.
+
+## 2026-09-17 — T-19 · Interfaz de apuestas
+
+- **Cambio:** pantalla de apuestas de la polla (BR-051, BR-052, BR-023, BR-024), con su comprobante, y un comando de datos de ejemplo solo para desarrollo. Se aplicaron las decisiones del coordinador D-012 a D-017 (`docs/decisiones.md`).
+  - **Listado (`/apuestas`):**
+    - Solo para cuentas `apostador`. Un pendiente ve los partidos con los controles deshabilitados y el motivo (BR-005); un admin ve la página 403 (BR-001).
+    - Filtros en la URL de la página (deporte, desde, hasta, estado de apuesta y página), con los días en hora de Lima; un valor inválido se descarta con un aviso. Orden por proximidad (BR-013) del backend.
+    - **Filtros en rejilla:** una columna de 320 a 390 px (D-014). El deporte es un grupo de opciones visibles pixel art de 44 px en lugar de una lista desplegable (D-017).
+    - `BetMatchCard`: cada estado de apuesta con icono (`PixelIcon`) y texto, nunca solo color; controles de pronóstico solo en los partidos `disponible`, sin empate donde el deporte no lo admite. Los goles van de 0 a 999; los límites y los ajustes (1500, negativos) se anuncian en una región `aria-live`.
+    - Escudos de la API solo con `<img>` (`TeamCrest`).
+  - **Ticket en armado (`TicketPanel`):** barra inferior en teléfonos y columna fija desde 64rem, con anuncios `aria-live`.
+    - **Borrador (D-012):** en `sessionStorage` por usuario (`src/lib/ticket-draft.ts`). Se borra al confirmar, al vaciarlo y al salir.
+      - `readDraft` valida todo: el partido, la selección por tipo (solo sus campos), los ids, los goles, la clave y la fecha, campo por campo (sin 30 de febrero, 24:00 ni desfases fuera de −12:00 a +14:00).
+      - Descarta lo inválido (nunca la página), avisa cuántas selecciones quitó y por qué, y renueva la clave. Un error al dibujar el panel queda dentro de `RenderGuard`.
+    - **Datos de cada partido:** el panel toma los de la fuente que llegó última (lista o vista previa), y al recargar la lista vuelve a pedir la vista previa. Así se ve la fecha nueva de un partido postergado.
+    - **Vista previa y confirmación:** van por la `action` de la ruta.
+      - Cada cambio de las selecciones genera una `Idempotency-Key` nueva, y un reintento de las mismas selecciones reutiliza la suya.
+      - La acción rechaza sin llamar a la API un intent desconocido, un cuerpo que no es un objeto, un ticket vacío (`EMPTY_TICKET`) y cualquier ticket con alguna selección inválida. Nunca envía un ticket menor al mostrado, devuelve las posiciones inválidas y el panel las marca.
+      - Una confirmación que falla por red, 429 o servidor caído (incluido el 502 del proxy) no recarga la lista, conserva el ticket y promete que no se cobra dos veces. Una lista que no se puede recargar con un ticket en armado deja la última lista y un botón «Reintentar».
+      - Tras confirmar, `refreshSession()` actualiza el contador y se abre el comprobante.
+  - **Comprobante (`/apuestas/tickets/:id`):** selecciones, estados, resultado real, puntos, monedas devueltas y anulación (BR-025).
+  - **Rutas:** `/apuestas` y `/apuestas/tickets/:id` en `SPA_ROUTES` y `vercel.json`. `SessionBar` suma «Apostar». Un apostador validado sin `?next=` entra a `/apuestas` (D-008).
+  - **Backend:**
+    - `GET /apuestas/partidos` pasa a `requireParticipant`: un pendiente ve la lista y un admin recibe 403 `NOT_A_PARTICIPANT`.
+    - Mensajes con plural real (`lib/plural.ts`) en `matches.service.ts` y `results.service.ts`.
+  - **Datos de ejemplo (D-013, D-015, D-016):**
+    - `server:seed:dev` y `server:seed:dev:clean` (`cli/seed-dev.ts`, `services/dev-seed.service.ts`).
+    - **Barreras:** exigen `NODE_ENV=development` en el entorno real del proceso, que la base sea exactamente `DEV_SEED_DATABASE` (comentada en `.env.example`, se activa a propósito) y nunca una de pruebas, y la bandera `--yes-dev-data`.
+    - **Marcas:** anotan cada fila en la tabla de desarrollo `dato_demo`. La limpieza borra solo esas filas y lo que hicieron las cuentas de ejemplo (auditoría incluida, D-015), y se niega sin borrar nada si hay datos reales colgados.
+  - **Documentación:** tuteo en `.env.example` (D-010).
+- **Archivos:**
+  - **Front:**
+    - **Código:** `src/pages/Apuestas.tsx`, `Apuestas.module.css`, `Ticket.tsx`, `Ticket.module.css`, `NotFound.tsx`; `src/components/BetMatchCard.tsx`, `TicketPanel.tsx`, `PixelIcon.tsx`, `TeamCrest.tsx`, `RenderGuard.tsx` (con sus módulos CSS), `SessionBar.tsx`; `src/lib/betting.ts`, `betting-labels.ts`, `ticket-draft.ts`, `auth.ts`; `src/types/betting.ts`; `src/App.tsx`.
+    - **Configuración:** `vite.config.ts`, `vercel.json`.
+  - **Pruebas del front:** `src/pages/Apuestas.test.tsx`; `src/components/TicketPanel.test.tsx`, `RenderGuard.test.tsx`; `src/lib/betting.test.ts`, `betting-labels.test.ts`, `ticket-draft.test.ts`; `src/test/betting-fixtures.ts`, `render-app.tsx`.
+  - **Backend:**
+    - **Código:** `server/src/cli/seed-dev.ts`; `server/src/services/dev-seed.service.ts`, `matches.service.ts`, `results.service.ts`; `server/src/config/env.ts`; `server/src/routes/betting.route.ts`; `server/src/lib/plural.ts`.
+    - **Pruebas:** `server/tests/dev-seed.test.ts` y ajustes en las pruebas de apuestas.
+    - **Configuración:** `server/package.json`, `compose.yaml`, `.env.example`.
+  - **Documentación:** `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`, `EsquemaBD.md` (`dato_demo`), `docs/business-rules.md` (BR-005, BR-024), `docs/decisiones.md` (del coordinador), `docs/plan-polla.md`, `docs/pendientes.md`.
+- **Verificación (revisión repartida entre dos testers; aprobada en la cuarta ronda, tras tres correcciones).**
+  - **Navegador y suites:** por la poca memoria libre de la máquina, **solo tester_liga usó el navegador** y **solo tester_liga_2 corrió las suites y el build**.
+  - **Contextos:** los contextos de tester_liga_2 y de ejecutor_liga se reiniciaron durante la tarea, y cada uno releyó los documentos antes de seguir.
+  - **Ronda 1:**
+    - **Parte A (tester_liga, navegador), reprobada por un defecto:** una confirmación que fallaba por 429 o con el backend caído revalidaba la lista, y la página entera pasaba a la de error, sin el mensaje ni el panel.
+    - **Resto de la parte A, aprobado:**
+      - **Pantalla:** lista, estados distinguibles en escala de grises, armado del ticket y borrador.
+      - **Confirmación:** doble clic, error por selección y comprobante con puntos y anulación.
+      - **Resto:** accesos, D-014 a 320 px y pixel art.
+    - **Parte B (tester_liga_2), reprobada por tres defectos:**
+      - **Comando sin barreras:** el comando de datos de ejemplo corría sin `NODE_ENV` y contra cualquier base, y creaba un admin con clave conocida.
+      - **Limpieza peligrosa:** borraba datos reales con nombres parecidos y los que colgaban de los de ejemplo.
+      - **Borrador corrupto:** dejaba `/apuestas` inutilizable.
+    - **Resto de la parte B, aprobado.**
+  - **Corrección 1:**
+    - **D-016:** tabla `dato_demo`, `NODE_ENV` explícito, `DEV_SEED_DATABASE` y `--yes-dev-data`.
+    - **Borrador:** validación completa y `RenderGuard`.
+    - **Fallos transitorios:** ya no revalidan la lista.
+  - **Ronda 2 (re-test 1):**
+    - **Parte B, aprobada:** matriz de la CLI, limpieza verificada con CRC de 14 tablas y 37 borradores corruptos.
+    - **Parte A, reprobada:** el panel no tomaba la fecha nueva de un partido postergado cuando solo se recargaba la lista.
+  - **Corrección 2:**
+    - **Panel:** fuente más reciente y nueva vista previa al recargar la lista.
+    - **Mensajes y avisos:** `aria-live` en los límites 0 y 999, plurales, mensaje del 502, «Reintentar» que limpia el error y aviso de selecciones descartadas.
+    - **Acción y borrador:** intents desconocidos rechazados, nunca un ticket menor al mostrado y fechas del borrador estrictas.
+    - **Configuración:** `DEV_SEED_DATABASE` comentada en `.env.example`.
+  - **Ronda 3 (re-test 2):**
+    - **Parte B, aprobada:**
+      - **Acción:** 23 intents raros y 300 tickets al azar sin enviar nunca menos selecciones.
+      - **Fechas:** 33 imposibles descartadas.
+      - **Comando:** con `.env.example` tal cual no carga.
+      - **Panel:** sin bucle de peticiones (una lista y una vista previa por carga), con la clave y el borrador intactos.
+      - **Chequeos:** 998/998 y 114/114 dos veces.
+    - **Parte A, reprobada por D-014:** a 320 px las fechas «Desde» y «Hasta» quedaban cortadas.
+  - **Corrección 3:**
+    - **Filtros:** rejilla de una columna de 320 a 390 px y deporte con opciones visibles (D-017).
+    - **Panel:** marca de las selecciones inválidas y anuncio del ajuste de goles.
+    - **Acción:** cuerpos raros y ticket vacío rechazados.
+    - **Borrador:** desfases de −12:00 a +14:00.
+    - **Configuración:** tuteo en `.env.example`.
+  - **Ronda 4 (re-test 3):**
+    - **Parte A (tester_liga, navegador), aprobada:** de 320 a 1280 px, un deporte de nombre largo, las opciones con teclado, y regresión con los tickets 22 y 23.
+    - **Parte B (tester_liga_2), aprobada:**
+      - **Acción:** 17 intents raros y 13 cuerpos (`null`, lista, número, JSON roto…) rechazados sin llamar a la API; `EMPTY_TICKET` en las dos acciones.
+      - **Desfases:** +14:00 y −12:00 aceptados; +14:01, −12:01 y −14:00 descartados.
+      - **Posiciones inválidas:** 300 tickets al azar, con inválidas repetidas y mezcladas, devuelven exactamente las posiciones en orden, sin enviar nada.
+      - **Filtro de deporte:** las opciones mandan a la API los mismos parámetros y tratan igual los valores inválidos de la URL.
+      - **CSS:** solo tokens, sin redondeos, sombras borrosas, gradientes ni transiciones sin `steps()`.
+      - **Chequeos:**
+        - `npm run server:typecheck` sin errores.
+        - 998/998 pruebas del backend dos veces en `la_liga_acp_test_2` (con estrés).
+        - 116/116 del front dos veces.
+        - Build sin errores ni advertencias y `coins:check` en 0.
+        - `CLAUDE.md` y `AGENTS.md` idénticos, y escaneo de invisibles limpio.
+  - **Limpieza:** se borraron las pruebas temporales; no quedaron datos `t2_`, y en los re-tests tester_liga_2 no corrió el comando de datos de ejemplo contra la base de desarrollo; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Deporte fuera de la lista:** un `deporteId` válido que no está en la lista se envía a la API, pero el grupo marca «Todos», y al volver a filtrar se pierde sin aviso.
+  - **Token de texto:** `--text-sm` es de 12 px, que no es múltiplo de 8 (anterior a esta tarea).
+  - **Relieve de los botones:** usa blanco y negro con transparencia fuera de los tokens (patrón anterior).
+  - **Anuncio «Agregado»:** queda en su región `aria-live` después de leerse.
+  - **Base del comando de ejemplo:** la comprobación no distingue otro servidor con el mismo nombre de base; ahí las barreras son `NODE_ENV` y la bandera.
+
+## 2026-09-17 — T-20 · Mis apuestas y ranking
+
+- **Cambio:** pantallas del historial propio y del ranking de la polla (BR-026, BR-042), con el menú «Polla» en la barra de sesión. Se aplicó la decisión del coordinador D-018 (`docs/decisiones.md`): un botón «Polla» con un menú desplegable (Apostar, Mis apuestas, Ranking), que mantiene el navbar en dos filas (D-007) y sin nada cortado a 320 px (D-014).
+  - **Mis apuestas (`/mis-apuestas`):**
+    - Solo para cuentas `apostador`. Un pendiente ve el historial vacío y el motivo; un admin ve la página 403 (BR-001).
+    - Resumen con las mismas cifras de la API: tickets y selecciones por estado, puntos, aciertos, y monedas usadas y devueltas.
+    - Lista agrupada por ticket (`groupByTicket`), con enlace al comprobante y un aviso cuando una página no alcanza a mostrar todas las selecciones de un ticket.
+    - **Filtros en la URL de la página:** estado de la selección, estado del ticket, deporte, competición y rango de fechas.
+      - El deporte y la competición son opciones visibles (`ChoiceGroup`, D-017). Las competiciones aparecen al elegir el deporte, si caben en una página.
+      - Un filtro inválido, o un deporte que ya no existe, se quita con un aviso; un parámetro desconocido se ignora.
+    - **Paginación:** 20 selecciones por página. Una página que no existe se avisa y se muestra la última; la URL se reemplaza por la página mostrada, sin una entrada nueva en el historial.
+    - **Foco:** «Anterior», «Siguiente», «Filtrar» y «Quitar filtros» llevan el foco al conteo y anuncian «Página X de Y». Atrás y Adelante no mueven el foco.
+    - **Fallos pasajeros** (sin red, 429 o 5xx): se sigue viendo la lista anterior, con un aviso de que no corresponde a lo elegido y el botón «Reintentar» (con `aria-disabled`; al cargar, el foco va al conteo).
+  - **Ranking (`/ranking`):**
+    - Para cualquier sesión. Es una `<table>` con encabezados cortos en teléfonos y palabras completas para los lectores de pantalla.
+    - **Posiciones:** las compartidas se marcan con `=`. La fila propia lleva la marca «TÚ» y, si no está en la lista, va aparte al final (con `=N` si el tope de 50 cortó su empate). `topSinMostrar` se dice en palabras.
+    - **«Actualizar»:** conserva el foco (`aria-disabled`) y anuncia si se actualizó o si falló. Si falla, conserva la tabla con el aviso y «Reintentar».
+  - **Sesión que no se puede comprobar** (`requireKnownUser` en `src/lib/route-guards.ts`):
+    - Si `/auth/me` falla por red, 5xx o 429 y la pestaña ya conoce a un usuario de ese rol, `/ranking` y `/mis-apuestas` conservan la página, los datos y el formulario, con el aviso y «Reintentar».
+    - Un 401 sigue llevando a `/ingresar?next=`.
+    - Sin usuario conocido (primera visita) se muestra la página de error, que ahora tiene «Reintentar».
+    - `/apuestas` conserva su lista aunque no haya un ticket en armado.
+  - **Barra de sesión (D-018):**
+    - El apostador tiene el menú «Polla». Se cierra con Escape (que devuelve el foco al botón), con un clic afuera, al salir con Tab o al cambiar de página; un clic dentro del menú, fuera de un enlace, no lo cierra.
+    - El admin tiene un enlace directo a Ranking.
+  - **Rutas:** `/mis-apuestas` y `/ranking` en `SPA_ROUTES` y `vercel.json`.
+  - **Datos de ejemplo:** el comando de desarrollo carga además 6 tickets de Ana, Carla, Dani y Eva.
+    - Todos se confirman antes del cierre de sus partidos y se debitan con `debitSelections`.
+    - Los partidos finalizados se liquidan con el liquidador real.
+    - En el partido cancelado, las selecciones se anulan con el mismo UPDATE de la cancelación (armado a mano, con la justificación en `server/README.md`) y se devuelven con `refundSelections`.
+    - El comando muestra el saldo real de cada cuenta.
+  - **Reglas:** precisiones de T-20 en BR-026 y BR-042.
+- **Archivos:**
+  - **Front:**
+    - **Código:** `src/pages/MisApuestas.tsx`, `MisApuestas.module.css`, `Ranking.tsx`, `Ranking.module.css`, `Apuestas.tsx`, `Apuestas.module.css`, `NotFound.tsx`; `src/components/SessionBar.tsx`, `SessionBar.module.css`, `StateTag.tsx`, `StateTag.module.css`, `ChoiceGroup.tsx`, `ChoiceGroup.module.css`, `PixelIcon.tsx`, `BetMatchCard.tsx`, `TicketPanel.tsx`, `RenderGuard.tsx`; `src/layouts/Base.tsx`; `src/lib/bet-history.ts`, `ranking.ts`, `route-guards.ts`, `api.ts`, `betting.ts`, `betting-labels.ts`, `ticket-draft.ts`; `src/types/betting.ts`; `src/App.tsx`.
+    - **Configuración:** `vite.config.ts`, `vercel.json`.
+  - **Pruebas del front:** `src/pages/MisApuestas.test.tsx`, `Ranking.test.tsx`, `Apuestas.test.tsx`; `src/lib/bet-history.test.ts`, y ajustes en `betting.test.ts`, `betting-labels.test.ts` y `ticket-draft.test.ts`; `src/components/TicketPanel.test.tsx`, `RenderGuard.test.tsx`; `src/layouts/Base.test.tsx`.
+  - **Backend:** `server/src/services/dev-seed.service.ts`, `server/src/cli/seed-dev.ts` y su prueba `server/tests/dev-seed.test.ts` (tickets antes del cierre, liquidación real y saldo real).
+  - **Documentación:** `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`, `docs/business-rules.md` (BR-026, BR-042), `docs/decisiones.md` (D-018, del coordinador), `docs/plan-polla.md`, `docs/pendientes.md`.
+- **Verificación (revisión repartida entre dos testers; aprobada en la tercera ronda, tras dos correcciones).**
+  - **Navegador y suites:** por la poca memoria libre de la máquina, **solo tester_liga usó el navegador** y **solo tester_liga_2 corrió las suites y el build**.
+  - **Instancias:** tester_liga probó contra su propia instancia del backend en el puerto 3950 (base de desarrollo, con los datos de ejemplo del comando y datos `t1_`), con Vite apuntando a ella. La detuvo para simular el backend caído (502) y la reinició con límites bajos para provocar los 429.
+  - **Contextos:** los contextos de tester_liga y de ejecutor_liga se reiniciaron durante la tarea, y cada uno releyó los documentos antes de seguir.
+  - **Ronda 1:**
+    - **Parte A (tester_liga, navegador), reprobada por tres defectos:**
+      - Una página fuera de rango (`?page=999`) se mostraba sin aviso.
+      - Al paginar se perdía el foco.
+      - «Actualizar» del ranking perdía el foco y no anunciaba nada, y si fallaba borraba la tabla.
+    - **Resto de la parte A, aprobado:** resumen igual a la API, lista por ticket, filtros, paginación de 45 selecciones, actualización tras confirmar un ticket y tras un resultado y una cancelación, ranking con 67 participantes y tope de 50, fila propia, menú Polla y 320 px.
+    - **Parte B (tester_liga_2), reprobada por un defecto:** un ticket de ejemplo (el de Eva) se confirmaba después del cierre de su partido.
+    - **Resto de la parte B, aprobado:** datos de ejemplo en una base propia, limpieza verificada con CHECKSUM de 16 tablas, 42 URLs de filtros, caché, ranking sin fugas de datos, menú accesible y 144 pruebas del front.
+  - **Corrección 1:**
+    - **Datos de ejemplo:**
+      - El ticket de Eva se confirma antes del cierre, con una prueba nueva.
+      - La liquidación usa el liquidador real; la anulación, armada a mano, quedó justificada.
+      - El comando muestra el saldo real.
+    - **Pantallas:** los defectos A1 a A3; el menú ya no se cierra por un blur; aviso de lista anterior; `=N` en la fila propia; competiciones al elegir el deporte; precisiones de BR-026.
+  - **Ronda 2 (re-test 1):**
+    - **Parte B, aprobada.** Un corte de conexión de la API detuvo a tester_liga_2 a mitad de la revisión; la retomó sin repetir lo ya verificado.
+    - **Parte A, reprobada por un defecto:** con el backend caído del todo, «Actualizar» en `/ranking` y filtrar o paginar en `/mis-apuestas` pasaban a la página de error. Se perdían la tabla y la lista, sin aviso en la página ni «Reintentar».
+      - **Causa:** la lectura de `/auth/me` en el loader fallaba antes que la de los datos.
+      - Con 429 funcionaba, porque `/auth/me` no cuenta en el límite general.
+    - **Resto de la parte A, aprobado:**
+      - A1 con la página 999, una página de más tras filtrar y `page=0`.
+      - A2 con teclado a 320, 390 y 1280 px.
+      - A3 con 429.
+      - Las observaciones a, b, e y f.
+  - **Corrección 2:**
+    - **Sesión (`requireKnownUser`):** un fallo pasajero con un usuario conocido conserva la página y los datos; un 401 lleva a ingresar; una primera visita muestra la página de error con «Reintentar». `/apuestas` conserva la lista sin ticket.
+    - **Foco y anuncios:** «Reintentar» con `aria-disabled` y foco al conteo; «Filtrar» y «Quitar filtros» llevan el foco al conteo (o al aviso si falla); carreras de foco corregidas.
+    - **URL y navegación:** la página corregida reemplaza la URL sin entrada nueva; Atrás y Adelante no mueven el foco (documentado).
+  - **Ronda 3 (re-test 2):**
+    - **Parte A (tester_liga, navegador), aprobada:**
+      - **Backend caído (502) y 429 de `/auth/me`, a 320 y 1280 px:**
+        - «Actualizar» en `/ranking`, filtrar y paginar en `/mis-apuestas` y filtrar en `/apuestas` (con y sin ticket) conservan la página, los datos y el formulario, con el aviso y «Reintentar».
+        - El foco queda en el botón o en el aviso.
+        - Al volver el backend, «Reintentar» actualiza.
+      - **Primera visita con el backend caído:** página de error con «Reintentar», que carga cuando el backend vuelve.
+      - **Sesión borrada en la base:** «Actualizar», «Siguiente» y «Filtrar» (también en `/apuestas`) llevan a `/ingresar?next=`, sin confundirse con un fallo pasajero.
+      - **Correcciones a, b, c y d:**
+        - El foco y los anuncios de «Reintentar», «Filtrar» y «Quitar filtros» funcionan.
+        - `page=999`, y una página de más tras filtrar, reemplazan la URL sin entrada nueva y con el aviso visible.
+        - Atrás y Adelante no mueven el foco y restauran el scroll.
+      - **Regresión:**
+        - Resumen y ranking iguales a la API (tope de 50 y 23 sin mostrar).
+        - Menú Polla con teclado.
+        - Un ticket confirmado aparece en Mis apuestas y el contador baja a 9.
+        - A 320 px no hay desbordes en las tres pantallas.
+    - **Parte B (tester_liga_2), aprobada:**
+      - **`requireKnownUser`:** 14 pruebas propias, sin fugas de datos entre usuarios; `shouldRevalidate` revisado.
+      - **Chequeos:**
+        - 999/999 pruebas del backend dos veces.
+        - 157/157 del front tres veces.
+        - Build sin errores y `coins:check` en 0.
+  - **Limpieza:** se borraron las pruebas temporales, los datos `t1_` y `t2_` y los datos de ejemplo (la base de desarrollo quedó vacía); Vite y las instancias locales quedaron detenidos; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **429 en BR-026:** la regla no menciona el 429 como fallo pasajero.
+  - **Cuenta cambiada en otra pestaña:** si la sesión falla antes de la siguiente lectura correcta, la pestaña sigue mostrando los datos del usuario anterior.
+  - **`next` con la sesión borrada:** en `/mis-apuestas` es la URL anterior, así que se pierde el filtro o la página pedidos; en `/apuestas` es la nueva.
+  - **Página de error de primera visita:** un «Reintentar» que vuelve a fallar no anuncia nada, y cuando carga bien el foco cae al `body`.
+  - **Iconos de Pendiente y Anulado:** se parecen a tamaño real (anotado en `docs/pendientes.md`).
+
+## 2026-09-17 — T-21 · Panel de administración
+
+- **Cambio:** el panel `/admin` completo (BR-001, BR-007, BR-028 a BR-033), la tarea de pantallas más grande. Se aplicaron dos decisiones del coordinador: **D-019** (selector con búsqueda para competiciones, equipos, jugadores y planteles) y **D-020** (de quién es la base de desarrollo), ambas en `docs/decisiones.md`.
+  - **Secciones:** resumen con los conteos de participantes y las estadísticas de la polla; participantes; catálogo (deportes, competiciones, equipos, jugadores y planteles); partidos y la ficha de cada partido; apuestas; ranking completo; auditoría. Cada sección carga su código al entrar (`lazy`), así que un visitante o un apostador nunca lo descarga, y su loader comprueba la sesión y el rol.
+  - **Participantes:** tabla y conteos de BR-007, con filtros, búsqueda y paginación. Confirmar pago, revertirlo y validar tienen su paso explícito, y los 409 se explican. No hay ninguna acción de rol (BR-001).
+  - **Catálogo:** alta, edición en la fila y borrado de los cinco recursos, con los errores del backend por campo (`SLUG_TAKEN`, `*_IN_USE` con sus cantidades, `SHIRT_NUMBER_TAKEN`, `PLAYER_ALREADY_ENROLLED`, `DRAW_RULE_LOCKED`, URL de escudo o foto inválida, color inválido, nombres con caracteres invisibles). Los escudos y las fotos se muestran solo con `<img>`.
+  - **Partidos:** listado con filtros y el orden por proximidad (BR-013), alta con la fecha y hora de Lima que llega en UTC, y las reglas de edición según el estado efectivo y las apuestas. El borrado sigue D-001.
+  - **Ficha del partido:** resultado con su vista previa y la confirmación definitiva (que liquida), goles con jugador, equipo y minuto, imágenes subidas por multipart con CSRF, videos por enlace y la cancelación con su vista previa (incluidas las anuladas sin devolución, D-002).
+  - **Consulta de apuestas (`GET /admin/polla/apuestas`, nueva):** una fila por selección, con filtros y paginación, y sin datos sensibles.
+  - **Ranking completo y estadísticas** de la polla, y **auditoría** legible (los cambios con su valor anterior y el nuevo) con sus filtros.
+  - **Selector con búsqueda (D-019, `SearchSelect`):** pide las opciones a la API ya filtradas por el texto escrito y paginadas, así que no hay tope de 100 y la opción elegida se lee entera, en varias líneas si hace falta. Es un combobox con listbox: flechas, Enter, Escape, `aria-activedescendant` y anuncio de los resultados. El backend suma el filtro `q` en planteles y devuelve los nombres en cada fila, así que las etiquetas no dependen de otra lista.
+  - **Sesión caída (`useRememberedNavigate`, `src/hooks/useRequestedPath.ts`):** un solo camino registra el destino de cada forma de pedir una página (enlaces, formularios, revalidaciones y correcciones de URL). El registro caduca a los 2 segundos, se olvida al llegar y al montar la app, y siempre pasa por `safeNextPath`, así que la redirección a ingresar lleva la URL pedida y nunca una ajena.
+  - **Seguridad de archivos:** las imágenes se sirven con `sendFile` acotado por `root`.
+  - **Rutas:** `/admin` y sus secciones en `SPA_ROUTES` y `vercel.json`.
+- **Archivos:**
+  - **Front:**
+    - **Panel:** `src/pages/admin/` (`AdminLayout.tsx`, `AdminHome.tsx`, `Participantes.tsx`, `Catalogo.tsx`, `Partidos.tsx`, `Partido.tsx`, `ApuestasAdmin.tsx`, `RankingAdmin.tsx`, `Auditoria.tsx`, `routes.tsx`, `Admin.module.css`); `src/components/admin/AdminUi.tsx`, `SearchSelect.tsx`.
+    - **Resto:** `src/hooks/useRequestedPath.ts`, `useKept.ts`; `src/layouts/Base.tsx`; `src/lib/admin-core.ts`, `admin-catalog.ts`, `admin-choices.ts`, `admin-load.ts`, `admin-pool.ts`, `api.ts`, `bet-history.ts`, `next-path.ts`, `route-guards.ts`; `src/pages/Apuestas.tsx`, `MisApuestas.tsx`, `Ranking.tsx`, `NotFound.tsx`; `src/components/SessionBar.tsx`; `src/types/admin.ts`; `src/App.tsx`; `vite.config.ts`, `vercel.json`.
+  - **Pruebas del front:** `src/pages/admin/panel.test.tsx`, `partidos.test.tsx`; `src/components/admin/search-select.test.tsx`; `src/hooks/useRequestedPath.test.ts`; `src/pages/session-gone.test.tsx`; y ajustes en `Apuestas.test.tsx`, `MisApuestas.test.tsx`, `Ranking.test.tsx`, `auth-pages.test.tsx`, `src/layouts/Base.test.tsx` y `src/test/`.
+  - **Backend:** `server/src/services/admin-bets.service.ts` (nuevo), `catalog-query.ts`, `competitions.service.ts`, `teams.service.ts`, `enrollments.service.ts`, `matches.service.ts`, `ranking.service.ts`, `bet-history.service.ts`, `audit.service.ts`, `dev-seed.service.ts`; `server/src/controllers/media.controller.ts`, `ranking.controller.ts`; `server/src/routes/ranking.route.ts`; `server/src/schemas/common.schema.ts`, `catalog.schema.ts`, `betting.schema.ts`; `server/src/cli/seed-dev.ts`.
+  - **Pruebas del backend:** `server/tests/admin-bets.test.ts`, `pagination-numbers.test.ts` (nuevas) y ajustes en `catalog-competitions-teams.test.ts`, `catalog-players-enrollments.test.ts`, `matches.test.ts`, `goals-media.test.ts`, `ranking.test.ts`, `participants-list.test.ts`, `audit.test.ts`, `dev-seed.test.ts` y `helpers/app.ts`.
+  - **Documentación:** `README.md`, `server/README.md`, `CLAUDE.md`, `docs/business-rules.md`, `docs/decisiones.md` (D-019 y D-020, del coordinador), `docs/plan-polla.md`, `docs/pendientes.md`.
+- **Verificación (revisión repartida entre dos testers; aprobada en la cuarta ronda, tras tres correcciones).**
+  - **Navegador y suites:** por la poca memoria libre de la máquina, **solo tester_liga usó el navegador** y **solo tester_liga_2 corrió las suites y el build**.
+  - **Instancias:** tester_liga probó contra su propia instancia del backend en el puerto 3950, con su carpeta de subidas aparte, y con los datos de ejemplo del comando más datos `t1_` de volumen.
+  - **Interrupción:** el ejecutor se detuvo una vez sin avisar; el coordinador lo retomó y la tarea siguió.
+  - **Ronda 1:**
+    - **Parte A (tester_liga, navegador), reprobada por cuatro defectos:**
+      - Los `select` con nombres largos se cortaban a 320 y 390 px y no se leía la opción elegida (contra D-014): dos competiciones que solo cambiaban al final se veían igual.
+      - En `/mis-apuestas`, con la sesión borrada, el `next` iba sin el filtro pedido.
+      - Quitar la imagen o el video de un gol no pedía confirmación, y la imagen se borraba del servidor.
+      - El error de fechas invertidas en los filtros no se anunciaba ni recibía el foco.
+    - **Parte B (tester_liga_2), reprobada por un defecto:** las listas de opciones traían una sola página de 100, así que el jugador 101 no se podía inscribir y podían faltar equipos de una competición.
+    - **Resto, aprobado:** seguridad de los archivos con el cambio a `sendFile` con `root` (34 nombres y 7 rutas), la consulta `GET /admin/polla/apuestas`, la ausencia de acciones de rol, CSRF en todas las escrituras (subida incluida), las fechas de Lima convertidas a UTC, el multipart contra el backend real, los datos de ejemplo, y 1007 pruebas del backend y 190 del front.
+  - **Corrección 1 (D-019):** `SearchSelect` con búsqueda paginada desde la API en competición, equipo, jugador, plantel y acciones de auditoría; filtro `q` en el backend y nombres por fila; los defectos A2, A3 y A4; campos marcados en los errores, redacción, aviso de página inexistente, foco al aviso, ranking con los empatados desde la API, `client_max_body_size` y el 413 en HTML, y `page` y `pageSize` solo enteros.
+  - **Ronda 2 (re-test 1):**
+    - **Parte B, aprobada:** búsqueda con intentos de inyección, paginación sin huecos, 17 valores en 15 listas, volumen y `SearchSelect` sin bucles de peticiones.
+    - **Parte A, reprobada:** el enlace «Siguiente» perdía `?page=2` en el `next`.
+  - **Corrección 2:** `useRequestedPath` para los enlaces, y las demás observaciones.
+  - **Ronda 3 (re-test 2):**
+    - **Parte B, aprobada:** 12 enlaces ajenos, sin fugas de datos, y una prueba de 401 intermitente que no se reprodujo en 12 corridas.
+    - **Parte A, reprobada:** «Filtrar», que es un envío de formulario y no un enlace, seguía perdiendo la URL pedida en `/mis-apuestas` y `/apuestas`.
+  - **Corrección 3:** `useRememberedNavigate`, un solo camino para enlaces, formularios, revalidaciones y correcciones de URL, con caducidad de 2 s, olvido al llegar y al montar, y `safeNextPath`; y la búsqueda de opciones recortada a 100 caracteres antes de pedir.
+  - **Ronda 4 (re-test 3):**
+    - **Parte A (tester_liga, navegador), aprobada:**
+      - **Las cuatro zonas,** a 320 y 1280 px, con la fila de sesión borrada en la base y la cookie aún en el navegador: «Filtrar», los enlaces de paginación, «Actualizar» y los enlaces de sección llevan a `/ingresar?next=` con la URL pedida (filtros y página), y al ingresar se vuelve exactamente ahí. Probadas las combinaciones: filtrar desde la página 2, filtrar y después paginar, y quitar filtros.
+      - **El registro no secuestra otras redirecciones:** tras pulsar un enlace, cambiar de idea y navegar a otra parte, con más de 2 s hasta la caída, el `next` es la página donde se está; igual con una recarga de la app entre medio.
+      - **Un `next` externo nunca se usa,** y con la sesión viva nada cambia.
+      - **Búsqueda larga:** con 101 y con 303 caracteres, escritos o pegados, la API recibe siempre 100, no falla y se avisa.
+      - **Regresión a 320 px, sin desbordes:** panel (pago y validación con sus 10 monedas, alta y borrado de deporte, alta de partido con los buscadores, marcador, gol con imagen, confirmación del resultado con el partido bloqueado, cancelación con su devolución, y apuestas, ranking, estadísticas y auditoría iguales a la API) y pantallas de apostador (ticket confirmado, comprobante, mis apuestas y ranking).
+    - **Parte B (tester_liga_2), aprobada:**
+      - 12 destinos externos y encadenados, la ventana de 2 s, sin fugas ni temporizadores sueltos, un solo camino, y el recorte con acentos y emojis.
+      - **Chequeos:** 1105/1105 pruebas del backend dos veces, 229/229 del front dos veces, build sin errores y `coins:check` en 0.
+  - **Limpieza:** se borraron los datos `t1_` (incluido un deporte con 2 competiciones, 120 equipos, 150 jugadores y 25 participantes), los datos de ejemplo y las imágenes subidas; la base de desarrollo quedó vacía, y Vite y las instancias locales detenidos; la base y el server de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Recorte de la búsqueda:** corta por unidades UTF-16, así que puede partir un emoji y esa búsqueda se pierde.
+  - **Imports sin usar:** `Apuestas.tsx` y `MisApuestas.tsx` importan `useNavigate` sin usarlo.
+  - **Borrado de un partido:** navega sin registrar el destino.
+  - **Prueba de 401 al ingresar:** falló una vez y no se reprodujo.
+  - **Registro del destino:** es estado de módulo con una ventana de 2 s; conviene mirarlo si aparece una redirección rara.
+
+## 2026-09-17 — T-22 · Landing con datos reales
+
+- **Cambio:** la parte informativa deja de ser estática y lee la **API pública** (`/public/...`, sin sesión) para la portada, `/posiciones` y `/plantilla/:id` (BR-048 a BR-050). Se aplicaron tres decisiones del coordinador: **D-021** (qué competición muestra la landing), **D-022** (las estadísticas del radar siguen siendo de muestra) y **D-023** (la tabla de posiciones muestra todas las columnas de BR-050), todas en `docs/decisiones.md`.
+  - **Un solo traductor:** `src/lib/league.ts` es el único lugar que conoce los nombres en español de la API y los convierte a los tipos de `src/types/index.ts` (`listSports`, `listCompetitions`, `getCompetition`, `listTeams`, `listFixture`, `listStandings`, `getTeamWithSquad`), y `src/lib/league-view.ts` (`readLeagueChoice`) arma lo que las dos pantallas necesitan antes de dibujar. Las páginas leen en su `loader` y los componentes reciben todo por props: ninguno pide datos por su cuenta.
+  - **Se borran los datos estáticos** de equipos, partidos, jugadores y ubicaciones (`src/data/teams.ts`, `matches.ts`, `players.ts`, `squad-placements.ts`, y `src/lib/teams.ts`, `matches.ts`, `players.ts`, `standings.ts`). Queda solo el generador del radar (`src/data/player-stats.ts`, D-022), que ahora deriva los seis atributos del **id real** del jugador —iguales en cada recarga y dispositivo— y la ficha dice en pantalla que son de muestra, igual que la ubicación en la cancha (el dorsal sí es el real).
+  - **Selector de deporte y competición (D-021, BR-048):** `CompetitionPicker` con opciones visibles (D-017), y la elección en la URL (`?deporteId=&competicionId=`), así que la vista se puede compartir. Sin esos parámetros la regla vive en un solo lugar, `defaultCompetition`: la competición del **próximo partido programado**; si no hay ninguno, la del **jugado más reciente** (`en_curso` o `finalizado`), salteando los cancelados (nunca tienen marcador, BR-049, ni cuentan en la tabla, BR-050); si todo estaba cancelado, el cancelado más reciente; y sin partidos, la primera competición de la lista. Una sola página en orden de proximidad alcanza para decidir, y solo una página que sea toda cancelados pide el programado exacto.
+  - **`/plantilla/:id` con el id numérico** (decisión del usuario en T-08): un **400 y un 404 son los dos "no existe"** (`isMissing`), así que un id inválido y uno que no existe muestran la misma página de no encontrado.
+  - **Escudos y fotos vienen de la API** como URL `https://` o ruta del propio sitio: se muestran con `<img>` y `pixelated` a tamaño fijo (`Crest`), nunca SVG incrustado, y con respaldo a las iniciales del equipo cuando el archivo no está. `PixelImage` y `?pixel=` quedan para la ilustración que sí vive en `src/assets/`.
+  - **El fixture se pide por competición**, de a 100 (`?competicionId=`, `?jornada=`), nunca recorriendo toda la tabla.
+- **Archivos:**
+  - **Front:** `src/lib/league.ts` y `src/lib/league-view.ts` (nuevos); `src/lib/api.ts`; `src/pages/Home.tsx`, `Posiciones.tsx` y `Posiciones.module.css`, `Plantilla.tsx`, `NotFound.tsx`; `src/components/Fixture.tsx` y `Fixture.module.css`, `Hero.tsx`, `MatchCard.tsx`, `Carousel.tsx`, `SquadBoard.tsx`, `PlayerStatsDialog.tsx`, y `Crest.tsx`, `CompetitionPicker.tsx` y `LeagueNotice.tsx` (nuevos); `src/types/index.ts`; `src/data/player-stats.ts`; `src/lib/squad-layout.ts`; `src/utils/format-date.ts`.
+  - **Borrados:** `src/data/teams.ts`, `matches.ts`, `players.ts`, `squad-placements.ts`; `src/lib/teams.ts`, `matches.ts`, `players.ts`, `standings.ts`.
+  - **Pruebas del front:** `src/test/league-fixtures.ts` y `src/test/render-league.tsx` (nuevos), `src/lib/league.test.ts`, `src/pages/league-pages.test.tsx`, `src/lib/api.test.ts`, y ajustes en `src/test/betting-fixtures.ts`.
+  - **Documentación:** `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/decisiones.md` (D-021, D-022 y D-023, del coordinador), `docs/plan-polla.md`, `docs/pendientes.md`.
+- **Verificación (revisión repartida entre dos testers; aprobada en la tercera ronda, tras dos correcciones).**
+  - **Reparto:** por la poca memoria libre de la máquina, **solo `tester_liga` usó el navegador** y **solo `tester_liga_2` corrió las suites y el build**. Los tres agentes (el ejecutor y los dos testers) pasaron por un **reinicio de contexto** durante la tarea; cada uno volvió a leer sus reglas y los documentos del proyecto antes de seguir.
+  - **Instancias:** `tester_liga_2` verificó el contrato contra su propia instancia del backend en el puerto 3900, apuntada a `la_liga_acp_test_2`, con datos `t2_` propios; nunca tocó la base de desarrollo, que durante la revisión fue de `tester_liga` (D-020).
+  - **Ronda 1:**
+    - **Parte A (`tester_liga`, navegador), aprobada con un hallazgo:** la tabla de posiciones mostraba solo puesto, equipo y puntos, cuando BR-050 y la API traen diez columnas. Venía de la versión estática anterior, así que no lo introdujo la T-22; el coordinador lo resolvió con **D-023** y lo mandó corregir dentro de la tarea. Tres observaciones más, menores.
+    - **Parte B (`tester_liga_2`), aprobada con observaciones:** las posiciones no pasaban por los tipos, el fixture se cortaba en 500 sin avisar, un cuerpo inesperado terminaba en la página de error, la portada pedía los partidos dos veces y las simulaciones de las pruebas no respondían como la API.
+    - **El ejecutor encontró por su cuenta** que sus propias simulaciones escondían un defecto real en posiciones: un manejador que contestaba lo mismo se le pidiera lo que se le pidiera.
+  - **Corrección 1 (D-023):** las diez columnas de BR-050 en una tabla con **desplazamiento horizontal propio** (la página nunca se va de lado) y el equipo fijo al borde izquierdo; posiciones mapeado a `ResolvedStanding` (`Standing` suma `goalDifference`); la regla de la competición por defecto en un solo lugar y documentada; sin cifras inventadas tras un 429; la sección Fixture siempre con su aviso; aviso al cortar en 500; un cuerpo inesperado tratado como fallo transitorio; una sola llamada en la portada; y las simulaciones alineadas con la API real, con 404 por defecto ante una ruta no prevista.
+  - **Ronda 2 (re-test 1):**
+    - **Parte A, aprobada:** las diez columnas iguales a las de la API, el desplazamiento propio sin arrastrar la página, alcanzable por teclado y anunciado al lector de pantalla, y los cuatro casos de la regla de elección.
+    - **Parte B, reprobada por 2 defectos:** un **2xx sin el sobre `{ data }`** (HTML de un proxy, JSON roto, texto, array, `null`, sobre sin `data`) daba la página de error titulada "Error 200", sin "Reintentar" —36 de 60 combinaciones—; y **con un deporte elegido** la competición por defecto salía del deporte equivocado, así que la portada abría en una competición vacía y gastaba una lectura que después descartaba.
+  - **Corrección 2:** en `src/lib/api.ts`, una respuesta 2xx sin el sobre es `BAD_RESPONSE` con **status 0**, o sea transitoria, así que cada pantalla muestra su aviso con "Reintentar" en cualquier ruta y método, y los códigos reales conservan status, código y mensaje; `defaultCompetition` recibe el deporte elegido y lo manda en sus lecturas; tres simulaciones más alineadas con la API; `/posiciones` con nombres accesibles distintos y sin tabla vacía; y el README explica los 30 s de caché.
+  - **Ronda 3 (re-test 2):**
+    - **Parte B (`tester_liga_2`), aprobada:** las 90 combinaciones de la ronda anterior más 18 nuevas (9 formas de cuerpo 2xx sin sobre, en GET y en POST), los códigos reales en 11 variantes (400, 401, 403, 404, 409, 429, 500 y 503, con el 413 del proxy y la espera del 429 intactos), las escrituras (confirmar un ticket contra un 200 sin sobre deja la pantalla con su alerta y **reutiliza la misma `Idempotency-Key`** en el reintento; un 401 sigue llevando a ingresar), la competición por deporte con **una sola lectura** y sin descartes, y las simulaciones.
+    - **Parte A (`tester_liga`, navegador), aprobada:** el caso del proxy que devuelve HTML **provocado de verdad**, la recuperación con "Reintentar", los nombres accesibles, las diez columnas y la regresión a 320 px.
+    - **Chequeos:** `server:typecheck` y `tsc` del front sin errores, **1105/1105** pruebas del backend dos veces (con el estrés de concurrencia) en `la_liga_acp_test_2`, **284/284** del front dos veces, `npm run build` sin avisos, `coins:check` en 0, `CLAUDE.md` y `AGENTS.md` idénticos y sin caracteres invisibles.
+  - **Limpieza:** se borraron los datos `t2_` y los que dejó la revisión en el navegador; la instancia local del backend quedó detenida, y la base y el `server` de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **Caché pública de 30 s:** un cambio hecho por la API tarda hasta medio minuto en verse en la landing, en el navegador o en un proxy intermedio. Está explicado en el README; el panel responde `no-store` y siempre ve el dato nuevo.
+  - **Sin partidos cargados** la competición elegida es la primera de la lista, que es la de id menor dentro de su deporte.
+  - **Cuatro simulaciones del panel no coinciden con la API real:** el detalle de auditoría del alta de un deporte omite `slug` (y la aserción que lo acompaña **fallaría** contra la API real: hoy pasa solo por la simulación), el de la validación omite `movimientoId`, el texto de `RESULT_INCOMPLETE` difiere del backend, y las respuestas simuladas de confirmar resultado y de confirmar cancelación difieren en campos que hoy no lee ninguna prueba. Se resuelven en **T-23**.
+
+## 2026-09-17 — T-23 · Repaso final
+
+- **Cambio:** el repaso final de todo lo construido (NFR-001, NFR-002, NFR-003, NFR-005) y la puesta al día de la documentación. Es la última tarea del plan.
+  - **Paso 0, las simulaciones del front alineadas con la API:** las 4 que dejó anotadas T-22 (el detalle de auditoría del alta de un deporte sin `slug` —cuya aserción habría fallado contra la API real—, la validación sin `movimientoId`, el texto de `RESULT_INCOMPLETE` y las respuestas de confirmar resultado y confirmar cancelación) más **8 que encontró el ejecutor al revisarlas una por una**, entre ellas los planteles filtrados por `equipoId` y el resultado oficial que devuelve la confirmación. Una simulación que no contesta lo que contesta el backend esconde el defecto que debería atrapar.
+  - **[docs/verificacion-final.md](docs/verificacion-final.md) (nuevo):** las 55 BR y los 6 NFR repasadas una por una, cada una con dónde se cumple y con qué se comprueba. Resultado: **61 cumplidas, 4 con una precisión ya aprobada por el coordinador y ninguna pendiente**.
+  - **Mobile first y responsive:** recorrido de todas las pantallas a 320, 390, 768, 1024 y 1280 px. Salieron **tres objetivos táctiles por debajo de 44 px** (el enlace de marca del navbar y el «Volver» de la plantilla) y **tres transiciones sin regla de movimiento reducido** (`.link` de `Navbar`, `.arrow` de `Carousel` y `.back` de `Plantilla`), todas corregidas.
+  - **Seguridad:** repaso de las rutas y sus guardias, y `npm audit` en 0 vulnerabilidades.
+  - **Verificación global** con la base recreada desde cero y un recorrido de extremo a extremo.
+  - **Defecto que encontró el propio ejecutor:** ni `/` ni `/posiciones` tenían frontera de error, así que un fallo no transitorio dejaba la pantalla del router **fuera del layout**. Les agregó `RouteError` y una prueba que exige frontera en todo el árbol real.
+- **Archivos:**
+  - **Front:** `src/App.tsx` (frontera en `/` y `/posiciones`), `src/pages/NotFound.tsx` (`RouteError` y `UnexpectedError`), `src/components/Navbar.module.css` (objetivo táctil y movimiento reducido), `src/components/Carousel.module.css`, `src/pages/Plantilla.module.css`.
+  - **Pruebas del front:** `src/pages/render-error.test.tsx` (nueva), `src/App.test.tsx`, y las simulaciones de `src/test/` con las pruebas que las usan (`src/pages/admin/panel.test.tsx` entre ellas).
+  - **Documentación:** `docs/verificacion-final.md` (nuevo), `docs/business-rules.md`, `docs/pendientes.md`, `docs/plan-polla.md`, `CLAUDE.md`, `AGENTS.md`, `README.md`, `server/README.md`, `EsquemaBD.md`.
+- **Verificación (revisión repartida entre los dos testers; aprobada en la segunda ronda, tras una corrección).**
+  - **Reparto:** por la poca memoria libre de la máquina, **solo `tester_liga` usó el navegador** y **solo `tester_liga_2` corrió las suites y el build**.
+  - **Ronda 1:**
+    - **Parte B (`tester_liga_2`), aprobada, con cuatro imprecisiones de documentación:** comprobó por su cuenta **30 reglas de negocio y los 6 NFR**, verificó **una por una** las aserciones que cita `verificacion-final.md`, revisó los permisos en vivo, la seguridad con la **matriz completa de rutas**, siguió el `README` desde cero y comparó `EsquemaBD.md` con el esquema **tabla por tabla**.
+    - **Parte A (`tester_liga`, navegador), reprobada por un defecto bloqueante:**
+      - **La frontera no cubría los errores de render.** `RouteError` volvía a lanzar todo lo que no fuera `ApiError` ni respuesta de ruta, así que una fecha rota que llega a `formatKickoff` mostraba `UNEXPECTED APPLICATION ERROR` **fuera del layout**, sin navbar y con la traza a la vista, en la portada (visita directa y navegación interna), `/apuestas` y `/mis-apuestas`. La prueba nueva no lo detectaba porque solo exigía que la frontera **existiera**, no que dibujara algo.
+      - Además, el enlace de marca del navbar quedó en **24 px de ancho** (solo se le había corregido el alto) y una casilla de `pendientes.md` estaba marcada como resuelta sin serlo.
+    - **Resto de la parte A, aprobado:** 23 pantallas a los 5 anchos **sin un solo desborde de página**; pixel art medido sobre los estilos reales (sin `border-radius`, sin sombras con desenfoque, sin fuentes ajenas, un único gradiente y con paradas duras) y **cero elementos animados con `prefers-reduced-motion` activo de verdad** en la máquina, con todas las transiciones en `steps()` al anular esas reglas; recorrido de extremo a extremo propio (registro, validación con sus 10 monedas, ticket y comprobante, resultado confirmado con sus puntos en «Mis apuestas» y en el ranking, cancelación con devolución, auditoría del recorrido y pantallas públicas iguales a la API); y accesibilidad (nombres accesibles, foco visible con teclado real, diálogo con el foco dentro, página de error recorrible).
+  - **Corrección:**
+    - **`RouteError` ya no relanza:** el 404 propio, el 403 con su motivo, el fallo transitorio con «Reintentar» y, para cualquier otro error —incluido uno lanzado al renderizar—, una página genérica «No se pudo mostrar la página» con «Volver al inicio», siempre **dentro del layout**. El detalle va a la **consola**, nunca a la pantalla: una traza no le dice nada a quien visita y cuenta cómo está hecha la aplicación.
+    - **`src/pages/render-error.test.tsx` (nueva):** una fecha corrompida sobre el **árbol y el layout reales**, en la portada por visita directa y por navegación interna, en `/apuestas` y en `/mis-apuestas`.
+    - **`min-width: 44px`** en el enlace de marca, y **cinco imprecisiones de documentación** corregidas más **dos casillas de `pendientes.md`** reescritas.
+  - **Ronda 2 (re-test):**
+    - **Parte A (`tester_liga`, navegador), aprobada:**
+      - **El error de render se dibuja dentro del layout** en las cinco pantallas probadas: portada (visita directa y navegación interna desde `/posiciones`), `/apuestas`, `/mis-apuestas`, el comprobante `/apuestas/tickets/:id` y `/admin/partidos` (sección cargada aparte, que conserva la navegación del panel). Siempre con navbar y «Volver al inicio», **nunca** `UNEXPECTED APPLICATION ERROR` ni traza en pantalla; el detalle sí llega a la consola. `/posiciones`, que no dibuja fechas, se muestra normal con la misma respuesta corrompida.
+      - **Los demás caminos, intactos:** 404 (id de equipo inexistente y URL desconocida), 403 con su motivo, 503 con «Reintentar» y la **recuperación**, que carga la plantilla real sin recargar la página.
+      - **Objetivo táctil del navbar en los cinco anchos:** 44×44 a 320 y 390, 180×44 a 768 y 172×44 a 1024 y 1280; y ningún otro objetivo por debajo de 44 en 14 pantallas a 320 y 390.
+      - **Casillas de `pendientes.md` verificadas** contra lo que se ve, incluida la de movimiento reducido.
+      - **Regresión a 320 px sin desbordes:** portada, posiciones, plantilla con su radar, apuesta confirmada con comprobante y alta y borrado de un deporte en el panel.
+    - **Parte B (`tester_liga_2`), aprobada:** hizo **fallar la prueba nueva de dos formas** y restauró los archivos idénticos; comprobó que `RouteError` no tiene ningún `throw` y que su texto es fijo; que **todas las hojas del árbol tienen frontera**; las **130 comprobaciones de T-22** en verde; las cinco correcciones de documentación; y cuatro filas más al azar.
+    - **Chequeos:** **1105/1105** pruebas del backend dos veces, **291/291** del front dos veces, `npm run build` sin errores y `coins:check` en 0.
+  - **Limpieza:** se borraron los datos de ejemplo y los datos `t1_`; la base de desarrollo quedó vacía, y Vite y las instancias locales detenidos. La base y el `server` de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **La ruta raíz que monta el layout no tiene frontera propia.** Hoy no es alcanzable, porque el layout no dibuja datos libres de la API; si alguna vez lo hiciera, ese error volvería a la pantalla del router.
+  - **NFR-001 y NFR-002 se comprueban con revisión manual en el navegador**, no con una prueba automática.
+  - **`formatKickoff` normaliza en silencio un mes 13 o una hora 25** (la API nunca los manda). Queda abierto en `docs/pendientes.md`.
+  - **El token de 12 px sigue fuera de la escala de 8** de `CLAUDE.md`. Queda abierto en `docs/pendientes.md`.
+  - **La simulación de `PATCH` de planteles quedó alineada** con la API en esta tarea.
+
+Con T-23, el plan de [docs/plan-polla.md](docs/plan-polla.md) queda **completo: 23 de 23 tareas aprobadas y registradas**.
+
+## 2026-09-18 — C-01 · Contraseña de 6 a 20 caracteres (cambio posterior al plan)
+
+- **Pedido del usuario:** la contraseña deja de ser de 10 a 128 caracteres y pasa a ser **de 6 a 20, sin exigir nada más**: ni mayúsculas, ni números, ni símbolos. Es el primer cambio posterior al plan, que quedó cerrado en T-23, así que no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Cambio:**
+  - **Backend:** `PASSWORD_MIN_LENGTH` 6 y `PASSWORD_MAX_LENGTH` 20 en `lib/password.ts`, el único lugar con los números, y `newPasswordSchema` (`schemas/auth.schema.ts`) como **único control**, usado por el registro y por `admin:create` —que antes rechazaba las contraseñas cortas o "débiles" por la regla anterior—. Los dos mensajes son "La contraseña es muy corta: debe tener al menos 6 caracteres." y "La contraseña es muy larga: no puede superar los 20 caracteres.", y llegan como error del campo `password`. **La longitud se cuenta por puntos de código, no por unidades UTF-16**, así que un emoji corriente cuenta uno y no dos.
+  - **Front:** el registro repite la regla palabra por palabra (`src/lib/auth-rules.ts`), con los mismos mensajes y el mismo conteo. El campo **no lleva `minLength` ni `maxLength` nativos**: el navegador cuenta en unidades UTF-16 y le habría cortado a la mitad una contraseña de emojis. El ingreso tampoco tiene `maxLength`.
+  - **Documentación:** BR-003, BR-004, `README.md`, `server/README.md`, `docs/verificacion-final.md`, `CLAUDE.md` y `AGENTS.md`.
+- **Decisión del coordinador D-024 (`docs/decisiones.md`):** el límite se aplica al **elegir** la contraseña, nunca al **iniciar sesión**. El tope al verificar es técnico (`PASSWORD_VERIFY_MAX_LENGTH`, 128) y por encima de él la respuesta es el mismo `401 INVALID_CREDENTIALS`, con el mismo mensaje y en el mismo tiempo. Así una cuenta creada antes del cambio, con una contraseña más larga, sigue entrando, y la respuesta no filtra nada sobre la contraseña guardada.
+- **Archivos:**
+  - **Backend:** `server/src/lib/password.ts`, `server/src/schemas/auth.schema.ts`, `server/src/services/auth.service.ts`.
+  - **Front:** `src/lib/auth-rules.ts`, `src/pages/Registro.tsx`, `src/pages/Ingresar.tsx`.
+  - **Pruebas del backend:** `server/tests/auth-register.test.ts`, `auth-session.test.ts`, `create-admin.test.ts`.
+  - **Pruebas del front:** `src/lib/auth-rules.test.ts`, y en la corrección `src/pages/render-error.test.tsx` y `src/pages/auth-pages.test.tsx`.
+  - **Documentación:** `docs/business-rules.md`, `docs/decisiones.md` (D-024, del coordinador), `docs/verificacion-final.md`, `README.md`, `server/README.md`, `CLAUDE.md`, `AGENTS.md`.
+- **Verificación (revisión repartida entre dos testers; aprobada en la segunda ronda, tras una corrección).** Como en T-23, **solo `tester_liga` usó el navegador** y **solo `tester_liga_2` corrió las suites y el build**. `tester_liga_2` probó contra su propia base y su propia instancia; la base de desarrollo no se tocó, porque el usuario la está usando con sus propios datos.
+  - **Ronda 1:**
+    - **Parte A (`tester_liga`, navegador), aprobada:** los límites exactos, la ausencia de exigencias de composición, el conteo por caracteres con emojis, el campo que no recorta lo que se pega, una cuenta anterior con contraseña de 40 caracteres que entra, el mismo mensaje en los tres modos de fallo y los textos sin restos de la regla vieja.
+    - **Parte B (`tester_liga_2`), reprobada por un defecto:** la suite del front **no quedaba verde de forma fiable**. `src/pages/render-error.test.tsx` (una prueba de T-23) fallaba **3 de 8 corridas completas**: la aserción sobre el `console.error` no esperaba al `useEffect` que lo emite, así que con 25 procesos en paralelo a veces corría antes. Aislada pasaba siempre, así que era contención de CPU, no un defecto de la pantalla.
+    - **El resto de la parte B, aprobado:** 19 casos de registro (5, 6, 20 y 21, y sin exigencias: solo dígitos, solo símbolos, solo espacios, acentos, saltos de línea, tabuladores), `admin:create` con los mismos límites y mensajes, ningún otro lugar del backend validando contraseñas, el login con claves de 40 y de 128 que entran, la comprobación de que **ninguna contraseña anterior queda fuera del tope** (la regla vieja medía unidades UTF-16 con máximo 128, igual que el tope nuevo), cinco formas de fallo con un único cuerpo idéntico y tiempos indistinguibles (2,3 ms entre una clave demasiado larga y una equivocada), argon2id sin un solo cambio, ninguna contraseña en los logs y la documentación sin restos de la regla anterior.
+  - **Corrección:** la aserción del `console.error` pasó a esperarse con `waitFor` y ahora comprueba además que el registro lleva el error real. El ejecutor buscó el mismo patrón en todo el front y encontró **tres aserciones más que dependían de un efecto sin esperarlo**, las tres de `useFocusOnError` en `auth-pages.test.tsx` (el foco en el aviso del 401, el foco en el primer campo inválido y la contraseña vaciada en dos casos); las envolvió igual y quitó un `timeout` de 5000 que había puesto donde no hacía falta. El texto sobre el conteo quedó exacto en **siete lugares**: se cuentan caracteres y algunos emoji compuestos —una familia, una bandera— cuentan más de uno. Se sumó una prueba con esos casos.
+  - **Ronda 2 (re-test):**
+    - **Parte A, aprobada:** la ayuda nueva del campo es legible y está ligada a él, tres emoji de familia se rechazan por sumar 21 caracteres, una familia más 13 letras se acepta, los límites simples siguen bien y la regresión pasó.
+    - **Parte B, aprobada:** **11 corridas de la suite del front —8 seguidas y 3 con la suite del backend corriendo a la vez para forzar contención—, todas 298/298**. La aserción se hizo fallar a propósito (quitando el `console.error` del efecto) para confirmar que el `waitFor` no la tapa, y el archivo se restauró idéntico. Las tres de `auth-pages.test.tsx` siguen comparando lo mismo. Documentación y prueba nueva verificadas una por una.
+    - **Chequeos:** `server:typecheck` y `tsc` del front sin errores, **1116/1116** pruebas del backend dos veces (una de ellas bajo contención), **298/298** del front en las once corridas, `npm run build` sin avisos, `coins:check` en 0 y sin caracteres invisibles fuera del ZWJ legítimo.
+  - **Limpieza:** la base propia del tester y su instancia se borraron; la base de desarrollo quedó como estaba, con los datos del usuario.
+- **Observaciones (no bloquean):**
+  - **Quedan dos aserciones de foco con el mismo patrón** en `src/pages/Ranking.test.tsx` (líneas 164 y 191): el foco lo mueve un `useEffect` y no se espera. No fallaron en ninguna de las once corridas; conviene envolverlas cuando se toque ese archivo.
+  - **El conteo es por puntos de código, no por grafemas:** tres emoji de familia se ven como tres caracteres y cuentan 21, y una letra con una tilde escrita aparte cuenta dos. Está dicho en los siete lugares de la documentación.
+  - **El `U+200D` que marca el escaneo de invisibles** en `src/lib/auth-rules.test.ts` es el ZWJ de los emoji de familia que esa prueba necesita: el proyecto permite ZWJ y ZWNJ.
+
+## 2026-09-18 — C-02 · El navbar distingue la polla de las secciones (cambio posterior al plan)
+
+- **Pedido del usuario:** en el navbar, **todo lo que no sea sección de la landing** —Inicio, Fixture y Posiciones— va en **dorado**, para que no se confunda con las secciones informativas. Es el segundo cambio posterior al plan, cerrado en T-23, así que no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Cambio:**
+  - **Las secciones quedan igual:** Inicio, Fixture y Posiciones (`Navbar.module.css`) siguen con el color normal, `--color-text-muted`, encendiéndose a `--color-accent` al pasar el mouse, al tomar el foco y cuando son la página en pantalla. No se les tocó ni un color.
+  - **Todo `SessionBar` pasa a dorado:** `--color-accent-alt`, con `--color-coin-light` al pasar el mouse y al tomar el foco. Abarca el botón **Polla** y sus tres enlaces (Apostar, Mis apuestas, Ranking), **Mi cuenta**, **Salir**, **Ingresar**, **Crear cuenta**, y **Admin** y **Ranking** del administrador, además del contador de monedas, que ya era dorado.
+  - **Sin tonos nuevos ni colores sueltos:** los dos tokens ya existían. El único cambio en `global.css` es un **comentario** que documenta el papel de `--color-accent-alt` (verificado con `git diff`).
+  - **Prueba nueva** `src/components/navbar-colors.test.tsx`: fija que los dos grupos **nunca comparten clase**, así que un enlace de la polla no puede acabar con el estilo de una sección ni al revés.
+  - **Regla escrita** en `CLAUDE.md` y `AGENTS.md` para quien agregue un enlace: va en el archivo del grupo al que pertenece y hereda su color; el dorado nunca se escribe como hex, y la página en pantalla se sigue diciendo con `aria-current` y su marcador, nunca solo con el color.
+- **Decisión del coordinador D-025 (`docs/decisiones.md`):** para no dejar verdes sueltos en una barra dorada, **"Crear cuenta" pasa de verde a dorado relleno con texto oscuro**, el marcador de la página actual del menú usa `currentColor` (así no desaparece sobre el dorado del hover) y el contador de monedas pasa a dorado pálido al pasar el mouse. La acción principal se sigue distinguiendo por ser **el único elemento relleno** de la barra, no por su color.
+- **Archivos:** `src/components/SessionBar.module.css`, `src/styles/global.css` (solo el comentario), `src/components/navbar-colors.test.tsx` (nuevo), `CLAUDE.md`, `AGENTS.md`, `docs/decisiones.md` (D-025, del coordinador).
+- **Verificación (revisión repartida entre dos testers; aprobada en la primera ronda).** Como en T-23 y C-01, **solo `tester_liga` usó el navegador** y **solo `tester_liga_2` corrió las suites y el build**. La base de desarrollo no se tocó: el usuario la está usando con sus propios datos, y cada tester creó y borró solo lo suyo.
+  - **Parte A (`tester_liga`, navegador), aprobada:**
+    - **Comprobó en el diff** que `Navbar.module.css` no recibió ningún cambio de color (solo el ancho mínimo del enlace de marca, que venía de C-01), así que las secciones son exactamente las de antes.
+    - **Siete pantallas** (portada, posiciones, apuestas, mis apuestas, ranking, cuenta y panel) a **320, 390, 768 y 1280 px**, con **cuatro estados de sesión** (sin sesión, apostador validado, pendiente y administrador): ningún elemento del navbar con un color fuera de lo previsto, cero desbordes de página, dos filas por debajo de 64rem y una desde ahí.
+    - **Contrastes medidos sobre el fondo real**, con un **hover de puntero real** y no solo por CSS: dorado 13.44, dorado pálido 17.34, página actual 17.74, secciones 7.76, "Crear cuenta" 13.44 (17.34 al encenderse) y la etiqueta "Pendiente" 13.44.
+    - **En escala de grises** las secciones quedan en 162 y la polla en 214 sobre un fondo de 21, así que **la diferencia no depende del color**; y la página en pantalla conserva `aria-current` y su marcador de texto.
+    - **Foco:** el anillo verde de 4 px se ve incluso sobre el botón relleno, porque la separación de 4 px lo deja fuera del relleno. El menú Polla abre, cierra con Escape devolviendo el foco al botón, se cierra con un clic real fuera y navega bien.
+    - **Pixel art:** en todo el header, cero `border-radius`, cero sombras con desenfoque, cero degradados, solo las dos fuentes pixel en peso 400. El contador sigue siempre visible para el apostador (10 en el validado, 0 con su etiqueta en el pendiente) y ausente para el administrador.
+    - **Sobre D-025:** "Crear cuenta" se sigue leyendo como la acción principal por ser el único relleno, y el contador se distingue del resto del dorado por el sprite de la moneda y por su tamaño (16 px frente a 12 px de los enlaces).
+  - **Parte B (`tester_liga_2`), aprobada:** ningún color suelto en `SessionBar.module.css`; `global.css` solo con el comentario nuevo (verificado con `git diff`); el dorado no se copió a otros componentes y no queda ni un verde suelto ni un dorado en las secciones. Hizo **fallar la prueba nueva en las dos direcciones** y restauró los archivos idénticos. Recalculó los seis contrastes y agregó tres más: **el peor texto de la barra da 6.04**. Revisó la accesibilidad por código.
+  - **Chequeos:** **1116/1116** pruebas del backend dos veces, **301/301** del front dos veces, `npm run build` sin avisos, y `CLAUDE.md` y `AGENTS.md` idénticos.
+  - **Limpieza:** cada tester borró solo sus datos `t1_` y `t2_`; los datos del usuario en la base de desarrollo (su cuenta, sus 3 deportes, sus 3 competiciones y sus registros de auditoría) quedaron intactos y se verificaron después de borrar. Vite y las instancias locales quedaron detenidas; la base y el `server` de Docker siguen corriendo.
+- **Observaciones (no bloquean):**
+  - **La prueba fija la separación de los grupos, no el tono.** Un regreso al verde no la haría fallar. Se podría cerrar leyendo el CSS con `node:fs`, lo que exige agregar los tipos de Node al `tsconfig` del front.
+  - **El anillo de foco verde se ve sobre el relleno dorado gracias al `outline-offset` de 4 px:** verde y dorado tienen casi la misma luminancia (1.02 entre sí), así que con separación 0 el anillo sería invisible sobre el botón relleno.
+  - **El único verde que queda en la barra** es el de la sección actual de la landing, que es justo lo que el pedido quería conservar.

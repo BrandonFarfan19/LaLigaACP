@@ -1,0 +1,26 @@
+/* The 8×8 sprite box: 2px per sprite pixel on phones (16px), 3px from 48rem
+   (24px). Whole pixels only, so every sprite pixel keeps the same size. */
+.coin {
+	--coin-px: 2px;
+	position: relative;
+	display: inline-block;
+	flex: none;
+	width: calc(var(--coin-px) * 8);
+	height: calc(var(--coin-px) * 8);
+}
+
+/* The top-left sprite pixel; every other pixel is one of its shadows. That
+   corner is transparent in the sprite, so the element itself paints nothing. */
+.pixel {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: var(--coin-px);
+	height: var(--coin-px);
+}
+
+@media (min-width: 48rem) {
+	.coin {
+		--coin-px: 3px;
+	}
+}

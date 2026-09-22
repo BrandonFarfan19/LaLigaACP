@@ -1,0 +1,347 @@
+import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { assertInTransaction, type TransactionConnection, withTransaction } from '../db/transaction.js';
+import { movementRule, SALDO_MAXIMO, type TipoMovimientoCodigo } from '../lib/coins.js';
+import { ErrorCode } from '../lib/error-codes.js';
+import { HttpError } from '../lib/http-error.js';
+import { isDuplicateEntry } from './users.service.js';
+
+/**
+ * THE way coins move (BR-009, table 28, EsquemaBD D12/D19). Nothing else in
+ * the codebase writes `usuario.saldo_monedas` or `movimiento_moneda`.
+ *
+ * `applyCoinMovements(conn, userId, movements)` runs inside a transaction
+ * the caller owns, together with whatever else the operation changes (the
+ * ticket in T-10, the voided selections in T-16, the validated state in
+ * T-04). That is enforced: `conn` must be the `TransactionConnection` that
+ * `withTransaction` hands out (a plain connection doesn't compile, and is
+ * rejected at runtime). In one go it:
+ *
+ * 1. Locks the user's row (`SELECT ... FOR UPDATE`): concurrent operations
+ *    on the same user wait for each other; other users are not blocked.
+ * 2. Checks the resulting balance: never negative (BR-009, BR-021) → 409
+ *    `INSUFFICIENT_BALANCE`, nothing written.
+ * 3. For refunds, checks that each selection was debited and not refunded
+ *    yet (BR-046: only coins actually spent come back) → 409
+ *    `SELECTION_NOT_DEBITED` / `MOVEMENT_ALREADY_APPLIED`, nothing written.
+ * 4. Inserts one `movimiento_moneda` per movement and sets
+ *    `usuario.saldo_monedas` to the new total, so the balance always equals
+ *    the sum of the movements.
+ *
+ * If it throws, the caller's transaction rolls back and nothing of the batch
+ * remains.
+ */
+
+export interface CoinMovement {
+	tipo: TipoMovimientoCodigo;
+	/** Required for `seleccion_confirmada` and `devolucion_cancelacion`; forbidden for `validacion` (D19). */
+	seleccionId?: number | null;
+}
+
+export interface CoinMovementResult {
+	saldoAnterior: number;
+	saldoNuevo: number;
+	/** The inserted `movimiento_moneda` ids, in the order of the movements. */
+	movimientoIds: number[];
+}
+
+/**
+ * A caller bug, not a user error: an unknown type, a selection where D19
+ * forbids one (or none where it requires one), a selection of another user.
+ * Surfaces as a 500 and rolls the transaction back.
+ */
+export class CoinMovementError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'CoinMovementError';
+	}
+}
+
+function checkShape(movements: readonly CoinMovement[]): void {
+	if (movements.length === 0) throw new CoinMovementError('No hay movimientos para aplicar.');
+	for (const { tipo, seleccionId } of movements) {
+		const rule = movementRule(tipo);
+		if (!rule) throw new CoinMovementError(`Tipo de movimiento desconocido: ${String(tipo)}.`);
+		const has = seleccionId !== undefined && seleccionId !== null;
+		if (has && (!Number.isSafeInteger(seleccionId) || (seleccionId as number) < 1)) {
+			throw new CoinMovementError(`seleccionId inválido: ${String(seleccionId)}.`);
+		}
+		if (rule.conSeleccion && !has) throw new CoinMovementError(`Un movimiento ${tipo} tiene que llevar seleccionId (D19).`);
+		if (!rule.conSeleccion && has) throw new CoinMovementError(`Un movimiento ${tipo} no puede llevar seleccionId (D19).`);
+	}
+}
+
+async function movementTypeIds(conn: TransactionConnection, tipos: TipoMovimientoCodigo[]): Promise<Map<string, number>> {
+	const [rows] = await conn.query<RowDataPacket[]>('SELECT codigo, id FROM tipo_movimiento WHERE codigo IN (?)', [tipos]);
+	const ids = new Map(rows.map((row) => [row.codigo as string, row.id as number]));
+	for (const tipo of tipos) {
+		if (!ids.has(tipo)) throw new Error(`Falta el tipo_movimiento ${tipo} (¿se cargó 02-catalogos.sql?).`);
+	}
+	return ids;
+}
+
+/** Rows per statement when a batch covers many users or selections (T-16). */
+const LOTE = 1000;
+
+function chunks<T>(items: readonly T[], size = LOTE): T[][] {
+	const out: T[][] = [];
+	for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+	return out;
+}
+
+/** Selection id → the user whose movement names it. */
+type SelectionOwners = ReadonlyMap<number, number>;
+
+const ownersOf = (userId: number, movements: readonly CoinMovement[]): SelectionOwners =>
+	new Map(movements.flatMap((m) => (m.seleccionId ? [[m.seleccionId, userId] as const] : [])));
+
+/** Every referenced selection must belong to a ticket of the user its movement is for. */
+async function checkSelectionsOwned(conn: TransactionConnection, owners: SelectionOwners): Promise<void> {
+	const foreign: number[] = [];
+	const users = new Set<number>();
+	for (const ids of chunks([...owners.keys()])) {
+		const [rows] = await conn.query<RowDataPacket[]>(
+			'SELECT s.id, t.usuario_id FROM seleccion s JOIN ticket t ON t.id = s.ticket_id WHERE s.id IN (?)',
+			[ids],
+		);
+		const found = new Map(rows.map((row) => [Number(row.id), Number(row.usuario_id)]));
+		for (const id of ids) {
+			if (found.get(id) !== owners.get(id)) {
+				foreign.push(id);
+				users.add(owners.get(id)!);
+			}
+		}
+	}
+	if (foreign.length > 0) {
+		throw new CoinMovementError(`Las selecciones ${foreign.join(', ')} no existen o no son del usuario ${[...users].join(', ')}.`);
+	}
+}
+
+/**
+ * BR-046/BR-055: a refund gives back a coin that was actually spent. Each
+ * selection to refund needs its `seleccion_confirmada` movement for its user
+ * and no `devolucion_cancelacion` yet. Runs with the users' rows locked, so a
+ * concurrent debit or refund of the same user can't slip in between the check
+ * and the insert. One bad selection rejects the whole batch.
+ */
+async function checkRefundsWereDebited(conn: TransactionConnection, owners: SelectionOwners, refundIds: readonly number[]): Promise<void> {
+	if (refundIds.length === 0) return;
+
+	const debited = new Set<number>();
+	const refunded = new Set<number>();
+	for (const ids of chunks([...new Set(refundIds)])) {
+		const [rows] = await conn.query<RowDataPacket[]>(
+			`SELECT m.seleccion_id AS seleccionId, m.usuario_id AS usuarioId, tm.codigo
+			FROM movimiento_moneda m JOIN tipo_movimiento tm ON tm.id = m.tipo_movimiento_id
+			WHERE m.seleccion_id IN (?) AND tm.codigo IN ('seleccion_confirmada', 'devolucion_cancelacion')`,
+			[ids],
+		);
+		for (const row of rows) {
+			const id = Number(row.seleccionId);
+			if (Number(row.usuarioId) !== owners.get(id)) continue;
+			(row.codigo === 'seleccion_confirmada' ? debited : refunded).add(id);
+		}
+	}
+
+	const notDebited = refundIds.filter((id) => !debited.has(id));
+	if (notDebited.length > 0) {
+		throw new HttpError(
+			409,
+			ErrorCode.SELECTION_NOT_DEBITED,
+			'No se puede devolver una moneda que nunca se descontó.',
+			{ selecciones: [...new Set(notDebited)] },
+		);
+	}
+	const alreadyRefunded = refundIds.filter((id) => refunded.has(id));
+	if (alreadyRefunded.length > 0) {
+		throw new HttpError(409, ErrorCode.MOVEMENT_ALREADY_APPLIED, 'Esa selección ya se había devuelto.', {
+			selecciones: [...new Set(alreadyRefunded)],
+		});
+	}
+	const repeatedInBatch = refundIds.filter((id, i) => refundIds.indexOf(id) !== i);
+	if (repeatedInBatch.length > 0) {
+		throw new HttpError(409, ErrorCode.MOVEMENT_ALREADY_APPLIED, 'La misma selección aparece más de una vez en la devolución.', {
+			selecciones: [...new Set(repeatedInBatch)],
+		});
+	}
+}
+
+export async function applyCoinMovements(
+	conn: TransactionConnection,
+	userId: number,
+	movements: readonly CoinMovement[],
+	now: Date = new Date(),
+): Promise<CoinMovementResult> {
+	assertInTransaction(conn);
+	checkShape(movements);
+
+	// Lock only the user's row, by primary key, in its own statement (the app's
+	// lock order starts with usuario: server/README.md, "Orden de bloqueo").
+	// The role is read after, from the locked row.
+	const [[user]] = await conn.query<RowDataPacket[]>(
+		'SELECT saldo_monedas AS saldo, rol_id FROM usuario FORCE INDEX (PRIMARY) WHERE id = ? FOR UPDATE',
+		[userId],
+	);
+	if (user) {
+		const [[rol]] = await conn.query<RowDataPacket[]>('SELECT codigo FROM rol WHERE id = ?', [user.rol_id]);
+		user.rol = rol?.codigo;
+	}
+	if (!user) throw HttpError.notFound('No existe un usuario con ese id.', ErrorCode.USER_NOT_FOUND);
+	if (user.rol !== 'apostador') {
+		// BR-001: admins have no coins. Callers already filter them out; this is the last line.
+		throw HttpError.forbidden('Los administradores no participan en la polla: no tienen monedas.', ErrorCode.NOT_A_PARTICIPANT);
+	}
+
+	const saldoAnterior = Number(user.saldo);
+	const total = movements.reduce((sum, m) => sum + movementRule(m.tipo)!.cantidad, 0);
+	const saldoNuevo = saldoAnterior + total;
+	if (saldoNuevo < 0) {
+		throw new HttpError(409, ErrorCode.INSUFFICIENT_BALANCE, 'No tienes monedas suficientes para esta operación.', {
+			saldo: saldoAnterior,
+			requerido: -total,
+		});
+	}
+	if (saldoNuevo > SALDO_MAXIMO) throw new CoinMovementError(`El saldo superaría el máximo (${SALDO_MAXIMO}).`);
+
+	const owners = ownersOf(userId, movements);
+	await checkSelectionsOwned(conn, owners);
+	await checkRefundsWereDebited(
+		conn,
+		owners,
+		movements.filter((m) => m.tipo === 'devolucion_cancelacion').map((m) => m.seleccionId as number),
+	);
+	const typeIds = await movementTypeIds(conn, [...new Set(movements.map((m) => m.tipo))]);
+
+	const movimientoIds: number[] = [];
+	try {
+		for (const movement of movements) {
+			const [inserted] = await conn.query<ResultSetHeader>(
+				'INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en) VALUES (?, ?, ?, ?, ?)',
+				[userId, typeIds.get(movement.tipo), movement.seleccionId ?? null, movementRule(movement.tipo)!.cantidad, now],
+			);
+			movimientoIds.push(inserted.insertId);
+		}
+	} catch (error) {
+		if (isDuplicateEntry(error)) {
+			// D19 / UNIQUE(seleccion_id, tipo): this exact movement was already applied.
+			throw HttpError.conflict(ErrorCode.MOVEMENT_ALREADY_APPLIED, 'Ese movimiento de monedas ya se había aplicado.');
+		}
+		throw error;
+	}
+
+	if (total !== 0) {
+		await conn.query('UPDATE usuario SET saldo_monedas = ? WHERE id = ?', [saldoNuevo, userId]);
+	}
+	return { saldoAnterior, saldoNuevo, movimientoIds };
+}
+
+/** BR-008: the +10 of a validation. Used by T-04's `validateParticipant`. */
+export function grantValidationCoins(conn: TransactionConnection, userId: number): Promise<CoinMovementResult> {
+	return applyCoinMovements(conn, userId, [{ tipo: 'validacion' }]);
+}
+
+/** BR-020/BR-022: one debit per confirmed selection, all or none, one lock. For T-10. */
+export function debitSelections(conn: TransactionConnection, userId: number, seleccionIds: readonly number[]): Promise<CoinMovementResult> {
+	return applyCoinMovements(
+		conn,
+		userId,
+		seleccionIds.map((seleccionId) => ({ tipo: 'seleccion_confirmada', seleccionId })),
+	);
+}
+
+/** BR-046/BR-055: one refund per voided selection of this user. For T-16 (group the selections by user). */
+export function refundSelections(conn: TransactionConnection, userId: number, seleccionIds: readonly number[]): Promise<CoinMovementResult> {
+	return applyCoinMovements(
+		conn,
+		userId,
+		seleccionIds.map((seleccionId) => ({ tipo: 'devolucion_cancelacion', seleccionId })),
+	);
+}
+
+export interface BatchRefundResult {
+	/** Refunded users, with their balance before and after. */
+	usuarios: Array<{ usuarioId: number; saldoAnterior: number; saldoNuevo: number }>;
+	movimientos: number;
+}
+
+/**
+ * BR-046/BR-047/BR-055, T-16: the refunds of a cancelled match, for many users
+ * at once, in a few statements (lock, roles, ownership, debits, one multi-row
+ * INSERT and one UPDATE per batch). Same rules as `refundSelections`: every
+ * selection needs its debit for that user and no earlier refund, admins get
+ * nothing, and one bad selection rejects everything (the caller's
+ * transaction rolls back).
+ *
+ * Locks the users' rows (`FOR UPDATE`, by primary key, ascending id). The
+ * cancellation already holds them, before the match (usuario → partido).
+ */
+export async function refundSelectionsBatch(
+	conn: TransactionConnection,
+	refunds: ReadonlyMap<number, readonly number[]>,
+	now: Date = new Date(),
+): Promise<BatchRefundResult> {
+	assertInTransaction(conn);
+	const userIds = [...refunds.keys()].sort((a, b) => a - b);
+	const movements = userIds.flatMap((usuarioId) => refunds.get(usuarioId)!.map((seleccionId) => ({ usuarioId, seleccionId })));
+	if (movements.length === 0) return { usuarios: [], movimientos: 0 };
+	checkShape(movements.map(({ seleccionId }) => ({ tipo: 'devolucion_cancelacion' as const, seleccionId })));
+
+	const saldos = new Map<number, number>();
+	for (const ids of chunks(userIds)) {
+		const [locked] = await conn.query<RowDataPacket[]>(
+			'SELECT id, saldo_monedas AS saldo FROM usuario FORCE INDEX (PRIMARY) WHERE id IN (?) ORDER BY id FOR UPDATE',
+			[ids],
+		);
+		for (const row of locked) saldos.set(Number(row.id), Number(row.saldo));
+		const [roles] = await conn.query<RowDataPacket[]>(
+			'SELECT u.id FROM usuario u JOIN rol r ON r.id = u.rol_id WHERE u.id IN (?) AND r.codigo <> ?',
+			[ids, 'apostador'],
+		);
+		if (roles.length > 0) {
+			throw HttpError.forbidden('Los administradores no participan en la polla: no tienen monedas.', ErrorCode.NOT_A_PARTICIPANT);
+		}
+	}
+	const missing = userIds.filter((id) => !saldos.has(id));
+	if (missing.length > 0) throw HttpError.notFound('No existe un usuario con ese id.', ErrorCode.USER_NOT_FOUND);
+
+	const amount = movementRule('devolucion_cancelacion')!.cantidad;
+	const usuarios = userIds.map((usuarioId) => {
+		const saldoAnterior = saldos.get(usuarioId)!;
+		const saldoNuevo = saldoAnterior + amount * refunds.get(usuarioId)!.length;
+		if (saldoNuevo > SALDO_MAXIMO) throw new CoinMovementError(`El saldo del usuario ${usuarioId} superaría el máximo (${SALDO_MAXIMO}).`);
+		return { usuarioId, saldoAnterior, saldoNuevo };
+	});
+
+	const owners: SelectionOwners = new Map(movements.map((m) => [m.seleccionId, m.usuarioId]));
+	await checkSelectionsOwned(conn, owners);
+	await checkRefundsWereDebited(conn, owners, movements.map((m) => m.seleccionId));
+	const typeId = (await movementTypeIds(conn, ['devolucion_cancelacion'])).get('devolucion_cancelacion');
+
+	try {
+		for (const batch of chunks(movements)) {
+			await conn.query('INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en) VALUES ?', [
+				batch.map((m) => [m.usuarioId, typeId, m.seleccionId, amount, now]),
+			]);
+		}
+	} catch (error) {
+		if (isDuplicateEntry(error)) {
+			throw HttpError.conflict(ErrorCode.MOVEMENT_ALREADY_APPLIED, 'Ese movimiento de monedas ya se había aplicado.');
+		}
+		throw error;
+	}
+	for (const batch of chunks(usuarios)) {
+		await conn.query(
+			`UPDATE usuario FORCE INDEX (PRIMARY) SET saldo_monedas = CASE id ${batch.map(() => 'WHEN ? THEN ?').join(' ')} END WHERE id IN (?)`,
+			[...batch.flatMap((u) => [u.usuarioId, u.saldoNuevo]), batch.map((u) => u.usuarioId)],
+		);
+	}
+	return { usuarios, movimientos: movements.length };
+}
+
+/** Convenience for a coin-only operation: its own transaction. */
+export function applyCoinMovementsInTransaction(
+	pool: Pool,
+	userId: number,
+	movements: readonly CoinMovement[],
+): Promise<CoinMovementResult> {
+	return withTransaction(pool, (conn) => applyCoinMovements(conn, userId, movements));
+}

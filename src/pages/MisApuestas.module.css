@@ -1,0 +1,183 @@
+/* "Mis apuestas" (T-20): the page frame, filters and buttons come from the betting screen (Apuestas.module.css). */
+.page {
+	max-width: 56rem;
+}
+
+.small,
+.count,
+.hint {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.hint,
+.wide {
+	grid-column: 1 / -1;
+}
+
+.problems {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+/* Read by screen readers only: "loading". */
+.status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.page[aria-busy='true'] .tickets {
+	opacity: 0.5;
+}
+
+/* Summary: big pixel numbers, like a game's stat screen. */
+.summary,
+.ticket {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	margin: var(--px);
+	padding: var(--space-4);
+}
+
+.sectionTitle {
+	margin: 0;
+	font-size: var(--text-sm);
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.facts,
+.totals {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+	gap: var(--space-3);
+	margin: 0;
+	font-size: var(--text-sm);
+}
+
+.facts div,
+.totals div {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.facts dt,
+.totals dt {
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.facts dd,
+.totals dd {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-1);
+	margin: 0;
+}
+
+/* The summary: the counts by state take the whole row, the numbers go two by two. */
+.stats {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wideFact {
+	grid-column: 1 / -1;
+}
+
+.big {
+	font-family: var(--font-display);
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	color: var(--color-accent-alt);
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+/* Tickets. */
+.tickets,
+.selections {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.ticketHead {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+}
+
+.ticketTitle {
+	margin: 0;
+	font-size: var(--text-md);
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.ticketHead .small {
+	flex-basis: 100%;
+}
+
+/* One selection: a banded strip on the left marks it, next to its state tag. */
+.selection {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	background: var(--color-bg);
+	box-shadow: inset var(--px) 0 0 0 var(--color-border);
+}
+
+.selection[data-estado='acertada'] {
+	box-shadow: inset var(--px) 0 0 0 var(--color-accent);
+}
+
+.selection[data-estado='anulada'] {
+	box-shadow: inset var(--px) 0 0 0 var(--color-danger);
+}
+
+.match {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+.actions {
+	margin: 0;
+}
+
+@media (min-width: 48rem) {
+	.facts {
+		grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+	}
+
+	.stats {
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+	}
+
+	.wideFact {
+		grid-column: span 2;
+	}
+}

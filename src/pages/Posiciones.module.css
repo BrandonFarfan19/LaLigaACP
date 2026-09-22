@@ -1,0 +1,221 @@
+.standings {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-8);
+	width: 100%;
+	max-width: 48rem;
+	min-height: 100vh;
+	min-height: 100svh;
+	margin-inline: auto;
+	padding-block: calc(var(--navbar-height) + var(--space-8)) var(--space-12);
+	padding-inline: var(--space-4);
+}
+
+.head {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.kicker {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.title {
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.lead {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+/* The ten columns of BR-050 never fit a phone, so the table scrolls inside
+   this box instead of dragging the page sideways (D-023). It is focusable and
+   labelled, so it can be reached and read with the keyboard alone. */
+.scroller {
+	width: 100%;
+	overflow-x: auto;
+	/* Hard-edged momentum, no smooth chrome: the pixel look survives. */
+	overscroll-behavior-x: contain;
+}
+
+.scroller:focus-visible {
+	outline: var(--px) solid var(--color-accent);
+	outline-offset: var(--px);
+}
+
+.table {
+	/* Wider than the box when it needs to be; never narrower. */
+	width: max-content;
+	min-width: 100%;
+	border-collapse: collapse;
+	text-align: left;
+}
+
+.table thead th {
+	padding: var(--space-2) var(--space-3);
+	background: var(--color-surface-raised);
+	font-family: var(--font-display);
+	font-weight: 400;
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+	box-shadow: inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.12);
+}
+
+.table tbody td,
+.table tbody th {
+	padding: var(--space-2) var(--space-3);
+	font-weight: 400;
+	vertical-align: middle;
+}
+
+/* Banded rows, same as the squad roster. */
+.table tbody tr:nth-child(even) {
+	background: var(--color-surface-raised);
+}
+
+.table tbody tr {
+	transition: background-color 120ms steps(2, end);
+}
+
+@media (hover: hover) {
+	.table tbody tr:hover,
+	.table tbody tr:hover .col-team {
+		background: var(--color-border);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.table tbody tr {
+		transition: none;
+	}
+}
+
+.col-position {
+	width: 1%;
+	font-family: var(--font-display);
+	font-size: var(--text-sm);
+	text-align: center;
+	color: var(--color-text-muted);
+}
+
+/* The eight figures of BR-050. Silkscreen keeps them narrow enough that a
+   phone only has to scroll a little to reach the last one. */
+.col-number {
+	width: 1%;
+	font-family: var(--font-body);
+	font-size: var(--text-sm);
+	text-align: right;
+	white-space: nowrap;
+	color: var(--color-text-muted);
+}
+
+.table tbody .col-number {
+	color: var(--color-text);
+}
+
+.col-points {
+	width: 1%;
+	font-family: var(--font-display);
+	font-size: var(--text-md);
+	text-align: right;
+	white-space: nowrap;
+}
+
+/* The team stays put while the figures scroll, so a row is always
+   identifiable. Sticky cells need their own opaque background: the banding,
+   and the hover of the row, are repeated here. */
+.col-team {
+	position: sticky;
+	left: 0;
+	z-index: 1;
+	background: var(--color-surface);
+}
+
+.table thead .col-team {
+	background: var(--color-surface-raised);
+}
+
+.table tbody tr:nth-child(even) .col-team {
+	background: var(--color-surface-raised);
+}
+
+.team {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	/* Room to tap even though the row isn't a link yet. */
+	min-height: 44px;
+}
+
+.crest {
+	flex-shrink: 0;
+	width: 32px;
+	height: 32px;
+	object-fit: contain;
+	filter: drop-shadow(var(--px) var(--px) 0 var(--color-shadow));
+}
+
+.team-name {
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.6;
+	text-transform: uppercase;
+}
+
+/* First place wears the gold. */
+.leader .col-position,
+.leader .col-points {
+	color: var(--color-accent-alt);
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+@media (min-width: 48rem) {
+	.standings {
+		padding-inline: var(--space-8);
+	}
+
+	.title {
+		font-size: var(--text-xl);
+	}
+
+	.table thead th,
+	.table tbody td,
+	.table tbody th {
+		padding: var(--space-3) var(--space-4);
+	}
+
+	.crest {
+		width: 48px;
+		height: 48px;
+	}
+
+	.team-name {
+		font-size: var(--text-sm);
+	}
+
+	.col-number {
+		font-size: var(--text-md);
+	}
+
+	.col-points {
+		font-size: var(--text-lg);
+	}
+}

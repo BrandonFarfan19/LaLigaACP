@@ -1,0 +1,291 @@
+.stats {
+	/* Phone: nearly full width, keeping the 16px gutter. */
+	width: calc(100% - var(--space-8));
+	max-width: 24rem;
+	max-height: calc(100svh - var(--space-8));
+	padding: var(--space-4);
+	border: 0;
+	color: var(--color-text);
+	overflow-y: auto;
+}
+
+/* Flat dim, no blur. */
+.stats::backdrop {
+	background: color-mix(in srgb, var(--color-shadow) 80%, transparent);
+}
+
+.head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-3);
+	text-align: left;
+}
+
+.name {
+	font-size: var(--text-sm);
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.average {
+	margin: var(--space-2) 0 0;
+	font-size: var(--text-sm);
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.average-value {
+	font-family: var(--font-display);
+	color: var(--color-accent-alt);
+}
+
+.close {
+	flex-shrink: 0;
+	width: 44px;
+	height: 44px;
+	border: 0;
+	background: var(--color-surface-raised);
+	font-family: var(--font-display);
+	font-size: var(--text-sm);
+	color: var(--color-text);
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.16),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 var(--color-shadow);
+}
+
+.close:hover,
+.close:focus-visible {
+	color: var(--color-accent);
+}
+
+.body {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-4);
+	margin-top: var(--space-4);
+}
+
+/* 96px art at exactly 2×, so every source pixel is a clean 2×2 block. */
+.portrait {
+	flex-shrink: 0;
+	width: 192px;
+	height: 192px;
+	margin: 0;
+	background: var(--color-surface-raised);
+}
+
+.portrait-art {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+/* 240px over an 80-cell grid: every radar pixel is exactly 3px. */
+.radar {
+	position: relative;
+	width: 240px;
+	max-width: 100%;
+	aspect-ratio: 1;
+}
+
+.radar svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+.disc {
+	fill: var(--color-surface-raised);
+}
+
+.ring {
+	fill: var(--color-border);
+}
+
+.fill {
+	fill: color-mix(in srgb, var(--color-accent-alt) 35%, var(--color-surface-raised));
+}
+
+.edge {
+	fill: var(--color-accent-alt);
+}
+
+.axis {
+	position: absolute;
+	transform: translate(-50%, -50%);
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1;
+	color: var(--color-text-muted);
+}
+
+/* Phone: the radar already carries the six attributes, and the card fits on
+   one screen without the numbers. Removed from the layout and from the
+   accessibility tree, not just hidden — the table comes back from 48rem up. */
+.values {
+	display: none;
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.values th,
+.values td {
+	padding: var(--space-2) 0;
+	/* Stepped underline instead of a hairline rule. */
+	box-shadow: inset 0 calc(var(--px) * -1) 0 0 var(--color-border);
+}
+
+.values th {
+	font-family: var(--font-body);
+	font-weight: 400;
+	font-size: var(--text-sm);
+	text-align: left;
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.values td {
+	font-family: var(--font-display);
+	font-size: var(--text-md);
+	text-align: right;
+	color: var(--color-text);
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+/* ---- Share ------------------------------------------------------------ */
+
+.share-bar {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	margin-top: var(--space-6);
+}
+
+.share-option {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	min-height: 44px;
+	padding: var(--space-2) var(--space-3);
+	border: 0;
+	background: var(--color-surface-raised);
+	font-family: var(--font-display);
+	font-weight: 400;
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	text-decoration: none;
+	color: var(--color-text);
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.16),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 var(--color-shadow);
+	transition: color 120ms steps(2, end);
+}
+
+.share-option:hover,
+.share-option:focus-visible {
+	color: var(--color-accent-alt);
+}
+
+/* Pressed: the bevel flips, the way a 16-bit button sinks. */
+.share-option:active {
+	box-shadow:
+		inset var(--px) var(--px) 0 0 var(--color-shadow),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 rgb(255 255 255 / 0.16);
+}
+
+/* The display rules here would otherwise beat the `hidden` attribute. */
+.share-bar[hidden],
+.share-option[hidden] {
+	display: none;
+}
+
+.share-title {
+	margin: 0 0 var(--space-2);
+	font-size: var(--text-sm);
+	text-transform: uppercase;
+	color: var(--color-text-muted);
+}
+
+.share-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.share-status {
+	min-height: var(--space-4);
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-accent);
+	overflow-wrap: anywhere;
+}
+
+.share-status:empty {
+	display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.share-option {
+		transition: none;
+	}
+}
+
+@media (min-width: 48rem) {
+	.stats {
+		max-width: 56rem;
+		padding: var(--space-6);
+	}
+
+	.name {
+		font-size: var(--text-md);
+	}
+
+	.body {
+		flex-direction: row;
+		gap: var(--space-6);
+	}
+
+	/* One row, however many buttons are showing (Instagram is phone-only). */
+	.share-grid {
+		grid-template-columns: none;
+		grid-auto-flow: column;
+		grid-auto-columns: 1fr;
+	}
+
+	/* Back on the wide layout, beside the portrait and the radar. */
+	.values {
+		display: table;
+	}
+
+	/* 320px over 80 cells: 4px radar pixels, one `--px` each. */
+	.radar {
+		width: 320px;
+		flex-shrink: 0;
+	}
+
+	.axis {
+		font-size: var(--text-sm);
+	}
+}
+
+/* D-022: says the six attributes are made up, next to the average. */
+.sample {
+	margin: var(--space-1) 0 0;
+	font-size: var(--text-xs);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	color: var(--color-text-muted);
+}

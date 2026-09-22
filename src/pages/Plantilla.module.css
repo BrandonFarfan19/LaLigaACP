@@ -1,0 +1,81 @@
+.squad {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--space-6);
+	min-height: 100vh;
+	min-height: 100svh;
+	padding-block: calc(var(--navbar-height) + var(--space-8)) var(--space-12);
+	padding-inline: var(--space-4);
+	text-align: center;
+}
+
+.back {
+	align-self: flex-start;
+	/* Something you tap: 44px tall like every other target (NFR-001, T-23). */
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	text-decoration: none;
+	color: var(--color-text-muted);
+	transition: color 120ms steps(2, end);
+}
+
+.back:hover,
+.back:focus-visible {
+	color: var(--color-accent);
+}
+
+/* Every animation is off under reduced motion (NFR-003, T-23). */
+@media (prefers-reduced-motion: reduce) {
+	.back {
+		transition: none;
+	}
+}
+
+/* Same stage treatment as the carousel, tinted with the team color. The
+   stage takes its size from the crest inside it, so the glow always ends
+   exactly where the artwork does. */
+.badge {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	/* A long team name must not squeeze the crest out of square. */
+	flex-shrink: 0;
+	background: radial-gradient(
+		circle closest-side,
+		color-mix(in srgb, var(--team-accent) 42%, transparent) 0 30%,
+		color-mix(in srgb, var(--team-accent) 26%, transparent) 30% 50%,
+		color-mix(in srgb, var(--team-accent) 12%, transparent) 50% 70%,
+		transparent 70%
+	);
+}
+
+.crest {
+	width: 5vw;
+	height: 5vw;
+	object-fit: contain;
+	filter: drop-shadow(var(--px) var(--px) 0 var(--color-shadow));
+}
+
+/* Crest and name read as one line, not as a stacked title block. */
+.identity {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.name {
+	font-size: var(--text-md);
+	line-height: 1.4;
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+@media (min-width: 48rem) {
+	.name {
+		font-size: var(--text-lg);
+	}
+}

@@ -1,0 +1,237 @@
+/* The betting screen: phone first; the ticket bar sits at the bottom, so the
+   page leaves room for it. From 64rem the ticket is a column on the right. */
+.page {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-6);
+	width: 100%;
+	max-width: 72rem;
+	min-height: 100vh;
+	min-height: 100svh;
+	margin-inline: auto;
+	padding-block: calc(var(--navbar-height) + var(--space-8)) var(--space-12);
+	padding-inline: var(--space-4);
+}
+
+.page[data-bettor] {
+	padding-bottom: calc(var(--space-12) + 96px);
+}
+
+.head {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.kicker {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+	color: var(--color-accent);
+}
+
+.title {
+	font-size: var(--text-lg);
+	line-height: 1.2;
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.lead,
+.small,
+.count {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+.notice {
+	margin: var(--px);
+	padding: var(--space-3) var(--space-4);
+	font-size: var(--text-sm);
+	color: var(--color-accent-alt);
+}
+
+.notice p {
+	margin: 0;
+}
+
+.notice p + p {
+	margin-top: var(--space-2);
+}
+
+.notice strong {
+	font-weight: 400;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+}
+
+.textLink {
+	display: inline-flex;
+	align-items: center;
+	min-height: 44px;
+	font-size: var(--text-sm);
+	color: var(--color-accent);
+	text-decoration: underline;
+	text-decoration-thickness: 2px;
+	text-underline-offset: var(--px);
+	transition: color 120ms steps(2, end);
+}
+
+.textLink:hover,
+.textLink:focus-visible {
+	color: var(--color-accent-alt);
+}
+
+/* Filters (BR-051). */
+.filters {
+	display: grid;
+	/*
+	 * A column only where each field fits whole (D-014): a date needs about
+	 * 155px (DD/MM/AAAA in Silkscreen 16px and its calendar button) and the
+	 * longest state, "Apuestas cerradas", about 230px with its arrow. One
+	 * column on phones, more as the page widens.
+	 */
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+	gap: var(--space-3);
+	margin: var(--px);
+	padding: var(--space-4);
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.field > label {
+	padding: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	text-transform: uppercase;
+}
+
+.field select,
+.field input:not([type='radio']) {
+	width: 100%;
+	min-height: 44px;
+	padding: var(--space-1) var(--space-2);
+	border: 0;
+	border-radius: 0;
+	font-family: var(--font-body);
+	font-size: var(--text-md);
+	color: var(--color-text);
+	background: var(--color-bg);
+	box-shadow: inset 0 0 0 var(--px) var(--color-border);
+	color-scheme: dark;
+}
+
+.field input[aria-invalid='true'] {
+	box-shadow: inset 0 0 0 var(--px) var(--color-danger);
+}
+
+.filterActions {
+	display: flex;
+	flex-wrap: wrap;
+	grid-column: 1 / -1;
+	align-items: center;
+	gap: var(--space-4);
+}
+
+.filters .small,
+.error {
+	grid-column: 1 / -1;
+}
+
+.error {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-danger);
+}
+
+.button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 44px;
+	padding: var(--space-2) var(--space-4);
+	border: 0;
+	border-radius: 0;
+	font-family: var(--font-display);
+	font-size: var(--text-xs);
+	line-height: 1.4;
+	text-transform: uppercase;
+	text-decoration: none;
+	color: var(--color-bg);
+	background: var(--color-accent);
+	box-shadow:
+		inset var(--px) var(--px) 0 0 rgb(255 255 255 / 0.35),
+		inset calc(var(--px) * -1) calc(var(--px) * -1) 0 0 rgb(0 0 0 / 0.35),
+		var(--px) var(--px) 0 0 var(--color-shadow);
+}
+
+.button:hover,
+.button:focus-visible {
+	background: var(--color-accent-alt);
+}
+
+.button:active {
+	transform: translate(var(--px), var(--px));
+}
+
+.layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--space-6);
+	align-items: start;
+}
+
+.matches {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pagination {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.textLink {
+		transition: none;
+	}
+}
+
+@media (min-width: 48rem) {
+	.page {
+		padding-inline: var(--space-8);
+	}
+
+	.title {
+		font-size: var(--text-xl);
+	}
+}
+
+@media (min-width: 64rem) {
+	.page[data-bettor] {
+		padding-bottom: var(--space-12);
+	}
+
+	.page[data-bettor] .layout {
+		grid-template-columns: minmax(0, 1fr) 22rem;
+	}
+}
