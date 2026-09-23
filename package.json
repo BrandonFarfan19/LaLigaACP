@@ -20,7 +20,8 @@
     "server:coins:check": "npm --prefix server run coins:check",
     "server:seed:dev": "npm --prefix server run seed:dev --",
     "server:seed:dev:clean": "npm --prefix server run seed:dev:clean --",
-    "server:start": "npm --prefix server start"
+    "server:start": "npm --prefix server start",
+    "db:export-real": "node db/export-datos-reales.mjs"
   },
   "dependencies": {
     "@fontsource/press-start-2p": "^5.3.0",

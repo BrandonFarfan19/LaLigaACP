@@ -12,7 +12,8 @@ Web del torneo (fixture, posiciones, equipos y plantillas), más una polla depor
 ├── vercel.json             # reescrituras SPA para Vercel
 ├── vite-plugins/
 │   ├── pixel-images.ts     # genera versiones webp pequeñas de las imágenes
-│   └── spa-rewrites.ts     # genera dist/_redirects (Netlify, Cloudflare Pages)
+│   ├── spa-rewrites.ts     # genera dist/_redirects (Netlify, Cloudflare Pages)
+│   └── nginx-spa-routes.ts # genera deploy/nginx/spa-routes.conf (servidor propio)
 ├── src/
 │   ├── main.tsx            # monta React e importa global.css
 │   ├── App.tsx             # rutas (/, /posiciones, /plantilla/:id, /ingresar, /registro, /cuenta, /admin y sus secciones, /apuestas, /apuestas/tickets/:id, /mis-apuestas, /ranking, 404)
@@ -30,6 +31,10 @@ Web del torneo (fixture, posiciones, equipos y plantillas), más una polla depor
 │   └── assets/             # escudos, logos y fondos (se importan con ?pixel=<preset>)
 ├── server/                 # API Express + TypeScript — package.json propio, ver server/README.md
 ├── db/init/                # esquema SQL, ver EsquemaBD.md
+├── db/export-datos-reales.mjs # genera el volcado de datos reales para producción (solo lee)
+├── compose.yaml            # desarrollo: base + backend con recarga
+├── compose.prod.yaml       # producción: base + backend compilado
+├── deploy/nginx/           # sitio nginx del servidor propio (+ spa-routes.conf generado)
 └── docs/migracion-react.md # checklist de paridad de la migración desde Astro
 ```
 
@@ -55,6 +60,7 @@ Desde la raíz del proyecto:
 | `npm run server:coins:check` | Compara cada saldo de monedas con la suma de sus movimientos y lista los descuadres (sale con 1 si hay) |
 | `npm run server:seed:dev` | Solo desarrollo: carga los datos de ejemplo (ver abajo) |
 | `npm run server:seed:dev:clean` | Solo desarrollo: borra únicamente los datos de ejemplo |
+| `npm run db:export-real` | Genera `db/datos-reales.sql` desde la base de desarrollo, para llevarlo a producción (solo lee) |
 
 `npm run dev` y `npm run preview` sirven cualquier ruta, con o sin barra final (`/posiciones/`, `/plantilla/boca-juniors/`), con 200.
 
@@ -137,7 +143,9 @@ Los `server:*` son atajos (`npm --prefix server run ...`); ver [server/README.md
 
 ## 🌐 Despliegue
 
-Se publica la carpeta `dist/` en cualquier hosting estático. Como es una SPA, el servidor tiene que responder la app en sus rutas. Todavía no hay hosting elegido; el build deja lista la configuración para los habituales.
+Se publica la carpeta `dist/` en cualquier hosting estático. Como es una SPA, el servidor tiene que responder la app en sus rutas. El build deja lista la configuración para los hostings habituales.
+
+> Esta sección describe los **hostings estáticos**. Para un **servidor propio con nginx y Docker**, que es el camino que sigue el proyecto, ver la sección siguiente, "Despliegue en servidor propio (nginx + Docker)".
 
 **Rutas que se reescriben** (cada una con y sin barra final): `/posiciones`, `/plantilla/:id`, `/ingresar`, `/registro`, `/cuenta`, `/admin`, `/apuestas`, `/apuestas/tickets/:id`, `/mis-apuestas` y `/ranking`, donde `:id` es **un solo segmento**. `/` no necesita regla. No hay comodín `/*`: los archivos reales (`assets/`, `favicon.png`, `cursors/`) se sirven tal cual y las URLs que no existen conservan el 404.
 
@@ -173,6 +181,298 @@ Se publica la carpeta `dist/` en cualquier hosting estático. Como es una SPA, e
 
   Los hostings estáticos de la tabla lo resuelven distinto: Netlify con una regla de proxy en `_redirects` (`/api/*  https://api.ejemplo.com/:splat  200`, antes de las reglas de la SPA), Vercel con una reescritura externa en `vercel.json` y Cloudflare Pages con una Function (sus `_redirects` no hacen proxy a otro dominio). Hoy el build no genera esas reglas porque todavía no hay hosting ni dominio de la API: se agregan al elegirlos, respetando la lista de arriba.
 - **Qué está probado:** Cloudflare Pages con `npx wrangler pages dev dist`, cuando había 4 reglas (antes de T-18). Hoy `_redirects` tiene una regla por cada ruta de `SPA_ROUTES`, con y sin barra final (42 reglas con las 21 rutas de la T-21), con el mismo formato y el mismo destino; no se volvió a correr wrangler con ellas. En esa prueba aceptó las reglas sin avisos; las rutas de la app, con y sin barra final, dieron 200; `/plantilla/a/b`, `/plantilla` y `/cualquier/cosa` dan 404 con la app; los archivos reales dan 200. Netlify y Vercel no se probaron en un despliegue: su configuración sigue la documentación de cada uno (placeholders de un segmento, prioridad de los archivos reales sobre las reescrituras).
+
+## 🖥️ Despliegue en servidor propio (nginx + Docker)
+
+Un servidor Linux con Docker para la base y el backend, y **nginx instalado en el host** (fuera de Docker) como servidor web y terminador de TLS. El front se **compila en el servidor** y nginx sirve `dist/` desde el disco. Los archivos que lo arman:
+
+| Archivo | Qué es |
+| :-- | :-- |
+| `compose.prod.yaml` | base de datos + backend de producción |
+| `server/Dockerfile.prod` | imagen del backend, compilada y sin devDependencies |
+| `deploy/nginx/la-liga-acp.conf.example` | el sitio de nginx, con marcadores para el dominio y el certificado |
+| `deploy/nginx/spa-routes.conf` | las 42 URLs de la SPA, **generadas en cada build** |
+
+**Nada de esto toca el flujo de desarrollo:** `compose.yaml` y `server/Dockerfile` siguen igual.
+
+### Antes de empezar: qué tiene que haber instalado
+
+| Programa | Versión mínima | Para qué | Comprobar con |
+| :-- | :-- | :-- | :-- |
+| Docker Engine + plugin Compose | Compose **v2** | la base y el backend | `docker compose version` |
+| **Node.js** | **22.12.0** | compilar el front en el servidor | `node -v` |
+| nginx | 1.18 (1.25.1+ para `http2 on;`) | servidor web y TLS | `nginx -v` |
+| git | cualquiera | traer el repo | `git --version` |
+| openssl | cualquiera | generar `SESSION_SECRET` | `openssl version` |
+
+**Ojo con Node.** Los dos `package.json` piden `node >= 22.12.0`, y el Node que traen los repositorios de Debian y Ubuntu estables es 18 o 20: si se instala `nodejs` con `apt` sin más, `npm ci` falla o compila mal. Dos formas de conseguir un Node 22 sin depender del repositorio de la distro:
+
+```sh
+# Opción A: repositorio oficial de NodeSource (instala en todo el sistema)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+node -v    # tiene que decir v22.x
+
+# Opción B: nvm, sin sudo y por usuario (útil si el servidor ya tiene otro Node)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+. "$HOME/.nvm/nvm.sh" && nvm install 22 && nvm use 22
+node -v
+```
+
+Si el servidor no puede tener Node, la alternativa es compilar el front en otra máquina con la **misma versión** y copiar `dist/` y `deploy/nginx/spa-routes.conf` al servidor.
+
+**Dos cosas más que suelen faltar en un servidor recién instalado:**
+
+- **Permiso para usar Docker sin `sudo`.** Si `docker compose version` responde `permission denied` sobre `/var/run/docker.sock`, hay que agregar el usuario al grupo `docker` y **volver a entrar** (el grupo no se aplica en la sesión abierta): `sudo usermod -aG docker "$USER"` y después cerrar sesión y entrar de nuevo, o `newgrp docker`. La otra opción es anteponer `sudo` a cada `docker compose`.
+- **Los puertos 80 y 443 abiertos** en el firewall del servidor y, si lo hay, en el del proveedor. Con `ufw`: `sudo ufw allow 'Nginx Full'`. Sin esto el certificado no se puede emitir y el sitio no se ve desde afuera, aunque todo lo demás esté bien.
+
+### Pasos
+
+Van en este orden. Los pasos 1 y 2 **tienen que estar terminados antes** de levantar nada: la contraseña de MySQL se graba al crear el volumen y después no se relee (ver el aviso de abajo).
+
+```sh
+# 1. Traer el repo. El usuario que lo clona va a ser su dueño.
+git clone <repo> /srv/la-liga-acp && cd /srv/la-liga-acp
+
+# 2. CONFIGURACIÓN — terminar ESTE paso antes de seguir.
+cp .env.example .env
+openssl rand -base64 48        # copiar la salida a SESSION_SECRET
+nano .env                      # o vim, o el editor que haya
+```
+
+En `.env` hay que dejar, como mínimo (el detalle está en el bloque **PRODUCCIÓN** al final de `.env.example`):
+
+- `MYSQL_PASSWORD` y `MYSQL_ROOT_PASSWORD`: contraseñas propias. **Nunca dejar las de ejemplo.**
+- `SESSION_SECRET`: el valor que acaba de generar `openssl`. El backend rechaza el del ejemplo.
+- `CORS_ORIGIN`: el dominio del sitio, con `https://` y **sin** barra final.
+- `TRUST_PROXY=1`.
+
+> ### ⚠️ La contraseña de MySQL se graba una sola vez
+>
+> `MYSQL_PASSWORD` y `MYSQL_ROOT_PASSWORD` **solo se leen cuando el volumen de datos se crea por primera vez**. MySQL las guarda adentro y, a partir de ahí, cambiarlas en `.env` no cambia nada: el backend sigue intentando entrar con la nueva y MySQL sigue esperando la vieja, así que falla con `Access denied for user 'liga'@'...'` y `/health` responde `503 DATABASE_UNAVAILABLE`.
+>
+> Pasa fácil: `.env.example` trae `MYSQL_PASSWORD=cambiar_password_app`, así que quien levante los contenedores **antes** de terminar de editar el `.env` deja esa contraseña grabada dentro de MySQL para siempre.
+>
+> **Si ya pasó**, hay dos salidas:
+>
+> **A) Cambiar la contraseña dentro de MySQL — conserva los datos.** Es la que conviene si la base ya tiene algo que no se quiera perder (equipos, jugadores, partidos, apuestas). Se entra con la contraseña **vieja** de root, la que quedó grabada:
+>
+> ```sh
+> # Reemplazar VIEJA_ROOT por la que estaba en el .env cuando se creó el volumen,
+> # y NUEVA_APP por el MYSQL_PASSWORD que hay ahora en el .env.
+> docker compose -f compose.prod.yaml exec db \
+>   mysql -uroot -pVIEJA_ROOT -e \
+>   "ALTER USER 'liga'@'%' IDENTIFIED BY 'NUEVA_APP'; FLUSH PRIVILEGES;"
+>
+> # Si también cambió MYSQL_ROOT_PASSWORD, la de root va aparte:
+> docker compose -f compose.prod.yaml exec db \
+>   mysql -uroot -pVIEJA_ROOT -e \
+>   "ALTER USER 'root'@'localhost' IDENTIFIED BY 'NUEVA_ROOT'; FLUSH PRIVILEGES;"
+>
+> docker compose -f compose.prod.yaml restart server
+> curl -s http://127.0.0.1:3001/health
+> ```
+>
+> El usuario de la aplicación es el de `MYSQL_USER` (`liga` por defecto): si se cambió, va ese nombre. Si tampoco se sabe la contraseña vieja de root, no hay forma de entrar y solo queda la opción B.
+>
+> **B) Borrar el volumen y empezar de cero — se pierde TODO.** Solo si la base está recién creada o no tiene nada que importe. Borra la base **y las imágenes subidas**, y `db/init/` se vuelve a ejecutar desde cero:
+>
+> ```sh
+> docker compose -f compose.prod.yaml down -v     # -v BORRA los datos y los uploads
+> docker compose -f compose.prod.yaml up -d --build
+> ```
+>
+> Con datos reales cargados, **A**. Con la base recién levantada y vacía, **B** es más rápido y más limpio.
+
+```sh
+# 3. Base de datos y backend. Recién ahora, con el .env terminado.
+docker compose -f compose.prod.yaml up -d --build
+docker compose -f compose.prod.yaml ps        # esperar a que db diga (healthy)
+curl -s http://127.0.0.1:3001/health           # {"data":{"status":"ok","database":"up",...}}
+
+# 4. El front, compilado acá. Genera dist/ y deploy/nginx/spa-routes.conf.
+npm ci && npm run build
+```
+
+#### 5. El certificado, antes de tocar nginx
+
+El sitio de ejemplo **no arranca sin certificado**: el bloque HTTPS apunta a dos archivos y, si no existen, `nginx -t` falla y `systemctl reload nginx` no aplica nada. Así que el orden es: **DNS apuntando al servidor → certificado emitido → recién entonces activar el sitio.**
+
+**Caso (a): ya se tiene el certificado** (un `.crt`/`.pem` y su `.key`).
+
+```sh
+sudo mkdir -p /etc/ssl/la-liga-acp
+sudo cp fullchain.crt /etc/ssl/la-liga-acp/fullchain.pem
+sudo cp privada.key  /etc/ssl/la-liga-acp/privkey.pem
+
+# La clave privada la lee nginx como root al arrancar: nadie más debe poder leerla.
+sudo chown root:root /etc/ssl/la-liga-acp/*.pem
+sudo chmod 600 /etc/ssl/la-liga-acp/privkey.pem
+sudo chmod 644 /etc/ssl/la-liga-acp/fullchain.pem
+```
+
+En `ssl_certificate` va la cadena **completa** (el certificado del dominio seguido de los intermedios). Si la autoridad los entregó por separado, se concatenan en ese orden: `cat dominio.crt intermedios.crt > fullchain.pem`. Con solo el certificado del dominio, los navegadores de escritorio suelen andar y los teléfonos fallan.
+
+**Caso (b): emitirlo con certbot.** Acá hay un huevo y la gallina: certbot en modo `webroot` necesita que nginx ya esté sirviendo por HTTP, pero el sitio de ejemplo tiene el bloque HTTPS que impide arrancar sin certificado. La salida es usar el modo `--nginx`, que lo resuelve solo, **sobre el sitio por defecto y antes de instalar el de la app**:
+
+```sh
+sudo apt-get install -y certbot python3-certbot-nginx
+# nginx tiene que estar corriendo con su sitio por defecto (el que ya viene).
+sudo certbot --nginx -d DOMINIO.EJEMPLO
+# Deja los archivos en /etc/letsencrypt/live/DOMINIO.EJEMPLO/
+```
+
+Después, en el paso 6, `/RUTA/AL/CERTIFICADO` es `/etc/letsencrypt/live/DOMINIO.EJEMPLO`. El `location` de `acme-challenge` que trae el ejemplo sirve para las **renovaciones** siguientes, que ya corren con el sitio de la app activo.
+
+#### 6. Activar el sitio
+
+```sh
+sudo cp deploy/nginx/la-liga-acp.conf.example /etc/nginx/sites-available/la-liga-acp.conf
+sudo nano /etc/nginx/sites-available/la-liga-acp.conf   # o vim, o el editor que haya
+```
+
+Reemplazar los cuatro marcadores: `DOMINIO.EJEMPLO`, `/RUTA/AL/CERTIFICADO`, `/RUTA/AL/REPO` y —solo si se cambió `PORT` en el `.env`— el `127.0.0.1:3001` del `proxy_pass`.
+
+```sh
+sudo ln -s /etc/nginx/sites-available/la-liga-acp.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+nginx tiene que poder **leer** `dist/` y `deploy/nginx/`: el usuario `www-data` necesita permiso de ejecución sobre todas las carpetas del camino hasta el repo (`sudo -u www-data test -r /srv/la-liga-acp/dist/index.html && echo ok` lo comprueba).
+
+#### 7. El primer administrador
+
+No hay ninguno, y no se crea desde la app (BR-001). Pide la contraseña sin eco: por eso el `-it`.
+
+```sh
+docker compose -f compose.prod.yaml exec -it \
+  -e ADMIN_EMAIL=admin@tu-dominio.example -e ADMIN_NOMBRE="Nombre Visible" \
+  server node dist/cli/create-admin.js
+```
+
+Es **distinto del comando de desarrollo** (`npm run admin:create`), que usa `tsx` y `src/`: en la imagen de producción no existe ninguno de los dos. Ver [server/README.md](server/README.md#primer-administrador).
+
+#### 8. Comprobar que quedó bien
+
+```sh
+curl -sI  https://DOMINIO.EJEMPLO/            | head -1   # 200
+curl -sI  https://DOMINIO.EJEMPLO/posiciones  | head -1   # 200 (ruta de la SPA)
+curl -sI  https://DOMINIO.EJEMPLO/no-existe   | head -1   # 404
+curl -s   https://DOMINIO.EJEMPLO/api/health              # {"data":{"status":"ok",...}}
+curl -sI  http://DOMINIO.EJEMPLO/             | head -1   # 301 a https
+```
+
+Y en el navegador: entrar con la cuenta de administrador. **Si el ingreso falla pero `/api/health` responde bien**, casi siempre es una de dos: el sitio se está sirviendo por HTTP (la cookie `__Host-` necesita HTTPS) o `CORS_ORIGIN` no coincide **exactamente** con el dominio que muestra el navegador.
+
+**Para actualizar** (código nuevo): `git pull`; después `npm ci && npm run build` (el front, que reescribe `spa-routes.conf`); después `docker compose -f compose.prod.yaml up -d --build server`; y `sudo nginx -t && sudo systemctl reload nginx` solo si cambiaron las rutas de la SPA.
+
+### Llevar los datos reales a producción
+
+La base de producción arranca **vacía**: al crear el volumen se ejecutan `db/init/01-schema.sql` (el esquema) y `db/init/02-catalogos.sql` (los 9 catálogos). Los datos que ya están cargados en la base de desarrollo —**3 deportes, 3 competiciones, 15 equipos, 102 jugadores y 134 planteles**— se llevan con un volcado.
+
+**Qué viaja y qué no.** Solo las cinco tablas con datos reales del Módulo Informativo: `deporte`, `competicion`, `equipo`, `jugador` y `plantel`, en ese orden, que es el de las claves foráneas. **No** viajan los catálogos (los carga `02-catalogos.sql`, y repetirlos rompe por `codigo` único) ni `usuario`, `sesion`, `auditoria`, `ticket`, `seleccion` o `movimiento_moneda`: llevar hashes de contraseña y sesiones de una base de desarrollo a un servidor real es justo lo que no hay que hacer. **El administrador de producción se crea allá**, con `create-admin` (paso 7). Las tablas de partidos (`partido`, `partido_equipo`, `gol`, `multimedia_partido`) están vacías en desarrollo, así que no hay nada que llevar.
+
+**Los ids se conservan.** Las URLs de la app son `/plantilla/42`, o sea que el id es visible y estable, y `plantel` referencia equipos y jugadores por id. El volcado los trae explícitos.
+
+#### Paso 1 — generar el volcado (en la máquina de desarrollo)
+
+```sh
+docker compose up -d db      # la base de DESARROLLO
+npm run db:export-real       # escribe db/datos-reales.sql
+```
+
+Solo lee: lo único que corre contra MySQL son `mysqldump` y `SELECT COUNT(*)`. La base de desarrollo no se toca. La salida dice cuántas filas lleva cada tabla; tienen que ser 3, 3, 15, 102 y 134.
+
+#### Paso 2 — copiarlo al servidor
+
+```sh
+scp db/datos-reales.sql usuario@DOMINIO.EJEMPLO:/srv/la-liga-acp/db/
+```
+
+#### Paso 3 — cargarlo en el contenedor de producción
+
+Hay que entrar como **root de MySQL**, no con el usuario de la aplicación: `MYSQL_USER` solo tiene permisos sobre su propia base y no alcanza. La contraseña es `MYSQL_ROOT_PASSWORD` del `.env` del servidor.
+
+```sh
+cd /srv/la-liga-acp
+
+# El archivo entra por la entrada estándar; -T porque no hace falta terminal.
+docker compose -f compose.prod.yaml exec -T db \
+  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 la_liga_acp \
+  < db/datos-reales.sql
+```
+
+Si `MYSQL_ROOT_PASSWORD` no está en el entorno de la terminal, se escribe a mano (`-p` sin valor y que la pida) o se carga antes con `set -a; . ./.env; set +a`.
+
+**Qué tiene que salir.** El archivo imprime su propio control:
+
+```text
+control
+Base vacía: se puede cargar
+tabla        filas  esperadas
+deporte      3      3
+competicion  3      3
+equipo       15     15
+jugador      102    102
+plantel      134    134
+control
+Verificación OK
+resultado
+Carga completa y verificada.
+```
+
+**Si algo sale mal**, `mysql` corta en el primer error y **nada queda a medias**: todo va dentro de una transacción que nunca llega al `COMMIT`.
+
+| Error | Qué pasó | Qué hacer |
+| :-- | :-- | :-- |
+| `Table '...ABORTADO_la_base_ya_tiene_datos_informativos' doesn't exist` | Las tablas ya tenían filas. El archivo **no** insertó nada. | Mirar qué hay cargado antes de decidir. No se vuelve a correr "por las dudas". |
+| `Table '...VERIFICACION_FALLIDA_los_conteos_no_coinciden' doesn't exist` | Entraron menos filas de las esperadas (archivo truncado en la copia). La transacción se deshizo: la base quedó **vacía**. | Copiar el archivo de nuevo y repetir. La tabla de conteos que se imprime arriba dice qué tabla falló. |
+| Un error de clave foránea | El archivo llegó cortado. También se deshizo todo. | Igual que el anterior. |
+
+**Se corre una sola vez.** El archivo **no es idempotente a propósito**: en lugar de `INSERT IGNORE` o `REPLACE`, lleva una barrera que aborta si las cinco tablas no están vacías. Es una carga inicial única sobre una base nueva; si ya hay algo, lo correcto es detenerse y mirar por qué, no mezclar en silencio con lo que hubiera. Correrlo dos veces falla limpio y **no duplica ni una fila**.
+
+Después de cargar, el sitio ya muestra equipos y plantillas. Lo que falta cargar desde el panel son los **partidos**, que en desarrollo no existen.
+
+### Qué no se pudo probar acá
+
+Estos artefactos se escribieron y se revisaron en la máquina de desarrollo (Windows). **Dos pasos nunca se ejecutaron, y son los primeros que pueden fallar en el servidor**:
+
+- **La imagen de producción nunca se construyó** (`docker compose -f compose.prod.yaml up -d --build`). Lo que puede aparecer ahí es la compilación de las dependencias nativas `argon2` y `sharp` sobre Alpine; la imagen de desarrollo usa la misma base y las compila bien, pero no es lo mismo que haberlo visto.
+- **El sitio de nginx nunca pasó por `nginx -t`**, porque no hay nginx en la máquina de desarrollo. La sintaxis se revisó a mano.
+
+Lo que sí está verificado:
+
+- Los dos `compose` validan con `docker compose config`.
+- `deploy/nginx/spa-routes.conf` cubre **exactamente** las mismas 42 URLs que `dist/_redirects`, y las expresiones regulares de las rutas con `:id` aceptan `/plantilla/42` y rechazan `/plantilla/a/b` y `/plantilla`.
+- **El volcado de datos se probó de verdad**, cargándolo en una base desechable creada con `01-schema.sql` y `02-catalogos.sql` y borrada después: entra limpio (3, 3, 15, 102, 134), los ids se conservan (equipos 49 a 63), no queda ni un plantel huérfano, los acentos y eñes se leen exactos desde la base, correrlo dos veces **falla sin duplicar nada**, y con un archivo al que le falta una fila la verificación lo detecta y **deshace toda la carga**.
+
+### Por qué está armado así
+
+- **`compose.prod.yaml` es un archivo aparte, no un override.** Compose fusiona las listas de `volumes` **agregando, nunca quitando**: un override no puede sacar el bind mount `./server:/app` ni el volumen anónimo de `node_modules` que `compose.yaml` necesita para desarrollar. Comprobado con `docker compose -f compose.yaml -f override.yaml config`. En producción eso taparía la imagen compilada con el código del host. Por eso se usa `-f compose.prod.yaml` y no `-f compose.yaml -f ...`.
+- **El backend se publica solo en `127.0.0.1`** y **la base no se publica**. `compose.yaml` publica `3306` y `3001` en todas las interfaces, que en desarrollo es cómodo y en un servidor con IP pública dejaría **MySQL abierto a internet** y el backend accesible saltándose nginx (sin TLS y sin el límite de tamaño de subida).
+- **`TRUST_PROXY=1`, no `loopback`.** Aunque nginx llegue a `127.0.0.1:3001`, el puerto se publica con NAT: el contenedor ve como origen la puerta de enlace del bridge de Docker (`172.x.x.x`), así que `loopback` no coincidiría, el backend ignoraría `X-Forwarded-For` y **todos los clientes compartirían los límites de intentos** (una persona equivocándose de contraseña dejaría fuera a las demás). Con `1`, la IP real es la última de `X-Forwarded-For`, la que pone nginx, y nadie puede falsearla porque el puerto solo escucha en el loopback del host. `true` lo rechaza `env.ts` a propósito.
+- **La imagen de producción no lleva `tsx`.** `tsc -b` compila también `src/cli`, así que existen `dist/cli/create-admin.js`, `dist/cli/coins-check.js` y `dist/cli/seed-dev.js`, y esos comandos se corren con `node`. Solo importan módulos internos, `zod` y builtins de node, por eso la imagen puede ir con `npm ci --omit=dev`.
+- **La imagen instala sus dependencias en la etapa final**, en vez de copiar `node_modules` de la de build: `argon2` y `sharp` son nativas, y así sus binarios se resuelven contra la imagen que realmente las va a ejecutar. La base es `node:22-alpine` (musl) porque es la misma que la de desarrollo, donde las dos vienen funcionando desde T-03 y T-13.
+- **La imagen incluye `package.json`.** `services/health.service.ts` lee la versión con `require('../../package.json')`, que desde `dist/services/` resuelve a `/app/package.json`. Sin ese archivo, `GET /health` falla.
+- **La configuración de nginx de la SPA se genera.** 21 rutas con y sin barra final son 42 URLs, y una lista así a mano se desincroniza a la primera. `vite-plugins/nginx-spa-routes.ts` la escribe desde `SPA_ROUTES` en cada build, igual que `spa-rewrites.ts` escribe `dist/_redirects`. Se escribe **fuera de `dist/`** a propósito: `dist/` es la raíz web, y un `.conf` ahí dentro se serviría a quien lo pidiera.
+- **Sin comodín `/*`.** Las rutas fijas son `location =` exactos y las que llevan `:id` son expresiones regulares de **un solo segmento** (`[^/]+`). Así `/plantilla/no-existe` da **200** y la app muestra su propia página de no encontrado, mientras que `/plantilla/a/b`, `/plantilla` y cualquier URL inventada dan **404** con `dist/404.html`, y los archivos reales se sirven tal cual.
+- **Caché:** `dist/assets/` lleva hash en el nombre, así que va con `max-age=31536000, immutable`; **todo lo demás va con `no-store`**, porque cualquier ruta de la app devuelve el shell y un shell cacheado después de un despliegue apunta a archivos con hash que ya no existen (`vite build` vacía `dist/`), o sea la página queda rota hasta recargar a mano. La API queda afuera: el `Cache-Control` lo manda el backend (30 s en `/public`).
+- **Las cabeceras se ponen una sola vez, con un `map`.** En nginx una cabecera agregada **no se hereda** en un bloque que tenga la suya, así que un `add_header Cache-Control` dentro de cada `location` cancelaría ahí mismo todas las del `server` —`Strict-Transport-Security` incluida— justo en las respuestas que más se piden. Por eso el archivo generado no lleva ninguna cabecera y el sitio las define para todas las respuestas. **Regla para quien edite el sitio: el bloque `location /api/` sí tiene cabeceras propias (a propósito, para no pisar el `Cache-Control` del backend), así que toda cabecera que se agregue al `server` hay que repetirla también ahí, o la API se queda sin ella.**
+- **TLS y HSTS:** el ejemplo fija `ssl_protocols TLSv1.2 TLSv1.3` (si no, queda lo que traiga por defecto la versión de nginx instalada, que en las viejas incluye TLS 1.0 y 1.1) y manda `Strict-Transport-Security` con un año. **HSTS es difícil de revertir**: mientras no venza, los navegadores que ya lo recibieron se niegan a entrar por HTTP a ese dominio aunque el servidor lo vuelva a permitir, y no se puede borrar a distancia. Conviene probar primero con un `max-age` corto; va sin `preload` ni `includeSubDomains` a propósito.
+
+### Cuidado con esto
+
+- **`NODE_ENV=production` exige HTTPS.** El backend decide **solo por esa variable** si la cookie de sesión lleva `Secure` y el prefijo `__Host-`; no mira si hay TLS. Servir `production` por HTTP deja el sitio **sin poder iniciar sesión** (el navegador descarta la cookie), y servir `development` por HTTPS manda la cookie sin `Secure`. Por eso el sitio de nginx redirige HTTP a HTTPS.
+- **La base real nunca puede llamarse `la_liga_acp_test`.** `MYSQL_DATABASE_TEST` vale `la_liga_acp_test` por defecto y el backend **no arranca** si coincide con `MYSQL_DATABASE`. En producción no hace falta definirla, pero sí evitar ese nombre para la base real.
+- **No hay sistema de migraciones.** Los scripts de `db/init/` corren **una sola vez**, con el volumen de MySQL vacío. Con datos reales cargados, cambiar `01-schema.sql` no hace nada: hay que aplicar el cambio a mano con `ALTER TABLE` sobre la base en marcha (con respaldo antes) y dejar `01-schema.sql` y `EsquemaBD.md` en paso, para que una instalación nueva nazca igual. Borrar el volumen para "reaplicar el esquema" **borra los datos**. Respaldo antes de tocar nada:
+
+  ```sh
+  docker compose -f compose.prod.yaml exec db \
+    mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines la_liga_acp > respaldo.sql
+  ```
+
+- **Las imágenes subidas viven en un volumen** (`uploads-data`, montado en `/data/uploads`), no en el repo ni en `dist/`. No se pierden al recompilar ni al recrear el contenedor, pero **sí** con `docker compose -f compose.prod.yaml down -v`. Van en un respaldo aparte del `mysqldump`.
+- **`npm audit` no corre solo:** conviene pasarlo en el front y en `server/` antes de cada despliegue.
 
 ## 🗄️ Base de datos y backend (Docker)
 

@@ -330,3 +330,40 @@ Formato de cada entrada:
 - **Motivo:** la opción 2 esquiva a propósito la restricción que existe justamente para impedir esto, y dejaría a dos personas con el mismo nombre en la misma competición, que es lo que más confunde después al cargar goles. La 3 la borra de un torneo en el que sí juega. La 1 conserva una inscripción real, es reversible con un `UPDATE` de una línea y no inventa una persona. Se eligió el primer equipo listado por ser el único criterio no arbitrario disponible.
 - **Aviso al usuario:** quedó señalado en el informe de la carga, no enterrado en el registro, porque es el único dato de las plantillas que no se pudo cargar tal como lo entregó.
 - **Dónde quedó aplicada:** carga D-02, `plantel` de la competición 14. NEXUS PRIME quedó con 8 inscripciones en vez de 9.
+
+## D-029 · 2026-09-18 · C-03 — Hasta qué ancho vale el escape que evita el desborde de la cabecera
+
+- **Pregunta:** el arreglo de C-03 (la cabecera de la ficha de plantilla puede pasar a dos líneas y el nombre puede partirse) está acotado a menos de 24rem, o sea 384 px. El ejecutor avisó que, con ese tope, un nombre futuro de **una sola palabra de más de 14 caracteres** volvería a desbordar entre 384 px y unos 430 px. Quitar el tope lo haría a prueba de cualquier nombre, pero cambia la cabecera a 768 px en 7 de los 15 equipos (el párrafo de la competición baja de renglón), que es justo lo que el encargo pedía no tocar.
+- **Opciones:**
+  1. Subir el tope hasta que cubra todo el rango donde un nombre largo puede desbordar, dejándolo igualmente muy por debajo de 768 px. El escape deja de tener un agujero y los anchos grandes no se enteran.
+  2. Dejar el tope en 24rem: con los 15 nombres actuales no falla, y el agujero solo aparecería si alguien carga un equipo con un nombre más largo.
+  3. Quitar el tope: robusto ante cualquier nombre, pero cambia el dibujo a 768 px en 7 equipos.
+- **Decisión:** opción 1.
+- **Motivo:** las opciones 2 y 3 se planteaban como si hubiera que elegir entre robustez y no tocar los anchos grandes, y no es cierto: el rango problemático termina cerca de 430 px, muy lejos de los 768 px donde estaba la objeción. Subir el tope a un ancho intermedio compra las dos cosas. Además los equipos los carga un administrador por el panel (T-21), así que mañana puede aparecer un nombre más largo que los quince de hoy; dejar un agujero conocido en el diseño para que lo encuentre un usuario real no se justifica cuando cerrarlo no cuesta nada.
+- **Cómo se comprueba que no costó nada:** las medidas a 768 y 1280 px deben seguir siendo idénticas, equipo por equipo, a la línea base que el ejecutor tomó antes de editar.
+- **Dónde quedó aplicada:** corrección de C-03, `src/pages/Plantilla.module.css` y su prueba.
+
+## D-030 · 2026-09-18 · C-03 — Corrige a D-029: el agujero no era una banda, seguía hacia arriba
+
+- **Qué se había supuesto mal:** D-029 decidió subir el tope del escape con el argumento de que "el rango problemático termina cerca de 430 px". Esa premisa era **falsa**, y quien lo demostró midiendo fue `tester_liga` al revisar C-03. Por encima del tope el CSS repone `overflow-wrap: normal` y `min-width: auto`, así que una palabra larga **no puede partirse en ningún ancho grande**: con 25 letras ya se come el margen a 576 y a 768 px, con 28 la página desborda 9 px a 576 y 25 px a 768, y con 33 desborda 49, 37 y 85 px a 576, 600 y 768. Subir el tope movía el agujero, no lo cerraba.
+- **Pregunta:** entonces, ¿se cierra del todo o se acepta el agujero?
+- **Opciones:**
+  1. Dejar `min-width: 0` y `overflow-wrap: break-word` **sin acotar**, y mantener acotados solo el salto de fila (`flex-wrap`) y el renglón propio del párrafo, que son los que sí cambian el dibujo. La palabra puede partirse en cualquier ancho y el agujero desaparece.
+  2. Dejarlo como está y aceptar el agujero, anotándolo en `docs/pendientes.md`.
+- **Decisión:** opción 1.
+- **Motivo:** el tester midió lo que cuesta y es casi nada: de los equipos cargados, **12 de 13 dan medidas idénticas a 768 y 1280 px**, y el único que cambia es FINZULIANAS, 5 px de ancho de título, con la misma caja y la misma fila. Cerrar un desborde real de hasta 85 px por 5 px de ancho de título en un equipo es un cambio obviamente bueno. Lo que justificaba acotar el escape era no mover el diseño a los anchos grandes, y `min-width` y `overflow-wrap` no lo mueven: lo mueve el `flex-wrap`, que sigue acotado.
+- **Lección que conviene retener:** D-029 razonó sobre un rango que nunca se midió. El número "430 px" salió de un informe, no de una medición, y la revisión lo desmintió. Cuando una decisión se apoye en un límite numérico, el límite se mide antes de decidir.
+- **Dónde quedó aplicada:** segunda corrección de C-03, `src/pages/Plantilla.module.css` y su prueba.
+
+## D-031 · 2026-09-18 · C-03 — Qué se sacrifica: un nombre imaginario o dos nombres reales
+
+- **Qué apareció:** al implementar D-030 el ejecutor encontró dos cosas. Primera, que `overflow-wrap: break-word` **no cierra** el agujero (parte la palabra dentro de la caja pero no baja el `min-content`, así que la cabecera sigue creciendo hasta la palabra entera y empuja la página); hace falta `overflow-wrap: anywhere`. Segunda, y más importante, que el costo real de dejarlo sin acotar **no** son los 5 px de ancho que midió el tester: es que el título **se parte a mitad de palabra**. Con el archivo real, a 576 px se parten FINZULIANAS y FINANFORCE, y a 768 px FINZULIANAS sale como "FINZULIANA" más una "S" sola en el renglón siguiente. El tester midió anchos y filas, no renglones de texto, y por eso lo leyó como "misma caja, misma fila": la fila flex es la misma, pero el texto pasa de uno a dos renglones.
+- **Pregunta:** ¿qué se sacrifica?
+- **Opciones:**
+  1. Dejar `anywhere` sin acotar: el agujero queda cerrado para cualquier largo, pero dos equipos reales se parten a mitad de palabra en las bandas 576–690 y 768–775.
+  2. Dar al párrafo de competición su propio renglón también arriba del tope: no hay cortes, pero cambia el dibujo a 768 y 1280 px en la mayoría de los equipos.
+  3. Acotar `anywhere` a los anchos donde hace falta para que la página no desborde, y aceptar como límite conocido que un nombre de **una sola palabra de 25 letras o más** desborde en anchos grandes.
+- **Decisión:** el orden de prioridades es: (1) que la página nunca desborde en un ancho real, (2) que ningún nombre **realmente cargado** se parta a mitad de palabra, (3) que el diseño no cambie en los anchos grandes, y (4) robustez ante un nombre de una sola palabra de 25+ letras. Si algo tiene que ceder, cede el 4. Primero se busca una salida que no obligue a elegir; si no existe, se aplica la opción 3.
+- **Motivo:** la opción 1 cambia un problema **hipotético** por uno **real y presente**: hoy, con los datos del usuario, FINZULIANAS se ve partida a 768 px, que es un ancho de tableta corriente. Un nombre de equipo de una sola palabra de 25 letras no existe en ningún deporte. Cambiar algo que se ve mal hoy por algo que no va a pasar nunca es un mal negocio, y D-029 y D-030 ya se equivocaron dos veces por razonar sobre casos imaginarios en vez de sobre los datos que hay.
+- **Nota para quien audite esta serie:** D-029, D-030 y D-031 son tres decisiones sobre el mismo punto, y las dos primeras estaban equivocadas. Se dejan las tres, con su error a la vista, en vez de reescribirlas: el valor del registro está en poder ver cómo se corrigió, no en que parezca que se acertó a la primera.
+- **Dónde quedó aplicada:** tercera corrección de C-03.
