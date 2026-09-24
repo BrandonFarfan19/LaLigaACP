@@ -40,7 +40,7 @@ export default function nginxSpaRoutes(routes: string[], outFile: string): Plugi
  * would silently cancel every header the site sets at the server level —
  * `Strict-Transport-Security` among them — on exactly the responses people
  * load most. The site config sets the headers for all of them instead, with a
- * `map` (see la-liga-acp.conf.example).
+ * `map` (see deploy/web/nginx.conf).
  */
 const BODY = '\ttry_files /index.html =404;';
 
@@ -84,7 +84,7 @@ function render(routes: string[]): string {
 		'# Generado por vite-plugins/nginx-spa-routes.ts en cada build.',
 		'# NO editar a mano: se reescribe. La lista de rutas está en SPA_ROUTES (vite.config.ts).',
 		`# ${routes.length} rutas = ${routes.length * 2} URLs (con y sin barra final) en ${blocks.length} bloques.`,
-		'# Se incluye dentro del server { } del sitio: ver la-liga-acp.conf.example.',
+		'# Lo incluye el nginx del contenedor web: ver deploy/web/nginx.conf.',
 		'# Las cabeceras (Cache-Control, HSTS) NO están acá: las pone el sitio para',
 		'# todas las respuestas. Incluir este archivo sin esa parte deja el shell de',
 		'# la app sin Cache-Control, y un navegador que lo cachee se queda con una',
