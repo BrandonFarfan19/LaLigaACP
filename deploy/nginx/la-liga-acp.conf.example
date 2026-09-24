@@ -1,0 +1,213 @@
+# Sitio nginx de La Liga ACP, para un servidor propio con nginx en el HOST
+# (fuera de Docker) y el backend en un contenedor escuchando solo en el
+# loopback (compose.prod.yaml). Los pasos completos, en el orden real, están en
+# el README: "Despliegue en servidor propio (nginx + Docker)".
+#
+# Copiar, reemplazar los marcadores y activar:
+#   sudo cp deploy/nginx/la-liga-acp.conf.example /etc/nginx/sites-available/la-liga-acp.conf
+#   sudo nano /etc/nginx/sites-available/la-liga-acp.conf     # (o vim, o el editor que haya)
+#   sudo ln -s /etc/nginx/sites-available/la-liga-acp.conf /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Marcadores que hay que reemplazar:
+#   DOMINIO.EJEMPLO          el dominio del sitio (el mismo que CORS_ORIGIN, con https)
+#   /RUTA/AL/CERTIFICADO     el certificado y su clave privada
+#   /RUTA/AL/REPO            dónde está clonado el repo en el servidor
+#   127.0.0.1:3001           el puerto del backend. Es un marcador aunque no lo
+#                            parezca: 3001 es el valor por defecto de PORT, y si
+#                            se cambia PORT en el .env hay que cambiarlo TAMBIÉN
+#                            acá (aparece una sola vez, en proxy_pass). Si no,
+#                            nginx golpea un puerto donde no hay nadie y toda la
+#                            API responde 502.
+#
+# ANTES de activarlo tiene que existir el certificado: el bloque HTTPS impide
+# que nginx arranque si los archivos no están, y `nginx -t` falla. El README
+# explica el orden (DNS, certificado, y recién después activar el sitio).
+
+# ---------------------------------------------------------------------------
+# Cache-Control de cada respuesta, en un solo lugar.
+#
+# Va por `map` y no con un `add_header` en cada bloque por una regla de nginx
+# que es fácil de pisar: una cabecera agregada NO se hereda en un bloque que
+# tenga la suya. Un `add_header Cache-Control` dentro de cada location
+# cancelaría, justo ahí, todas las del server — HSTS incluida. Con el map, el
+# server pone las cabeceras una vez y valen para todas las respuestas.
+#
+# El valor por defecto es `no-store`, y es a propósito: cualquier ruta de la
+# app devuelve el shell (index.html), y un shell cacheado después de un
+# despliegue apunta a archivos con hash QUE YA NO EXISTEN (vite build vacía
+# dist/), o sea la página queda rota hasta que la persona recargue a mano.
+# Eso vale para /, para /index.html pedido de forma literal, para /404.html y
+# para las 42 URLs de la SPA.
+#
+# La excepción es /assets/: sus nombres llevan hash del contenido, así que un
+# cambio produce un nombre nuevo y estos se pueden cachear para siempre.
+#
+# Cuesta que favicon.png y cursors/ tampoco se cacheen. Es una pérdida chica y
+# del lado seguro; si molesta, agregar acá una línea para esas rutas.
+map $uri $liga_cache_control {
+	default    "no-store";
+	~^/assets/ "public, max-age=31536000, immutable";
+}
+
+# ---------------------------------------------------------------------------
+# HTTP: solo para redirigir a HTTPS.
+# La app NO funciona por HTTP: con NODE_ENV=production el backend marca la
+# cookie de sesión como Secure y con el prefijo __Host-, y el navegador la
+# descarta en una conexión sin TLS. Nadie podría iniciar sesión.
+# ---------------------------------------------------------------------------
+server {
+	listen 80;
+	listen [::]:80;
+	server_name DOMINIO.EJEMPLO;
+
+	# Deja pasar la validación de Let's Encrypt si se renueva con certbot en
+	# modo webroot. Va antes del redirect a propósito: si se redirigiera,
+	# certbot no podría leer el archivo de prueba.
+	location ^~ /.well-known/acme-challenge/ {
+		root /var/www/html;
+	}
+
+	location / {
+		return 301 https://$host$request_uri;
+	}
+}
+
+# ---------------------------------------------------------------------------
+# HTTPS: sirve dist/ y reenvía /api al backend.
+# ---------------------------------------------------------------------------
+server {
+	listen 443 ssl;
+	listen [::]:443 ssl;
+	# nginx 1.25.1 o posterior. En versiones anteriores esta línea no existe:
+	# hay que borrarla y poner `listen 443 ssl http2;` arriba. `nginx -v` dice
+	# la versión, y `nginx -t` avisa si la directiva es desconocida.
+	http2 on;
+	server_name DOMINIO.EJEMPLO;
+
+	ssl_certificate     /RUTA/AL/CERTIFICADO/fullchain.pem;
+	ssl_certificate_key /RUTA/AL/CERTIFICADO/privkey.pem;
+
+	# Sin estas líneas queda lo que traiga por defecto la versión de nginx
+	# instalada, que en las viejas todavía incluye TLS 1.0 y 1.1.
+	ssl_protocols TLSv1.2 TLSv1.3;
+	ssl_prefer_server_ciphers off;
+	ssl_session_cache shared:SSL:10m;
+	ssl_session_timeout 1d;
+
+	# El build del front deja aquí los archivos estáticos.
+	root /RUTA/AL/REPO/dist;
+
+	# Las imágenes del panel llegan por multipart y pueden pesar hasta
+	# UPLOAD_MAX_BYTES (5 MiB). El sobre multipart agrega el nombre del archivo,
+	# los separadores y los demás campos, así que con 5 MiB justos nginx
+	# rechazaría imágenes válidas; su valor por defecto (1 MiB) corta casi
+	# cualquier foto.
+	client_max_body_size 6m;
+
+	gzip on;
+	gzip_types text/css application/javascript application/json image/svg+xml;
+	gzip_min_length 1024;
+
+	server_tokens off;
+
+	# Las cabeceras de TODAS las respuestas. Funcionan porque ningún bloque de
+	# abajo tiene su propio `add_header`: en cuanto uno lo tenga, estas dejan de
+	# aplicarse ahí (ver la nota del map).
+	add_header Cache-Control $liga_cache_control always;
+	add_header X-Content-Type-Options "nosniff" always;
+
+	# HSTS: el navegador recuerda que este dominio es solo HTTPS y no vuelve a
+	# intentar por HTTP. CUIDADO, es difícil de revertir: mientras no venza el
+	# max-age (acá un año), los navegadores que ya lo recibieron se niegan a
+	# entrar por HTTP a este dominio aunque el servidor lo vuelva a permitir, y
+	# no hay forma de borrarlo a distancia: cada persona tendría que limpiarlo a
+	# mano. Conviene activarlo cuando el HTTPS ya esté firme, y probar primero
+	# con un max-age corto (por ejemplo 300). Sin `preload` ni
+	# `includeSubDomains` a propósito: son bastante más difíciles de deshacer.
+	# Si no se quiere HSTS, se borra esta línea.
+	add_header Strict-Transport-Security "max-age=31536000" always;
+
+	# URLs desconocidas: la copia del shell, pero con estado 404 de verdad.
+	# La app muestra su propia página de "no encontrada".
+	error_page 404 /404.html;
+	location = /404.html {
+		internal;
+	}
+
+	# La portada.
+	location = / {
+		try_files /index.html =404;
+	}
+
+	# El shell pedido por su nombre. Sin este bloque lo atendería `location /`
+	# como un archivo más, y es el único HTML que se serviría sin `no-store`.
+	location = /index.html {
+		try_files /index.html =404;
+	}
+
+	# `^~` corta la evaluación de las expresiones regulares de abajo, para que
+	# ninguna ruta de la SPA pueda quedarse con un archivo real.
+	location ^~ /assets/ {
+		try_files $uri =404;
+	}
+
+	# Las 42 URLs de la SPA (21 rutas con y sin barra final), GENERADAS en cada
+	# build a partir de SPA_ROUTES (vite.config.ts) por
+	# vite-plugins/nginx-spa-routes.ts. No se editan a mano y no hay comodín
+	# /*: los archivos reales se sirven tal cual y lo desconocido sigue dando
+	# 404. Agregar una ruta a la app y recompilar actualiza este include solo.
+	include /RUTA/AL/REPO/deploy/nginx/spa-routes.conf;
+
+	# /api sin barra final. `location /api/` no lo toma (daría 404), y el proxy
+	# de Vite en desarrollo sí lo reenvía; el redirect deja las dos iguales.
+	# 308 y no 301 porque conserva el método y el cuerpo. Hoy ningún cliente
+	# pide esta URL: es por si alguien la prueba a mano.
+	location = /api {
+		return 308 /api/;
+	}
+
+	# La API en el mismo origen (D-006). La barra final de proxy_pass es la que
+	# quita el prefijo /api: /api/auth/me llega al backend como /auth/me.
+	location /api/ {
+		proxy_pass http://127.0.0.1:3001/;
+
+		proxy_http_version 1.1;
+		proxy_set_header Connection "";
+		proxy_set_header Host $host;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+
+		# El resto de las cabeceras del pedido (Cookie, Origin, Content-Type,
+		# X-CSRF-Token, Idempotency-Key) y de la respuesta (Set-Cookie,
+		# Retry-After, RateLimit-*, Location, Idempotent-Replayed) pasan solas:
+		# nginx no las toca. No agregar `proxy_hide_header` sobre ellas.
+
+		# Los errores del backend se devuelven tal cual, con su sobre
+		# { error: { code, message } }. Sin esto, un 404 o un 409 de la API se
+		# convertiría en la página HTML de error de nginx y el front lo leería
+		# como una respuesta inesperada.
+		proxy_intercept_errors off;
+
+		# Las cabeceras del server NO valen acá: este bloque tiene las suyas, y
+		# eso es justo lo que se busca. El Cache-Control del server es
+		# `no-store`, y agregárselo a la API pisaría los 30 s de caché que el
+		# backend manda en /public (el navegador vería dos valores). Así el
+		# Cache-Control lo decide solo el backend, y las otras dos cabeceras se
+		# repiten acá a mano. nginx no cachea nada por su cuenta: no hay
+		# proxy_cache configurado.
+		add_header X-Content-Type-Options "nosniff" always;
+		add_header Strict-Transport-Security "max-age=31536000" always;
+
+		# Subir una imagen grande puede tardar más que el default de 60 s.
+		proxy_read_timeout 120s;
+	}
+
+	# Archivos reales que no están en /assets/ (favicon.png, cursors/...). Lo
+	# que no existe cae en el error_page 404 de arriba. No hay
+	# `try_files ... /index.html`, o sea no hay comodín: una URL inventada no
+	# devuelve la app con 200.
+	location / {
+		try_files $uri =404;
+	}
+}

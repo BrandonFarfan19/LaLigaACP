@@ -161,16 +161,27 @@ El `pool` (y cualquier otra dependencia) se pasa como parámetro desde `app.ts` 
 
 No hay registro de administradores por la API, y el panel tampoco cambia roles (BR-001). Un administrador solo se crea, o una cuenta existente se promueve, con este comando en el servidor. **La contraseña se escribe cuando el comando la pide**: no se muestra, se pide dos veces y no queda en el historial de la terminal ni en la línea de comandos de ningún proceso.
 
+**El comando no es el mismo en desarrollo que en producción**, porque las dos imágenes son distintas: la de desarrollo (`Dockerfile`) monta `src/` y tiene `tsx`; la de producción (`Dockerfile.prod`) lleva solo `dist/` compilado y **no tiene ni `tsx` ni `src/`**, así que ahí `npm run admin:create` falla.
+
 ```sh
-# Dentro de Docker (recomendado). -it da la terminal donde se escribe la clave.
+# ---- PRODUCCIÓN (compose.prod.yaml, imagen Dockerfile.prod) ----
+# Ojo al -f y a que se invoca el .js compilado, no el script de npm.
+docker compose -f compose.prod.yaml exec -it \
+  -e ADMIN_EMAIL=ana@liga.test -e ADMIN_NOMBRE=Ana \
+  server node dist/cli/create-admin.js
+
+# ---- DESARROLLO (compose.yaml, imagen Dockerfile) ----
+# -it da la terminal donde se escribe la clave.
 docker compose exec -it -e ADMIN_EMAIL=ana@liga.test -e ADMIN_NOMBRE=Ana server npm run admin:create
 
-# Fuera de Docker, desde la raíz (bash):
+# ---- DESARROLLO, fuera de Docker, desde la raíz (bash) ----
 ADMIN_EMAIL=ana@liga.test ADMIN_NOMBRE=Ana npm run server:admin:create
 
-# Fuera de Docker, desde la raíz (PowerShell):
+# ---- DESARROLLO, fuera de Docker, desde la raíz (PowerShell) ----
 $env:ADMIN_EMAIL='ana@liga.test'; $env:ADMIN_NOMBRE='Ana'; npm run server:admin:create
 ```
+
+Lo mismo vale para los otros dos comandos: en producción son `node dist/cli/coins-check.js` y `node dist/cli/seed-dev.js` (este último, de todos modos, se niega a correr fuera de desarrollo). Todo lo que sigue —reglas, auditoría, contraseña sin eco, fuentes sin terminal— es igual en los dos casos: solo cambia cómo se invoca.
 
 - Correo y nombre sí pueden ir en la línea de comandos: no son secretos.
 - **Queda en la auditoría** (D-005, corrección de T-17): crear un administrador deja un registro `creacion_administrador` y promoverlo, uno `promocion_administrador`. Se escriben en la misma transacción que el cambio, con la propia cuenta como autor y como registro afectado (el comando no tiene un admin detrás), y con el detalle `{ origen: "comando admin:create", operacion }`. Nunca guardan la contraseña. Si la cuenta ya era admin no cambia nada y no registra; si el registro falla, la cuenta no se crea ni se promueve.
@@ -188,7 +199,7 @@ $env:ADMIN_EMAIL='ana@liga.test'; $env:ADMIN_NOMBRE='Ana'; npm run server:admin:
 | Fuente | Uso |
 |---|---|
 | `ADMIN_PASSWORD_FILE=/ruta` | Lee la primera línea del archivo. Sirve para secretos de Docker o de CI montados como archivo. Dentro del contenedor, la ruta tiene que existir en el contenedor. |
-| `ADMIN_PASSWORD_STDIN=1` | Lee la primera línea de la entrada estándar, por ejemplo `docker compose exec -T -e ADMIN_EMAIL=... -e ADMIN_NOMBRE=... -e ADMIN_PASSWORD_STDIN=1 server npm run admin:create < clave.txt`. |
+| `ADMIN_PASSWORD_STDIN=1` | Lee la primera línea de la entrada estándar, por ejemplo `docker compose exec -T -e ADMIN_EMAIL=... -e ADMIN_NOMBRE=... -e ADMIN_PASSWORD_STDIN=1 server npm run admin:create < clave.txt` (en producción, `docker compose -f compose.prod.yaml exec -T ... server node dist/cli/create-admin.js < clave.txt`). |
 | `ADMIN_PASSWORD` | El valor directo. **Solo en CI**, cuando la variable la carga la plataforma desde su almacén de secretos y nadie la escribe. |
 
 **Por qué no escribir la clave en el comando.** Escribir `ADMIN_PASSWORD=...` delante del comando deja la clave en el historial (bash y PowerShell con PSReadLine lo guardan). Con `docker compose exec -e ADMIN_PASSWORD=...` la clave además queda completa en la línea de comandos de `docker.exe` y `docker-compose.exe` mientras corren, y cualquier proceso del equipo puede leerla. `-e ADMIN_PASSWORD` sin valor copia la variable del entorno actual sin escribirla, pero antes hay que haberla cargado sin que quede en el historial. Por eso el camino normal es que el comando la pida.
@@ -287,7 +298,7 @@ Cada fila (`items[]`, y `participante` en las respuestas de las acciones) tiene 
 **Comprobación de consistencia** (solo lectura, nunca corrige). Compara el `saldo_monedas` de cada apostador con `SUM(movimiento_moneda.cantidad)`, y además lista a los admins que tengan saldo o movimientos, que no deberían tener ninguno.
 
 - `GET /admin/monedas/consistencia` → `{ ok, revisados, descuadres: [{ usuarioId, nombre, email, saldo, sumaMovimientos, diferencia }], adminsConMonedas: [...] }`. Siempre responde 200: es un informe.
-- `npm run coins:check` (o `npm run server:coins:check` desde la raíz; en Docker, `docker compose exec server npm run coins:check`). Sale con 0 si todo cuadra, 1 si encontró descuadres (y los lista) y 2 si no pudo correr.
+- `npm run coins:check` (o `npm run server:coins:check` desde la raíz; en Docker de desarrollo, `docker compose exec server npm run coins:check`; **en producción**, `docker compose -f compose.prod.yaml exec server node dist/cli/coins-check.js`). Sale con 0 si todo cuadra, 1 si encontró descuadres (y los lista) y 2 si no pudo correr.
 
 ## Catálogo deportivo (T-06)
 

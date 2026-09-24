@@ -1,0 +1,133 @@
+# Producción: base de datos y backend en Docker, detrás de un nginx que corre
+# en el host (ver deploy/nginx/ y la sección de despliegue del README).
+#
+# Es un archivo APARTE, no un override de compose.yaml, y eso está medido, no
+# elegido por gusto: Compose fusiona las listas de `volumes` agregando, nunca
+# quitando, así que un override no puede sacar el bind mount `./server:/app`
+# ni el volumen anónimo de node_modules que compose.yaml necesita para
+# desarrollar. Comprobado con `docker compose -f compose.yaml -f override.yaml
+# config`: los dos siguen ahí. En producción eso taparía la imagen compilada
+# con el código del host, que es justo lo que no se quiere.
+#
+#   docker compose -f compose.prod.yaml up -d --build
+#
+# Nombre de proyecto propio para no compartir contenedores ni volúmenes con el
+# compose de desarrollo si alguna vez conviven en la misma máquina. En un
+# servidor nuevo no cambia nada; si antes se levantó compose.yaml ahí, los
+# datos quedaron en los volúmenes de ESE proyecto y este arranca con la base
+# vacía (se ejecuta db/init/).
+name: la-liga-acp-prod
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: la-liga-acp-prod-db
+    restart: unless-stopped
+    # ATENCIÓN: MySQL lee estas contraseñas UNA SOLA VEZ, al crear el volumen
+    # db-data. Después quedan grabadas adentro y cambiarlas en .env no cambia
+    # nada: el backend intenta entrar con la nueva, MySQL espera la vieja y
+    # responde "Access denied". Hay que terminar el .env ANTES del primer
+    # `up`. Si ya pasó, el README ("Despliegue en servidor propio") da las dos
+    # salidas: ALTER USER, que conserva los datos, o borrar el volumen, que
+    # los pierde.
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?definir MYSQL_DATABASE en .env}
+      MYSQL_USER: ${MYSQL_USER:?definir MYSQL_USER en .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?definir MYSQL_PASSWORD en .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?definir MYSQL_ROOT_PASSWORD en .env}
+      TZ: UTC
+    command:
+      - --default-storage-engine=InnoDB
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+    # SIN `ports`. Es la diferencia más importante con compose.yaml, que
+    # publica "${MYSQL_PORT:-3306}:3306", o sea en TODAS las interfaces: en un
+    # servidor con IP pública eso deja MySQL abierto a internet, protegido
+    # nada más que por la contraseña. El backend llega por la red interna de
+    # Compose (db:3306), que no necesita publicar nada.
+    # Para mantenimiento puntual (mysqldump desde el host), descomentar, que
+    # ata el puerto solo al loopback, y volver a comentarlo al terminar:
+    #   ports:
+    #     - "127.0.0.1:3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      # Solo corre con el volumen vacío: no es un sistema de migraciones.
+      # Ver "Si el esquema cambia" en el README antes de tocar estos archivos
+      # con datos reales cargados.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.prod
+    container_name: la-liga-acp-prod-server
+    restart: unless-stopped
+    user: node
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # env.ts decide SOLO con esto la cookie `Secure` y el prefijo `__Host-`;
+      # no mira si hay TLS. Con production servido por HTTP, el navegador
+      # descarta la cookie y nadie puede iniciar sesión. Ver el README.
+      NODE_ENV: production
+      PORT: ${PORT:-3001}
+      # El dominio del sitio, con https. No es el del backend: el front y la
+      # API comparten origen (D-006) y nginx reenvía /api.
+      CORS_ORIGIN: ${CORS_ORIGIN:?definir CORS_ORIGIN en .env (el dominio del sitio, con https)}
+      # Red interna de Compose: el servicio db en su puerto fijo, sin importar
+      # qué publique (o no publique) el host.
+      DB_HOST: db
+      DB_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?definir MYSQL_DATABASE en .env}
+      MYSQL_USER: ${MYSQL_USER:?definir MYSQL_USER en .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?definir MYSQL_PASSWORD en .env}
+      SESSION_SECRET: ${SESSION_SECRET:?definir SESSION_SECRET en .env (generarlo, no copiarlo del ejemplo)}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      LOGIN_RATE_LIMIT_WINDOW_MS: ${LOGIN_RATE_LIMIT_WINDOW_MS:-900000}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-5}
+      REGISTER_RATE_LIMIT_WINDOW_MS: ${REGISTER_RATE_LIMIT_WINDOW_MS:-3600000}
+      REGISTER_RATE_LIMIT_MAX: ${REGISTER_RATE_LIMIT_MAX:-10}
+      PUBLIC_RATE_LIMIT_WINDOW_MS: ${PUBLIC_RATE_LIMIT_WINDOW_MS:-60000}
+      PUBLIC_RATE_LIMIT_MAX: ${PUBLIC_RATE_LIMIT_MAX:-120}
+      SESSION_READ_RATE_LIMIT_WINDOW_MS: ${SESSION_READ_RATE_LIMIT_WINDOW_MS:-60000}
+      SESSION_READ_RATE_LIMIT_MAX: ${SESSION_READ_RATE_LIMIT_MAX:-120}
+      # 1 = un solo proxy delante (el nginx del host). NO pongas `loopback`
+      # aunque nginx llegue a 127.0.0.1: el puerto se publica con NAT, así que
+      # el contenedor ve como origen la puerta de enlace del bridge de Docker
+      # (172.x.x.x), no 127.0.0.1, y `loopback` no coincidiría — el backend
+      # ignoraría X-Forwarded-For y TODOS los clientes compartirían los límites
+      # de intentos. Con 1, la IP real es la última de X-Forwarded-For, que
+      # pone nginx, y nadie puede falsearla porque el puerto solo escucha en
+      # el loopback del host. `true` lo rechaza env.ts a propósito.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      # Fijo en vacío: desactiva los datos de ejemplo pase lo que pase en .env
+      # (D-016). El comando se niega sin esta variable.
+      DEV_SEED_DATABASE: ""
+      UPLOADS_DIR: /data/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+      UPLOAD_MAX_PIXELS: ${UPLOAD_MAX_PIXELS:-24000000}
+      UPLOAD_RATE_LIMIT_WINDOW_MS: ${UPLOAD_RATE_LIMIT_WINDOW_MS:-900000}
+      UPLOAD_RATE_LIMIT_MAX: ${UPLOAD_RATE_LIMIT_MAX:-60}
+    # Solo en el loopback del host: nginx corre en el host y llega por ahí.
+    # Sin el 127.0.0.1 el backend quedaría accesible desde internet saltándose
+    # nginx, o sea sin TLS y sin el límite de tamaño de subida.
+    ports:
+      - "127.0.0.1:${PORT:-3001}:${PORT:-3001}"
+    # Sin bind mount del código y sin volumen anónimo de node_modules: lo que
+    # corre es lo que se compiló en la imagen (server/Dockerfile.prod).
+    volumes:
+      - uploads-data:/data/uploads
+
+volumes:
+  db-data:
+  uploads-data:

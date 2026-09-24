@@ -25,3 +25,9 @@ pnpm-debug.log*
 .idea/
 
 .wrangler/
+
+# Volcado de datos reales para producción (D-04), generado con
+# `npm run db:export-real`. No se versiona: son nombres de 102 personas reales,
+# y además es un artefacto derivado de la base de desarrollo, no una fuente.
+# Se genera y se copia al servidor con scp; el README explica los tres pasos.
+db/datos-reales.sql

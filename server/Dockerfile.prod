@@ -1,0 +1,81 @@
+# Production image for the backend. The development one is `Dockerfile`, and
+# the two are kept apart on purpose: that one bind-mounts the source and runs a
+# watcher, which is the opposite of what a server needs. Nothing here is used
+# by `compose.yaml`; see `compose.prod.yaml` and the README's deployment
+# section.
+#
+# Base: node:22-alpine, the same as the development image. Two runtime
+# dependencies are native — `argon2` (password hashing) and `sharp` (image
+# re-encoding) — so the base is not a free choice: their binaries have to match
+# the image's libc. Alpine uses musl, not glibc, which is where this usually
+# goes wrong; it is used here because the development image has been building
+# and running both on this exact base since T-03 and T-13, so the musl builds
+# are known to resolve. Moving to `node:22-slim` (glibc) would mean checking
+# both again.
+
+# ---------- build ----------
+# Needs devDependencies: TypeScript itself is one of them.
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src
+
+# `tsc -b`, which also compiles src/cli: dist/cli/create-admin.js,
+# dist/cli/coins-check.js and dist/cli/seed-dev.js all exist afterwards. That
+# is what lets the final image go without devDependencies — the admin is
+# created with `node dist/cli/create-admin.js`, not with `tsx`, which is a
+# devDependency and is not installed there. Those CLIs import only internal
+# modules, `zod` and node builtins, so nothing else is missing.
+RUN npm run build
+
+# ---------- runtime ----------
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Baked in so the image is correct even when run without compose. It decides
+# more than logging: `config/env.ts` turns on the `Secure` flag and the
+# `__Host-` cookie prefix from this value alone (see the README — it does not
+# look at TLS, so this image must be served over HTTPS).
+ENV NODE_ENV=production
+
+# The production dependency tree is installed *here* rather than copied from
+# the build stage. Both stages share a base, so copying would work today, but
+# installing in the image that will actually run them means the native binaries
+# for `argon2` and `sharp` are resolved against this image and no other, and
+# the devDependencies never exist in this layer at all.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# `dist/` alone is not enough: `services/health.service.ts` reads the version
+# with `require('../../package.json')`, which from `dist/services/` resolves to
+# /app/package.json. That file is already here from the install above — but if
+# this image is ever slimmed down further, removing it breaks GET /health.
+COPY --from=build /app/dist ./dist
+
+# Uploaded images (T-13) are the only thing the process writes. The directory
+# is created owned by node so a fresh named volume mounted here inherits that
+# ownership (compose.prod.yaml).
+RUN mkdir -p /data/uploads && chown node:node /data/uploads
+
+USER node
+
+EXPOSE 3001
+
+# GET /health checks the database live on every call. A 2xx means the process
+# and MySQL are both up; a 503 (DATABASE_UNAVAILABLE) means the process is
+# serving but cannot reach the database, and the container shows as unhealthy,
+# which is the honest reading. Node 22 has fetch built in, so this needs no
+# curl in the image.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+	CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+# Exec form on purpose: node is PID 1 and receives SIGTERM directly, which
+# `src/index.ts` already handles by closing the HTTP server and the MySQL pool
+# before exiting. Going through `npm start` would swallow the signal.
+CMD ["node", "dist/index.js"]

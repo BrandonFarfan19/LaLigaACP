@@ -2,6 +2,7 @@ import { copyFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
+import nginxSpaRoutes from './vite-plugins/nginx-spa-routes.ts';
 import pixelImages from './vite-plugins/pixel-images.ts';
 import spaRewrites from './vite-plugins/spa-rewrites.ts';
 
@@ -9,6 +10,9 @@ import spaRewrites from './vite-plugins/spa-rewrites.ts';
  * The app's deep routes, as the hosts must rewrite them (see `src/App.tsx`).
  * `/` needs no rule. Adding a route means listing it here and in `vercel.json`
  * (with and without a trailing slash); the build fails if they differ.
+ *
+ * `dist/_redirects` and the nginx location blocks are generated from this list
+ * instead, so neither can fall out of step with it.
  */
 const SPA_ROUTES = [
 	'/posiciones',
@@ -97,6 +101,10 @@ export default defineConfig({
 		}),
 		react(),
 		spaRewrites(SPA_ROUTES),
+		// The same routes as nginx location blocks, for the own-server deployment
+		// (README, "Despliegue"). Written outside dist/, which is nginx's web
+		// root: a .conf in there would be served to anyone who asked for it.
+		nginxSpaRoutes(SPA_ROUTES, 'deploy/nginx/spa-routes.conf'),
 		spaFallback(),
 	],
 	server: { proxy: apiProxy },

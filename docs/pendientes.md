@@ -34,6 +34,32 @@ Incumplimientos que ya existían antes de migrar.
 
 ## Documentación y limpieza
 
+- [ ] **Un nombre de equipo de una sola palabra de 26 letras o más desborda la ficha en pantallas grandes.** Límite conocido y aceptado a propósito (D-031), no un defecto por descubrir. En `/plantilla/:id`, **desde 576 px de ancho** el título vuelve a tener su piso natural (no se encoge por debajo de su palabra más larga), que es lo que impide que un nombre real se parta a mitad de palabra. El precio es que una palabra lo bastante larga no cabe y empuja la página de lado.
+
+  **El largo que se tolera depende de la competición**, porque en el mismo renglón va su nombre, y ese texto tampoco baja de su propia palabra más larga: `masculino` mide 104 px, `femenino` 90 y `voleibol` 86. Cuanto más ancha esa palabra, menos le queda al título. Así que **la competición que manda es la masculina**, y es la que hay que mirar: es la columna con la que se puede contar. La de voleibol se incluye solo para ver cuánto se mueve el límite entre competiciones; la femenina queda entre las dos.
+
+  | Ancho | **Peor caso**<br>(fútbol masculino) | Mejor caso<br>(voleibol) |
+  |---|---|---|
+  | 576 px | **27 letras** | 28 |
+  | 600 px | **28 letras** | 29 |
+  | 640 px | **31 letras** | 32 |
+  | 700 px | **34 letras** | 35 |
+  | 767 px | **38 letras** | 40 |
+  | **768 px** | **26 letras** ← el peor de todos | 27 |
+  | 800 px | **27 letras** | 28 |
+  | 850 px | **29 letras** | 30 |
+  | 900 px | **31 letras** | 32 |
+  | 1024 px | **37 letras** | 37 |
+  | 1280 px | **47 letras** | 48 |
+  | 1600 px | **61 letras** | 61 |
+
+  Cada fila está medida en el navegador con nombres sintéticos de una sola palabra, comprobando las dos caras: con una letra menos la página entra, con la de la tabla desborda (entre 1 y 4 px en el umbral).
+
+  El peor caso de todos es **768 px con 26 letras**, porque justo ahí el título pasa de 16 px a 24 px (`--text-lg`) y cada letra ocupa 24. **Por debajo de 576 px no desborda nunca**, con ninguna competición y ningún largo: ahí la cabecera se parte en dos renglones y la palabra puede partirse. Los 15 equipos cargados hoy están lejísimos del límite: la palabra más larga es `FINZULIANAS`, 11 letras. La columna sí lo permite (`equipo.nombre` es `VARCHAR(100)`), así que quien cargue un equipo con una palabra así va a verlo. Para cerrarlo habría que dejar que el título se encoja por debajo de su palabra en anchos grandes, y eso es exactamente lo que partía `FINZULIANAS` como `FINZULIANA` + `S` a 768 px; o bajar la competición a su propio renglón en todos los anchos, que cambia el dibujo de las pantallas grandes.
+
+- [ ] **Tres clases descolgadas en la ficha de plantilla.** `Plantilla.tsx` pide `styles.competition` (la línea «competición · deporte») y `styles.empty` (el aviso de equipo sin jugadores), y ninguna de las dos existe en `Plantilla.module.css`: `styles.X` vale `undefined` y React no pone atributo, así que los dos párrafos se dibujan **sin ninguna clase**, con el tamaño y la fuente del `body`. En sentido contrario, `.crest` (`width: 5vw; height: 5vw`) **ya no la usa nadie**: desde T-22 el escudo lo dibuja `<Crest />` con su propio módulo y un tamaño fijo de 32 px. Encontrado al diagnosticar C-03; no se tocó porque el pedido era arreglar el desborde sin mover nada más de la página. Nada está roto a la vista —el párrafo de la competición se lee bien—, pero una regla escrita para cualquiera de esas clases no haría nada y costaría encontrar por qué.
+  - Al resolverlo, corregir también la última frase de **«Escalados a tamaños no enteros»** más abajo: dice que «el escudo de Plantilla usa 5vw», y eso dejó de ser cierto en T-22.
+
 - [ ] **`docs/migracion-react.md` desactualizado.** La sección 12 y las diferencias 3, 6 y 8 describen el comportamiento anterior (animación con `ease-in-out`, `rotate()` y blur; fechas con `Intl`; scroll y hash previos).
 - [ ] **`allowScripts: { esbuild: true }` en `package.json`.** Viene de la plantilla de Astro y ya no hace nada: `esbuild` no está instalado.
 - [x] **`docs/business-rules.md`.** Apareció vacío y sin seguimiento en git. Resuelto: desde T-01 es la fuente de verdad del proyecto (las 55 BR y los 6 NFR), versionado y actualizado en cada tarea.

@@ -65,6 +65,19 @@
 .identity {
 	display: flex;
 	align-items: center;
+	/* Deliberately not undone past the switch, like the two `.name` rules below,
+	   and for the same reason: it moves nothing. Measured at 305, 320, 390, 520,
+	   768 and 1280px, removing it changes not one box — the rows are always
+	   full, since the name takes the rest of the first and the competition the
+	   whole of the second — so there is nothing left over for it to align. It
+	   stays as the fallback for a row that stops being full, which is where a
+	   wrapped header would otherwise sit against the left edge. */
+	justify-content: center;
+	/* Under 36rem the crest, the name and the competition no longer fit on one
+	   line, and a row that cannot break pushes the header off the page
+	   (D-014). Breaking it drops the competition under the title and keeps the
+	   crest beside the name, which is the part that has to read as one line. */
+	flex-wrap: wrap;
 	gap: var(--space-3);
 }
 
@@ -72,6 +85,90 @@
 	font-size: var(--text-md);
 	line-height: 1.4;
 	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+	/* Breaking the row is not enough by itself. A one-word name (FINZULIANAS)
+	   is a single indivisible block — 11 glyphs of a monospaced pixel face,
+	   176px — and a flex item never shrinks below its longest word, so on the
+	   narrowest screens the word alone could still outgrow the page. These two
+	   let it break instead.
+
+	   `anywhere`, not `break-word`: `break-word` breaks a word to fit a box but
+	   leaves the element's min-content alone, so the header, which sizes itself
+	   to its contents, still grew to the width of the unbroken word and pushed
+	   the page sideways just the same — measured at 33 letters, 49px past the
+	   edge. `anywhere` lowers min-content too, so the header can be narrower
+	   than the word and the word wraps inside it.
+
+	   Both are undone past the switch, and that is deliberate (D-031). What
+	   they remove is the floor a flex item has at its own longest word, and
+	   that floor is exactly what keeps a title from being broken mid-word when
+	   the row is a little tight. Above the switch the row IS a little tight —
+	   at 768px the crest, the title and the competition want 780px of the 768
+	   there are — so without the floor the 12px shortfall is shared out and the
+	   title lands just under its own width: FINZULIANAS came out as
+	   "FINZULIANA" and an "S" alone on the next line, on a real team, at an
+	   ordinary tablet width. With the floor back the competition absorbs all
+	   12px, as it always did, and the title is whole. */
+	min-width: 0;
+	overflow-wrap: anywhere;
+
+	/* The zero basis is what keeps the crest company. A flex line is packed by
+	   each item's max-content width, so a name wider than the space left beside
+	   the crest would claim a line of its own and leave the crest stranded
+	   above it — the stacked title block this header is not meant to be. At
+	   zero the name never forces that break: it takes the rest of the row and
+	   wraps its text inside it. */
+	flex: 1 1 0;
+}
+
+/* The competition line, which has no class of its own (see docs/pendientes.md).
+   While the header may break it always takes a row to itself, so the title
+   keeps the whole of the first one next to the crest. Without this the two
+   share a row wherever all three still fit on one, and since the paragraph
+   keeps its full width while the title above was just told it may shrink to
+   nothing, the title is left with the crumbs: at 520px it collapsed to 4px and
+   spelled FINZULIANAS one letter per line. */
+.identity > p {
+	flex-basis: 100%;
+}
+
+/* From here up the three fit on one line again and the header goes back to
+   being exactly the one it was before any of this — every rule above is undone.
+   The file is written this way round, rather than as a max-width query, to stay
+   mobile-first like the rest of the project.
+
+   Where the switch goes is measured, not guessed. Press Start 2P is monospaced
+   at one glyph per em, so a one-word name of N letters is 16N px wide at
+   `--text-md`; beside it the row also carries the crest (32px), two gaps (12px
+   each) and the competition, which never shrinks below its own longest word —
+   104px for `masculino`, the widest of the three competitions loaded. Keeping
+   all three inside the page's 16px gutters therefore needs
+
+       width >= 2 x 16 + 32 + 2 x 12 + 16N + 104 = 192 + 16N
+
+   which at 576px is a name of up to 24 letters, more than twice the longest
+   loaded (FINZULIANAS, 11).
+
+   A one-word name longer than that overflows at these widths, and that is a
+   known, deliberate limit, written down in docs/pendientes.md with the exact
+   figures (D-031). It is the price of the floor: the only way to stop such a
+   name overflowing is to let the title shrink below its own word, and that is
+   what broke FINZULIANAS mid-word at 768px. A real name being cut today beats
+   an imaginary 25-letter one being cut some day. Below this width the escape is
+   on, so no name of any length can push the page sideways there. */
+@media (min-width: 36rem) {
+	.identity {
+		flex-wrap: nowrap;
+	}
+
+	.name {
+		flex: 0 1 auto;
+		min-width: auto;
+		overflow-wrap: normal;
+	}
+
+	.identity > p {
+		flex-basis: auto;
+	}
 }
 
 @media (min-width: 48rem) {
