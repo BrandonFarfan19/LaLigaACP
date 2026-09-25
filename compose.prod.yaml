@@ -1,5 +1,10 @@
-# Producción: base de datos y backend en Docker, detrás de un nginx que corre
-# en el host (ver deploy/nginx/ y la sección de despliegue del README).
+# Producción: base de datos, backend y front en Docker, detrás de un nginx que
+# corre en el host (ver deploy/ y la sección de despliegue del README).
+#
+# La única puerta de entrada es `web`, publicado SOLO en el loopback del host
+# (127.0.0.1:WEB_PORT, 8080 por defecto). El nginx del host pone el dominio y
+# el TLS y reenvía todo a ese puerto; `web` sirve la SPA y pasa /api a `server`
+# por la red interna. Ni el backend ni MySQL se publican.
 #
 # Es un archivo APARTE, no un override de compose.yaml, y eso está medido, no
 # elegido por gusto: Compose fusiona las listas de `volumes` agregando, nunca
@@ -78,7 +83,10 @@ services:
       # no mira si hay TLS. Con production servido por HTTP, el navegador
       # descarta la cookie y nadie puede iniciar sesión. Ver el README.
       NODE_ENV: production
-      PORT: ${PORT:-3001}
+      # Fijo: es el puerto DENTRO de la red de Compose, el que usa
+      # deploy/web/nginx.conf (server:3001). No se publica al host, así que no
+      # choca con nada del servidor y no hay motivo para cambiarlo.
+      PORT: 3001
       # El dominio del sitio, con https. No es el del backend: el front y la
       # API comparten origen (D-006) y nginx reenvía /api.
       CORS_ORIGIN: ${CORS_ORIGIN:?definir CORS_ORIGIN en .env (el dominio del sitio, con https)}
@@ -101,15 +109,15 @@ services:
       PUBLIC_RATE_LIMIT_MAX: ${PUBLIC_RATE_LIMIT_MAX:-120}
       SESSION_READ_RATE_LIMIT_WINDOW_MS: ${SESSION_READ_RATE_LIMIT_WINDOW_MS:-60000}
       SESSION_READ_RATE_LIMIT_MAX: ${SESSION_READ_RATE_LIMIT_MAX:-120}
-      # 1 = un solo proxy delante (el nginx del host). NO pongas `loopback`
-      # aunque nginx llegue a 127.0.0.1: el puerto se publica con NAT, así que
-      # el contenedor ve como origen la puerta de enlace del bridge de Docker
-      # (172.x.x.x), no 127.0.0.1, y `loopback` no coincidiría — el backend
-      # ignoraría X-Forwarded-For y TODOS los clientes compartirían los límites
-      # de intentos. Con 1, la IP real es la última de X-Forwarded-For, que
-      # pone nginx, y nadie puede falsearla porque el puerto solo escucha en
-      # el loopback del host. `true` lo rechaza env.ts a propósito.
-      TRUST_PROXY: ${TRUST_PROXY:-1}
+      # 2 = dos proxies delante: el nginx del host y el del contenedor `web`.
+      # El del host agrega la IP del cliente a X-Forwarded-For y el de `web`
+      # agrega la del host (vista a través del bridge de Docker); con 2, el
+      # backend toma la del cliente. Con 1 tomaría la del host, la misma para
+      # todos, y TODOS los clientes compartirían los límites de intentos: una
+      # persona equivocándose de contraseña dejaría fuera a las demás. Nadie
+      # puede falsearla: `web` solo escucha en el loopback del host. `true` lo
+      # rechaza env.ts a propósito.
+      TRUST_PROXY: ${TRUST_PROXY:-2}
       # Fijo en vacío: desactiva los datos de ejemplo pase lo que pase en .env
       # (D-016). El comando se niega sin esta variable.
       DEV_SEED_DATABASE: ""
@@ -118,15 +126,31 @@ services:
       UPLOAD_MAX_PIXELS: ${UPLOAD_MAX_PIXELS:-24000000}
       UPLOAD_RATE_LIMIT_WINDOW_MS: ${UPLOAD_RATE_LIMIT_WINDOW_MS:-900000}
       UPLOAD_RATE_LIMIT_MAX: ${UPLOAD_RATE_LIMIT_MAX:-60}
-    # Solo en el loopback del host: nginx corre en el host y llega por ahí.
-    # Sin el 127.0.0.1 el backend quedaría accesible desde internet saltándose
-    # nginx, o sea sin TLS y sin el límite de tamaño de subida.
-    ports:
-      - "127.0.0.1:${PORT:-3001}:${PORT:-3001}"
+    # SIN `ports`: al backend solo llega `web`, por la red interna de Compose.
+    # Publicarlo permitiría saltarse el nginx (sin TLS ni límite de subida).
+    # Para mirar /health desde el host: curl http://127.0.0.1:8080/api/health
+    #
     # Sin bind mount del código y sin volumen anónimo de node_modules: lo que
     # corre es lo que se compiló en la imagen (server/Dockerfile.prod).
     volumes:
       - uploads-data:/data/uploads
+
+  web:
+    # El front compilado y su nginx interno (Dockerfile.web,
+    # deploy/web/nginx.conf). Sirve la SPA y reenvía /api a server:3001.
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: la-liga-acp-prod-web
+    restart: unless-stopped
+    depends_on:
+      - server
+    # Solo en el loopback del host: el nginx del host llega por acá. Sin el
+    # 127.0.0.1 el sitio quedaría abierto por HTTP en la IP pública, sin TLS.
+    # Si el 8080 ya está ocupado en el servidor, cambiar WEB_PORT en .env y el
+    # mismo número en el proxy_pass del nginx del host.
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
 
 volumes:
   db-data:

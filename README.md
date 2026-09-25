@@ -184,14 +184,25 @@ Se publica la carpeta `dist/` en cualquier hosting estático. Como es una SPA, e
 
 ## 🖥️ Despliegue en servidor propio (nginx + Docker)
 
-Un servidor Linux con Docker para la base y el backend, y **nginx instalado en el host** (fuera de Docker) como servidor web y terminador de TLS. El front se **compila en el servidor** y nginx sirve `dist/` desde el disco. Los archivos que lo arman:
+Un servidor Linux con **toda la aplicación en Docker** (base de datos, backend y front) y **nginx instalado en el host**, fuera de Docker, que pone tu dominio y tu certificado SSL y reenvía todo a la pila. En el servidor **no hace falta Node**: el front se compila dentro de una imagen.
+
+```text
+navegador ──https──▶ nginx del HOST ──http──▶ 127.0.0.1:8080 ─┐   (tu dominio y tu SSL)
+                                                             │
+         ┌──────────────── Docker (compose.prod.yaml) ───────┴──────────────┐
+         │ web   nginx interno: sirve la SPA y reenvía /api ──▶ server:3001 │
+         │ server  backend Express ──▶ db:3306 (MySQL, sin puerto al host)  │
+         └──────────────────────────────────────────────────────────────────┘
+```
 
 | Archivo | Qué es |
 | :-- | :-- |
-| `compose.prod.yaml` | base de datos + backend de producción |
+| `compose.prod.yaml` | la pila: `db`, `server` y `web`. Solo `web` se publica, y solo en `127.0.0.1` |
 | `server/Dockerfile.prod` | imagen del backend, compilada y sin devDependencies |
-| `deploy/nginx/la-liga-acp.conf.example` | el sitio de nginx, con marcadores para el dominio y el certificado |
-| `deploy/nginx/spa-routes.conf` | las 42 URLs de la SPA, **generadas en cada build** |
+| `Dockerfile.web` | imagen del front: compila la SPA y la sirve con nginx sin privilegios |
+| `deploy/web/nginx.conf` | el nginx **interno** del contenedor `web` (rutas de la SPA, caché, `/api`) |
+| `deploy/nginx/la-liga-acp.conf.example` | el sitio del nginx **del host**: dominio, certificado y `proxy_pass` a la pila |
+| `deploy/nginx/spa-routes.conf` | las 42 URLs de la SPA, **generadas en cada build** (la imagen usa las de su propio build) |
 
 **Nada de esto toca el flujo de desarrollo:** `compose.yaml` y `server/Dockerfile` siguen igual.
 
@@ -199,39 +210,25 @@ Un servidor Linux con Docker para la base y el backend, y **nginx instalado en e
 
 | Programa | Versión mínima | Para qué | Comprobar con |
 | :-- | :-- | :-- | :-- |
-| Docker Engine + plugin Compose | Compose **v2** | la base y el backend | `docker compose version` |
-| **Node.js** | **22.12.0** | compilar el front en el servidor | `node -v` |
-| nginx | 1.18 (1.25.1+ para `http2 on;`) | servidor web y TLS | `nginx -v` |
+| Docker Engine + plugin Compose | Compose **v2** | toda la aplicación | `docker compose version` |
+| nginx | 1.18 (1.25.1+ para `http2 on;`) | dominio y TLS | `nginx -v` |
 | git | cualquiera | traer el repo | `git --version` |
 | openssl | cualquiera | generar `SESSION_SECRET` | `openssl version` |
 
-**Ojo con Node.** Los dos `package.json` piden `node >= 22.12.0`, y el Node que traen los repositorios de Debian y Ubuntu estables es 18 o 20: si se instala `nodejs` con `apt` sin más, `npm ci` falla o compila mal. Dos formas de conseguir un Node 22 sin depender del repositorio de la distro:
+**Y además:**
 
-```sh
-# Opción A: repositorio oficial de NodeSource (instala en todo el sistema)
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-node -v    # tiene que decir v22.x
-
-# Opción B: nvm, sin sudo y por usuario (útil si el servidor ya tiene otro Node)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-. "$HOME/.nvm/nvm.sh" && nvm install 22 && nvm use 22
-node -v
-```
-
-Si el servidor no puede tener Node, la alternativa es compilar el front en otra máquina con la **misma versión** y copiar `dist/` y `deploy/nginx/spa-routes.conf` al servidor.
-
-**Dos cosas más que suelen faltar en un servidor recién instalado:**
-
-- **Permiso para usar Docker sin `sudo`.** Si `docker compose version` responde `permission denied` sobre `/var/run/docker.sock`, hay que agregar el usuario al grupo `docker` y **volver a entrar** (el grupo no se aplica en la sesión abierta): `sudo usermod -aG docker "$USER"` y después cerrar sesión y entrar de nuevo, o `newgrp docker`. La otra opción es anteponer `sudo` a cada `docker compose`.
-- **Los puertos 80 y 443 abiertos** en el firewall del servidor y, si lo hay, en el del proveedor. Con `ufw`: `sudo ufw allow 'Nginx Full'`. Sin esto el certificado no se puede emitir y el sitio no se ve desde afuera, aunque todo lo demás esté bien.
+- **Tu DNS apuntando al servidor:** un registro `A` (y `AAAA` si hay IPv6) del dominio a la IP pública. `dig +short tu-dominio` tiene que devolver esa IP.
+- **Tu certificado SSL** (la cadena completa y su clave privada), o certbot para emitirlo (paso 5).
+- **Permiso para usar Docker sin `sudo`.** Si `docker compose version` responde `permission denied` sobre `/var/run/docker.sock`: `sudo usermod -aG docker "$USER"` y volver a entrar (o `newgrp docker`). La otra opción es anteponer `sudo` a cada `docker compose`.
+- **Los puertos 80 y 443 abiertos** en el firewall del servidor y en el del proveedor. Con `ufw`: `sudo ufw allow 'Nginx Full'`. **No** hace falta abrir el 8080: solo escucha en `127.0.0.1`.
+- **El puerto 8080 libre en el host** (`ss -ltnp | grep 8080` no debe mostrar nada). Si está ocupado, se elige otro con `WEB_PORT` en el `.env` y el mismo número en el nginx del host.
 
 ### Pasos
 
 Van en este orden. Los pasos 1 y 2 **tienen que estar terminados antes** de levantar nada: la contraseña de MySQL se graba al crear el volumen y después no se relee (ver el aviso de abajo).
 
 ```sh
-# 1. Traer el repo. El usuario que lo clona va a ser su dueño.
+# 1. Traer el repo.
 git clone <repo> /srv/la-liga-acp && cd /srv/la-liga-acp
 
 # 2. CONFIGURACIÓN — terminar ESTE paso antes de seguir.
@@ -244,8 +241,9 @@ En `.env` hay que dejar, como mínimo (el detalle está en el bloque **PRODUCCI�
 
 - `MYSQL_PASSWORD` y `MYSQL_ROOT_PASSWORD`: contraseñas propias. **Nunca dejar las de ejemplo.**
 - `SESSION_SECRET`: el valor que acaba de generar `openssl`. El backend rechaza el del ejemplo.
-- `CORS_ORIGIN`: el dominio del sitio, con `https://` y **sin** barra final.
-- `TRUST_PROXY=1`.
+- `CORS_ORIGIN`: tu dominio, con `https://` y **sin** barra final (`https://liga.tu-dominio.com`).
+- `TRUST_PROXY`: **borrarla o poner `2`** (compose ya usa 2). Nunca `1`: ver "Por qué está armado así".
+- `WEB_PORT`: solo si el 8080 está ocupado.
 
 > ### ⚠️ La contraseña de MySQL se graba una sola vez
 >
@@ -278,7 +276,7 @@ En `.env` hay que dejar, como mínimo (el detalle está en el bloque **PRODUCCI�
 > # `restart` NO sirve acá: reinicia el proceso con las variables que ya tenía.
 > # Para que el contenedor vuelva a leer el .env hay que recrearlo:
 > docker compose -f compose.prod.yaml up -d server
-> curl -s http://127.0.0.1:3001/health
+> curl -s http://127.0.0.1:8080/api/health
 > ```
 >
 > Si `root'@'%'` no existe en esa instalación, ese `ALTER` falla con `ERROR 1396`; es inofensivo y se puede quitar. Hoy no se llega a esa cuenta desde afuera porque `compose.prod.yaml` no publica el 3306, pero sí en cuanto alguien descomente el puerto de mantenimiento.
@@ -297,20 +295,22 @@ En `.env` hay que dejar, como mínimo (el detalle está en el bloque **PRODUCCI�
 > Con datos reales cargados, **A**. Con la base recién levantada y vacía, **B** es más rápido y más limpio.
 
 ```sh
-# 3. Base de datos y backend. Recién ahora, con el .env terminado.
+# 3. Construir las imágenes y levantar la pila. Recién ahora, con el .env terminado.
 docker compose -f compose.prod.yaml up -d --build
-docker compose -f compose.prod.yaml ps        # esperar a que db diga (healthy)
-curl -s http://127.0.0.1:3001/health           # {"data":{"status":"ok","database":"up",...}}
+docker compose -f compose.prod.yaml ps        # los tres en (healthy) al cabo de ~30 s
 
-# 4. El front, compilado acá. Genera dist/ y deploy/nginx/spa-routes.conf.
-npm ci && npm run build
+# 4. Comprobar la pila ANTES de tocar nginx, directo al puerto del loopback.
+curl -sI http://127.0.0.1:8080/ | head -1      # HTTP/1.1 200 OK
+curl -s  http://127.0.0.1:8080/api/health      # {"data":{"status":"ok","database":"up",...}}
 ```
+
+Si el paso 4 no responde, el problema está en Docker o en el `.env`, no en nginx: `docker compose -f compose.prod.yaml logs server` lo dice (una variable que falta sale con su nombre).
 
 #### 5. El certificado, antes de tocar nginx
 
-El sitio de ejemplo **no arranca sin certificado**: el bloque HTTPS apunta a dos archivos y, si no existen, `nginx -t` falla y `systemctl reload nginx` no aplica nada. Así que el orden es: **DNS apuntando al servidor → certificado emitido → recién entonces activar el sitio.**
+El sitio de ejemplo **no arranca sin certificado**: el bloque HTTPS apunta a dos archivos y, si no existen, `nginx -t` falla y `systemctl reload nginx` no aplica nada. Así que el orden es: **DNS apuntando al servidor → certificado en su lugar → recién entonces activar el sitio.**
 
-**Caso (a): ya se tiene el certificado** (un `.crt`/`.pem` y su `.key`).
+**Caso (a): ya tienes tu certificado** (un `.crt`/`.pem` y su `.key`).
 
 ```sh
 sudo mkdir -p /etc/ssl/la-liga-acp
@@ -325,57 +325,53 @@ sudo chmod 644 /etc/ssl/la-liga-acp/fullchain.pem
 
 En `ssl_certificate` va la cadena **completa** (el certificado del dominio seguido de los intermedios). Si la autoridad los entregó por separado, se concatenan en ese orden: `cat dominio.crt intermedios.crt > fullchain.pem`. Con solo el certificado del dominio, los navegadores de escritorio suelen andar y los teléfonos fallan.
 
-**Caso (b): emitirlo con certbot.** Acá hay un huevo y la gallina: certbot en modo `webroot` necesita que nginx ya esté sirviendo por HTTP, pero el sitio de ejemplo tiene el bloque HTTPS que impide arrancar sin certificado. La salida es usar el modo `--nginx`, que lo resuelve solo, **sobre el sitio por defecto y antes de instalar el de la app**:
+**Caso (b): emitirlo con certbot.** certbot en modo `webroot` necesita que nginx ya sirva por HTTP, pero el sitio de ejemplo tiene el bloque HTTPS que impide arrancar sin certificado. La salida es el modo `--nginx` **sobre el sitio por defecto y antes de instalar el de la app**:
 
 ```sh
 sudo apt-get install -y certbot python3-certbot-nginx
 
-# El sitio por defecto de Debian y Ubuntu trae `server_name _;`, que NO coincide
-# con ningún dominio, y entonces certbot --nginx dice que no encuentra un vhost
-# para él. Se le pone el dominio antes de pedir el certificado:
-sudo sed -i 's|server_name _;|server_name DOMINIO.EJEMPLO;|' /etc/nginx/sites-available/default
+# El sitio por defecto de Debian y Ubuntu trae `server_name _;`, que no coincide
+# con ningún dominio, y certbot --nginx no encuentra un vhost. Se le pone el dominio:
+sudo sed -i 's|server_name _;|server_name liga.tu-dominio.com;|' /etc/nginx/sites-available/default
 sudo nginx -t && sudo systemctl reload nginx
 
-sudo certbot --nginx -d DOMINIO.EJEMPLO
-# Deja los archivos en /etc/letsencrypt/live/DOMINIO.EJEMPLO/
+sudo certbot --nginx -d liga.tu-dominio.com
+# Deja los archivos en /etc/letsencrypt/live/liga.tu-dominio.com/
 ```
 
-Después, en el paso 6, `/RUTA/AL/CERTIFICADO` es `/etc/letsencrypt/live/DOMINIO.EJEMPLO`.
-
-> **Al terminar, certbot deja el sitio por defecto escuchando en el 443 con ese mismo `server_name`.** Como `sites-enabled` se incluye por orden alfabético, `default` va antes que `la-liga-acp.conf` y **se queda con el dominio**. `nginx -t` solo avisa `conflicting server name` y sigue diciendo *test is successful*, así que es fácil no verlo. Por eso el paso 6 desactiva el sitio por defecto (`rm -f /etc/nginx/sites-enabled/default`) antes de activar el de la app.
+> **Al terminar, certbot deja el sitio por defecto escuchando en el 443 con ese mismo `server_name`.** Como `sites-enabled` se incluye por orden alfabético, `default` va antes que `la-liga-acp.conf` y **se queda con el dominio** (`nginx -t` solo avisa `conflicting server name`). Por eso el paso 6 desactiva el sitio por defecto.
 
 El `location` de `acme-challenge` que trae el ejemplo sirve para las **renovaciones** siguientes, que ya corren con el sitio de la app activo.
 
-#### 6. Activar el sitio
+#### 6. Activar el sitio en el nginx del host
 
-Las rutas de abajo (`sites-available`, `sites-enabled`, el usuario `www-data`) son las de **Debian y Ubuntu**. En otras distribuciones el sitio va en `/etc/nginx/conf.d/` y el usuario suele ser `nginx`.
-
-> **Cada marcador aparece DOS veces en el archivo**, salvo el del puerto, que aparece una. Olvidar la segunda aparición de `/RUTA/AL/CERTIFICADO` o de `/RUTA/AL/REPO` **falla ruidoso** en `nginx -t`, así que se nota enseguida. Olvidar la segunda de `DOMINIO.EJEMPLO` **falla en silencio**: nginx arranca sin quejarse, el `server_name` del bloque HTTP o del HTTPS no coincide con el dominio y sirve el sitio por defecto, y uno se pone a perseguir un fantasma. Por eso conviene reemplazarlos con `sed`, que cambia las dos de una vez, en lugar de editar a mano.
+Las rutas (`sites-available`, `sites-enabled`) son las de **Debian y Ubuntu**. En otras distribuciones el sitio va en `/etc/nginx/conf.d/la-liga-acp.conf`.
 
 ```sh
 sudo cp deploy/nginx/la-liga-acp.conf.example /etc/nginx/sites-available/la-liga-acp.conf
 
-# Reemplazar los tres marcadores, las dos apariciones de cada uno.
-sudo sed -i 's|DOMINIO\.EJEMPLO|liga.ejemplo.com|g'                  /etc/nginx/sites-available/la-liga-acp.conf
-sudo sed -i 's|/RUTA/AL/CERTIFICADO|/etc/letsencrypt/live/liga.ejemplo.com|g' /etc/nginx/sites-available/la-liga-acp.conf
-sudo sed -i 's|/RUTA/AL/REPO|/srv/la-liga-acp|g'                     /etc/nginx/sites-available/la-liga-acp.conf
+# Tu dominio (aparece DOS veces: bloque HTTP y bloque HTTPS; sed cambia las dos).
+sudo sed -i 's|DOMINIO\.EJEMPLO|liga.tu-dominio.com|g' /etc/nginx/sites-available/la-liga-acp.conf
 
-# Solo si se cambió PORT en el .env (aparece una vez, en proxy_pass):
-# sudo sed -i 's|127\.0\.0\.1:3001|127.0.0.1:OTRO_PUERTO|' /etc/nginx/sites-available/la-liga-acp.conf
+# Tu certificado. Caso (a):
+sudo sed -i 's|/RUTA/AL/CERTIFICADO|/etc/ssl/la-liga-acp|g' /etc/nginx/sites-available/la-liga-acp.conf
+# Caso (b), certbot:
+# sudo sed -i 's|/RUTA/AL/CERTIFICADO|/etc/letsencrypt/live/liga.tu-dominio.com|g' /etc/nginx/sites-available/la-liga-acp.conf
 
-# Comprobar que no quedó ninguno sin reemplazar: tiene que imprimir 0.
-grep -c 'DOMINIO\.EJEMPLO\|/RUTA/AL/' /etc/nginx/sites-available/la-liga-acp.conf
-```
+# Solo si cambiaste WEB_PORT en el .env:
+# sudo sed -i 's|127\.0\.0\.1:8080|127.0.0.1:OTRO_PUERTO|' /etc/nginx/sites-available/la-liga-acp.conf
 
-Si el sitio por defecto de la distribución sigue activo, **hay que desactivarlo antes** (ver el paso 5: después de `certbot --nginx` se queda escuchando en 443 con su propio `server_name`, y `sites-enabled` se incluye por orden alfabético, así que `default` gana):
+# Comprobar que no quedó ningún marcador fuera de los comentarios: tiene que imprimir 0.
+grep -v '^\s*#' /etc/nginx/sites-available/la-liga-acp.conf | grep -c 'DOMINIO\.EJEMPLO\|/RUTA/AL/'
 
-```sh
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo ln -s /etc/nginx/sites-available/la-liga-acp.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-nginx tiene que poder **leer** `dist/` y `deploy/nginx/`: el usuario `www-data` necesita permiso de ejecución sobre todas las carpetas del camino hasta el repo (`sudo -u www-data test -r /srv/la-liga-acp/dist/index.html && echo ok` lo comprueba).
+> Olvidar una aparición del dominio **falla en silencio**: nginx arranca, ese bloque no coincide con el dominio y responde el sitio por defecto. Por eso se reemplaza con `sed` y se comprueba con el `grep`.
+
+Si en el servidor ya hay **otros sitios** en nginx, no se tocan: este archivo solo agrega los `server` de tu dominio. En ese caso no borres `default` si lo usa otro sitio; basta con que ningún otro tenga el mismo `server_name`.
 
 #### 7. El primer administrador
 
@@ -392,16 +388,36 @@ Es **distinto del comando de desarrollo** (`npm run admin:create`), que usa `tsx
 #### 8. Comprobar que quedó bien
 
 ```sh
-curl -sI  https://DOMINIO.EJEMPLO/            | head -1   # 200
-curl -sI  https://DOMINIO.EJEMPLO/posiciones  | head -1   # 200 (ruta de la SPA)
-curl -sI  https://DOMINIO.EJEMPLO/no-existe   | head -1   # 404
-curl -s   https://DOMINIO.EJEMPLO/api/health              # {"data":{"status":"ok",...}}
-curl -sI  http://DOMINIO.EJEMPLO/             | head -1   # 301 a https
+curl -sI  https://liga.tu-dominio.com/            | head -1   # 200
+curl -sI  https://liga.tu-dominio.com/posiciones  | head -1   # 200 (ruta de la SPA)
+curl -sI  https://liga.tu-dominio.com/no-existe   | head -1   # 404
+curl -s   https://liga.tu-dominio.com/api/health              # {"data":{"status":"ok",...}}
+curl -sI  http://liga.tu-dominio.com/             | head -1   # 301 a https
 ```
 
-Y en el navegador: entrar con la cuenta de administrador. **Si el ingreso falla pero `/api/health` responde bien**, casi siempre es una de dos: el sitio se está sirviendo por HTTP (la cookie `__Host-` necesita HTTPS) o `CORS_ORIGIN` no coincide **exactamente** con el dominio que muestra el navegador.
+Y en el navegador: entrar con la cuenta de administrador. **Si el ingreso falla pero `/api/health` responde bien**, casi siempre es una de dos: el sitio se está sirviendo por HTTP (la cookie `__Host-` necesita HTTPS) o `CORS_ORIGIN` no coincide **exactamente** con el dominio que muestra el navegador. Un **502** de nginx quiere decir que la pila no está escuchando en el puerto del `proxy_pass` (paso 4).
 
-**Para actualizar** (código nuevo): `git pull`; después `npm ci && npm run build` (el front, que reescribe `spa-routes.conf`); después `docker compose -f compose.prod.yaml up -d --build server`; y `sudo nginx -t && sudo systemctl reload nginx` solo si cambiaron las rutas de la SPA.
+#### Actualizar a una versión nueva
+
+```sh
+cd /srv/la-liga-acp
+git pull
+docker compose -f compose.prod.yaml up -d --build     # recompila las imágenes y recrea lo que cambió
+docker image prune -f                                 # borra las imágenes viejas que quedaron sin uso
+```
+
+La base y las imágenes subidas están en volúmenes y **no se tocan**. El nginx del host **no se recarga**: las rutas de la SPA viven dentro de la imagen `web`. Solo hay que recargarlo (`sudo nginx -t && sudo systemctl reload nginx`) si se edita su propio archivo, por ejemplo al renovar a mano un certificado.
+
+**Arranque tras reiniciar el servidor:** los tres servicios tienen `restart: unless-stopped`, así que vuelven solos cuando arranca Docker (`sudo systemctl enable docker` lo deja activado al inicio, si la distro no lo hace ya).
+
+**Comandos de todos los días:**
+
+```sh
+docker compose -f compose.prod.yaml ps                 # estado
+docker compose -f compose.prod.yaml logs -f server     # logs del backend (web, db igual)
+docker compose -f compose.prod.yaml restart server     # reiniciar uno
+docker compose -f compose.prod.yaml down               # parar todo (SIN -v: -v borra la base)
+```
 
 ### Llevar los datos reales a producción
 
@@ -476,40 +492,39 @@ Después de cargar, el sitio ya muestra equipos y plantillas. Lo que falta carga
 
 ### Qué está probado y qué no
 
-**La pila de producción se ejecutó entera contra Docker real**, no solo se revisó. Esto es lo que se midió:
+**La pila de producción se ejecutó entera contra Docker real** (2026-09-24, Docker 29.4), con un nginx "de host" delante que usa **el archivo de ejemplo tal cual**, con los marcadores reemplazados por `sed` y un certificado autofirmado. Esto es lo que se midió:
 
-- **La imagen se construye en 15 s y no compila nada nativo.** `npm ci --omit=dev` baja binarios musl ya compilados: no aparece `node-gyp`, `make`, `g++` ni "building from source" en ninguna línea del build. La imagen final pesa **339 MB** con **117 paquetes**, contra 221 en la etapa de build. `argon2` y `sharp` se ejecutaron **dentro** de la imagen: hashea y verifica (`$argon2id`) y recodifica a webp (libvips 8.18.6).
-- **La imagen lleva lo que dice y nada más:** sin `/app/src`, sin `tsx`, `nodemon`, `typescript` ni `vitest`; con `dist/index.js`, `dist/cli/create-admin.js` y `/app/package.json`. El proceso corre como `node` (uid 1000) y `/data/uploads` le es escribible.
-- **La pila levanta:** `db` en estado *healthy* a los 5 s, `db/init/` ejecutado (24 tablas y catálogos), `GET /health` 200 con `version 0.1.0` —que es la prueba en vivo de que `package.json` resuelve desde `dist/services/`— y el healthcheck del contenedor en *healthy*.
-- **La cookie de sesión real:** `Set-Cookie: __Host-liga_sid ... HttpOnly; Secure; SameSite=Strict`.
-- **El administrador se creó con `node dist/cli/create-admin.js`** (variante `ADMIN_PASSWORD_STDIN`), sin `tsx`; después `login` 200 y `/admin/participantes` 200.
-- **El volcado de datos de la sección anterior se cargó con el comando exacto del paso 3:** 3, 3, 15, 102, 134 y `Verificación OK`, comprobado además leyendo la API pública.
-- **nginx (1.31.4) aceptó el archivo del proyecto:** `nginx -t` da *syntax is ok* y *test is successful*, **sin advertencias**. Los cinco `curl` del paso 8 dan lo prometido: portada 200, `/posiciones` 200, `/no-existe` 404, `/api/health` con su sobre y HTTP 301 con `Location` a https.
-- **Las cabeceras se midieron**, no se razonaron: `/`, `/index.html`, `/404.html`, `/posiciones`, `/plantilla/42` y `/mis-apuestas` salen con `no-store`, HSTS y `nosniff`; `/assets/` es la **única** inmutable; `/api/health` conserva el `no-store` del backend y `/api/public/deportes` su `max-age=30`, o sea **nginx no pisa ninguno**; y `/api` pelado responde 308 a `/api/`.
+- **Las tres imágenes se construyen** con `docker compose -f compose.prod.yaml up -d --build` y los tres contenedores quedan en *healthy*: `db` a los ~20 s, `server` y `web` enseguida. El front compila dentro de `Dockerfile.web` (TypeScript, Vite y sharp en glibc) sin Node en el host.
+- **Backend:** `argon2` y `sharp` corren en la imagen musl sin compilar nada nativo; sin `src/`, `tsx` ni devDependencies; proceso como `node`. `GET /health` 200 con la versión (prueba de que `package.json` resuelve desde `dist/services/`).
+- **Rutas, por HTTPS y a través de los dos nginx:** `/`, `/posiciones`, `/posiciones/`, `/plantilla/42` y `/admin/partidos/3` dan 200; `/plantilla/a/b` y `/no-existe` 404 con la página de la app; `/api` pelado 308 a `/api/` (Location relativo, sin el puerto interno); HTTP 301 a https.
+- **Cabeceras, una sola de cada una:** el shell con `no-store`, `/assets/` la única `immutable`, `/api/public/*` conserva el `max-age=30` del backend y el resto de la API su `no-store`; `nosniff` y `Strict-Transport-Security` salen **una vez** en todas las respuestas (el HSTS y el nosniff de helmet se ocultan en `/api` para no duplicarlos).
+- **La URL llega cruda al backend:** `/api/public/equipos/%E0` da el 400 del backend, igual que en desarrollo.
+- **La IP real del cliente, con `TRUST_PROXY=2`:** con dos clientes a la vez, el A hizo 6 logins fallidos mandando en cada uno un `X-Forwarded-For` falso distinto y recibió 429 en el sexto (no pudo evadir el límite); el B, con el mismo correo desde otra IP, siguió recibiendo 401.
+- **Sesión real:** `create-admin` con `node dist/cli/create-admin.js`, login 200 con `Set-Cookie: __Host-liga_sid=...; HttpOnly; Secure; SameSite=Strict` y `/api/admin/participantes` 200 con esa cookie.
+- **Límite de subida:** un cuerpo de 5,7 MB atraviesa los dos nginx y lo responde el backend (con su sobre `{ error }`); uno de 7 MB lo corta nginx con 413.
+
+Antes de este cambio, con nginx del host sirviendo `dist/`, ya se habían comprobado el volcado de datos reales con el comando exacto de la sección anterior y que el bloque HTTPS **no arranca** sin los archivos del certificado (`nginx -t` corta con `emerg`: por eso el paso 5 va antes del 6).
 
 **Lo que sigue sin probarse**, y por lo tanto es lo primero que puede fallar en el servidor:
 
-- **`npm ci` y `npm run build` sobre Linux.** El front se compiló en Windows y dentro de una imagen, nunca en el Linux del servidor. Es el paso donde pega lo de la versión de Node.
-- **`certbot`**, en cualquiera de sus dos variantes. Nunca se emitió un certificado.
+- **`certbot`**, en cualquiera de sus dos variantes. Nunca se emitió un certificado real.
 - **El firewall** (`ufw` o el del proveedor) y la resolución DNS del dominio.
-- **El despliegue sobre el hardware y el dominio reales**: todo lo de arriba corrió en contenedores de una máquina de desarrollo, con certificados y nombres de prueba.
-
-> **El certificado va antes de activar el sitio.** Está comprobado que el bloque HTTPS **no arranca** si los archivos del certificado no existen: `nginx -t` corta con `emerg`. No es un defecto, es el orden — por eso el paso 5 va antes del 6.
+- **El despliegue sobre el hardware y el dominio reales**: todo lo de arriba corrió en una máquina de desarrollo (Docker Desktop), con el nginx "de host" dentro de un contenedor en la misma red. En un Linux real el nginx del host llega por `127.0.0.1:8080`, que es lo que publica `compose.prod.yaml`.
+- **Una CPU ARM** (Graviton, Raspberry Pi): las imágenes base y los binarios del lockfile existen para arm64, pero no se construyó ahí.
 
 ### Por qué está armado así
 
-- **`compose.prod.yaml` es un archivo aparte, no un override.** Compose fusiona las listas de `volumes` **agregando, nunca quitando**: un override no puede sacar el bind mount `./server:/app` ni el volumen anónimo de `node_modules` que `compose.yaml` necesita para desarrollar. Comprobado con `docker compose -f compose.yaml -f override.yaml config`. En producción eso taparía la imagen compilada con el código del host. Por eso se usa `-f compose.prod.yaml` y no `-f compose.yaml -f ...`.
-- **El backend se publica solo en `127.0.0.1`** y **la base no se publica**. `compose.yaml` publica `3306` y `3001` en todas las interfaces, que en desarrollo es cómodo y en un servidor con IP pública dejaría **MySQL abierto a internet** y el backend accesible saltándose nginx (sin TLS y sin el límite de tamaño de subida).
-- **`TRUST_PROXY=1`, no `loopback`.** Aunque nginx llegue a `127.0.0.1:3001`, el puerto se publica con NAT: el contenedor ve como origen la puerta de enlace del bridge de Docker (`172.x.x.x`), así que `loopback` no coincidiría, el backend ignoraría `X-Forwarded-For` y **todos los clientes compartirían los límites de intentos** (una persona equivocándose de contraseña dejaría fuera a las demás). Con `1`, la IP real es la última de `X-Forwarded-For`, la que pone nginx, y nadie puede falsearla porque el puerto solo escucha en el loopback del host. `true` lo rechaza `env.ts` a propósito.
-- **La imagen de producción no lleva `tsx`.** `tsc -b` compila también `src/cli`, así que existen `dist/cli/create-admin.js`, `dist/cli/coins-check.js` y `dist/cli/seed-dev.js`, y esos comandos se corren con `node`. Solo importan módulos internos, `zod` y builtins de node, por eso la imagen puede ir con `npm ci --omit=dev`.
-- **La imagen instala sus dependencias en la etapa final**, en vez de copiar `node_modules` de la de build: `argon2` y `sharp` son nativas, y así sus binarios se resuelven contra la imagen que realmente las va a ejecutar. La base es `node:22-alpine` (musl) porque es la misma que la de desarrollo, donde las dos vienen funcionando desde T-03 y T-13.
-- **La imagen incluye `package.json`.** `services/health.service.ts` lee la versión con `require('../../package.json')`, que desde `dist/services/` resuelve a `/app/package.json`. Sin ese archivo, `GET /health` falla.
-- **La configuración de nginx de la SPA se genera.** 21 rutas con y sin barra final son 42 URLs, y una lista así a mano se desincroniza a la primera. `vite-plugins/nginx-spa-routes.ts` la escribe desde `SPA_ROUTES` en cada build, igual que `spa-rewrites.ts` escribe `dist/_redirects`. Se escribe **fuera de `dist/`** a propósito: `dist/` es la raíz web, y un `.conf` ahí dentro se serviría a quien lo pidiera.
-- **Y, a diferencia de `dist/_redirects`, `deploy/nginx/spa-routes.conf` sí se versiona.** Es deliberado, aunque sea un archivo generado. `_redirects` vive dentro de `dist/`, que está entero en `.gitignore` y lo produce el hosting al compilar; este lo lee **nginx del servidor**, y si falta, el `include` hace que **nginx no arranque**. Versionado, el archivo existe apenas se clona o se hace `git pull`, y el orden de los pasos deja de ser crítico; ignorado, bastaría con recargar nginx antes de compilar para tirar el sitio. El build lo reescribe igual en cada corrida, así que no puede quedar desactualizado: si alguien agrega una ruta y compila, el cambio aparece en el `git status` junto al resto.
-- **Sin comodín `/*`.** Las rutas fijas son `location =` exactos y las que llevan `:id` son expresiones regulares de **un solo segmento** (`[^/]+`). Así `/plantilla/no-existe` da **200** y la app muestra su propia página de no encontrado, mientras que `/plantilla/a/b`, `/plantilla` y cualquier URL inventada dan **404** con `dist/404.html`, y los archivos reales se sirven tal cual.
-- **Caché:** `dist/assets/` lleva hash en el nombre, así que va con `max-age=31536000, immutable`; **todo lo demás va con `no-store`**, porque cualquier ruta de la app devuelve el shell y un shell cacheado después de un despliegue apunta a archivos con hash que ya no existen (`vite build` vacía `dist/`), o sea la página queda rota hasta recargar a mano. La API queda afuera: el `Cache-Control` lo manda el backend (30 s en `/public`).
-- **Las cabeceras se ponen una sola vez, con un `map`.** En nginx una cabecera agregada **no se hereda** en un bloque que tenga la suya, así que un `add_header Cache-Control` dentro de cada `location` cancelaría ahí mismo todas las del `server` —`Strict-Transport-Security` incluida— justo en las respuestas que más se piden. Por eso el archivo generado no lleva ninguna cabecera y el sitio las define para todas las respuestas. **Regla para quien edite el sitio: el bloque `location /api/` sí tiene cabeceras propias (a propósito, para no pisar el `Cache-Control` del backend), así que toda cabecera que se agregue al `server` hay que repetirla también ahí, o la API se queda sin ella.**
-- **TLS y HSTS:** el ejemplo fija `ssl_protocols TLSv1.2 TLSv1.3` (si no, queda lo que traiga por defecto la versión de nginx instalada, que en las viejas incluye TLS 1.0 y 1.1) y manda `Strict-Transport-Security` con un año. **HSTS es difícil de revertir**: mientras no venza, los navegadores que ya lo recibieron se niegan a entrar por HTTP a ese dominio aunque el servidor lo vuelva a permitir, y no se puede borrar a distancia. Conviene probar primero con un `max-age` corto; va sin `preload` ni `includeSubDomains` a propósito.
+- **Todo en Docker, y el nginx del host solo pone el TLS.** Así el servidor no necesita Node ni compilar nada, el nginx del host no sabe nada de la app (un solo `proxy_pass`) y actualizar es `git pull` + `up -d --build`, sin recargar nginx. Las rutas de la SPA, la caché y `/api` viven en `deploy/web/nginx.conf`, dentro de la imagen, compiladas junto con el front que sirven: no pueden desfasarse.
+- **`compose.prod.yaml` es un archivo aparte, no un override.** Compose fusiona las listas de `volumes` **agregando, nunca quitando**: un override no puede sacar el bind mount `./server:/app` ni el volumen anónimo de `node_modules` que `compose.yaml` necesita para desarrollar. Por eso se usa `-f compose.prod.yaml` y no `-f compose.yaml -f ...`.
+- **Solo `web` se publica, y solo en `127.0.0.1`.** El backend y MySQL no tienen `ports`: se llega a ellos por la red interna de Compose. `compose.yaml` (desarrollo) publica `3306` y `3001` en todas las interfaces, que en un servidor con IP pública dejaría **MySQL abierto a internet**. Y sin el `127.0.0.1` en `web`, el sitio quedaría accesible por HTTP en la IP pública, saltándose el TLS.
+- **`TRUST_PROXY=2`.** Hay dos proxies: el nginx del host agrega la IP del cliente a `X-Forwarded-For` y el de `web` agrega la del nginx del host (que ve a través del bridge de Docker). Con `2` el backend toma la del cliente. Con `1` tomaría la del nginx del host, **la misma para todos**, y todos los clientes compartirían los límites de intentos (una persona equivocándose de contraseña dejaría fuera a las demás). Nadie puede falsearla porque `web` solo escucha en el loopback. `true` lo rechaza `env.ts`. Si algún día se pone otro proxy delante (Cloudflare con proxy activo), pasa a `3`.
+- **El backend se resuelve por DNS en cada petición** (`resolver 127.0.0.11` y `proxy_pass` con variable): `web` arranca aunque `server` todavía no exista y, si el contenedor del backend se recrea con otra IP, sigue llegando sin reiniciar `web`. La ruta se le pasa **cruda** (tomada de `$request_uri` sin el prefijo `/api`), como el proxy de Vite en desarrollo.
+- **La imagen del front compila en `node:22-bookworm-slim` (glibc) y sirve con `nginx-unprivileged` (alpine).** La compilación usa binarios nativos (TypeScript 7, rolldown, lightningcss, sharp) y sus paquetes glibc son los más probados; esa etapa no llega a la imagen final. El nginx interno corre como usuario sin privilegios en el 8080.
+- **La imagen del backend no lleva `tsx`.** `tsc -b` compila también `src/cli`, así que `create-admin`, `coins-check` y `seed-dev` se corren con `node`. Instala sus dependencias en la etapa final para que `argon2` y `sharp` resuelvan sus binarios contra la imagen que las ejecuta, e incluye `package.json` porque `/health` lee de ahí la versión.
+- **Las rutas de la SPA se generan.** 21 rutas con y sin barra final son 42 URLs; `vite-plugins/nginx-spa-routes.ts` las escribe desde `SPA_ROUTES` en cada build, y la imagen copia las de **su propio** build. `deploy/nginx/spa-routes.conf` sigue versionado (el build lo reescribe y el cambio aparece en `git status`), pero en producción ya no lo lee nadie desde el repo. Sin comodín `/*`: `/plantilla/no-existe` da 200 y la app muestra su página de no encontrado; `/plantilla/a/b` o una URL inventada dan 404 de verdad.
+- **Caché:** `/assets/` lleva hash en el nombre y va `immutable`; **todo lo demás `no-store`**, porque cualquier ruta devuelve el shell y un shell cacheado después de un despliegue apunta a archivos con hash que ya no existen. La API queda afuera: su `Cache-Control` lo decide el backend.
+- **Cada cabecera tiene un solo dueño.** `Cache-Control` y `nosniff` los pone el nginx de `web` (con un `map`, porque en nginx una cabecera agregada **no se hereda** en un bloque que tenga la suya); HSTS lo pone el nginx del host, que es quien sabe del TLS. **Regla para quien edite `deploy/web/nginx.conf`: `location /api/` tiene cabeceras propias a propósito, así que una cabecera nueva del `server` hay que repetirla ahí.**
+- **TLS y HSTS:** el ejemplo fija `ssl_protocols TLSv1.2 TLSv1.3` y manda `Strict-Transport-Security` con un año. **HSTS es difícil de revertir**: mientras no venza, los navegadores que ya lo recibieron se niegan a entrar por HTTP a ese dominio, y no se puede borrar a distancia. Conviene probar primero con un `max-age` corto; va sin `preload` ni `includeSubDomains` a propósito.
 
 ### Cuidado con esto
 

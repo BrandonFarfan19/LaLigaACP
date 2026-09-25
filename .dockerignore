@@ -1,0 +1,19 @@
+# Contexto de Dockerfile.web (la imagen del front). Solo necesita el código del
+# front y su configuración de build; todo lo demás se queda afuera para que el
+# contexto sea chico y para que nada privado entre en una capa de la imagen.
+.git
+.idea
+.claude
+.wrangler
+node_modules
+dist
+dist;C
+output
+docs
+server
+db
+*.md
+.env
+.env.*
+!.env.example
+npm-debug.log*

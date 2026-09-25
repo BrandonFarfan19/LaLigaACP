@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from 'react';
-// Placeholder portrait shared by every player until real photos exist.
+// Portrait of a player without a photo (or whose photo doesn't load).
 import portrait from '../assets/jugadoresPixel/futbol/jugador-marron-claro-fifa2002.png?pixel=portrait';
 import { GRID, radarLabels, rasterizeRadar, type RadarPixel } from '../utils/pixel-radar';
 import { captureElement } from '../utils/share-image';
@@ -68,6 +68,9 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 	const radarRef = useRef<SVGSVGElement>(null);
 	const image = useRef<Promise<File> | null>(null);
 	const [status, setStatus] = useState('');
+	// A photo whose file isn't there falls back to the placeholder, never a hole.
+	const [photoBroken, setPhotoBroken] = useState(false);
+	const photo = photoBroken ? null : player.photo;
 	const withImages = sharesImages();
 
 	const values = ATTRIBUTES.map((attribute) => stats[attribute.key]);
@@ -194,16 +197,35 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 			</header>
 
 			<div className={styles.body}>
-				{/* Rendered small and upscaled ×2 by CSS: real pixel art. */}
+				{/* The placeholder is rendered small and upscaled ×2 by CSS: real pixel art.
+				    A real photo is the deliberate exception (user decision): shown smooth,
+				    never pixelated, from a 384×384 file so it stays sharp at 2×. It comes
+				    from the API (T-22), already checked by `imageSrc`, so it is a plain
+				    `<img>` at a fixed size, like `Crest`. */}
 				<figure className={`${styles.portrait} pixel-bevel`}>
-					<PixelImage
-						className={`${styles['portrait-art']} pixelated`}
-						image={portrait}
-						alt=""
-						width={96}
-						loading="eager"
-						data-card-portrait
-					/>
+					{photo ? (
+						<img
+							className={`${styles['portrait-art']} ${styles['portrait-photo']}`}
+							src={photo}
+							alt=""
+							width={192}
+							height={192}
+							loading="eager"
+							decoding="async"
+							referrerPolicy="no-referrer"
+							onError={() => setPhotoBroken(true)}
+							data-card-portrait
+						/>
+					) : (
+						<PixelImage
+							className={`${styles['portrait-art']} pixelated`}
+							image={portrait}
+							alt=""
+							width={96}
+							loading="eager"
+							data-card-portrait
+						/>
+					)}
 				</figure>
 
 				{/* Decorative: the table below carries every value. */}
