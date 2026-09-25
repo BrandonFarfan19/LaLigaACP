@@ -1,10 +1,11 @@
 import { useLayoutEffect, useRef, type CSSProperties } from 'react';
 import { useNavigationType } from 'react-router';
 import pitch from '../assets/backgrounds/cancha-vertical.png?pixel=pitch';
+import voleyCourt from '../assets/backgrounds/cancha-voley-vertical.png?pixel=pitch';
 import { isInAppHistoryTraversal } from '../hooks/useScrollManagement';
 import PixelImage from './PixelImage';
 import PlayerStatsDialog from './PlayerStatsDialog';
-import { squadPlacements } from '../lib/squad-layout';
+import { squadPlacements, type Court } from '../lib/squad-layout';
 import type { Player, PlayerStats } from '../types';
 import styles from './SquadBoard.module.css';
 
@@ -17,14 +18,21 @@ interface Props {
 	teamName: string;
 	players: Player[];
 	stats: PlayerStats[];
+	/** The drawing and formation of the team's sport (`courtFor`). */
+	court?: Court;
 }
+
+const COURT_ART = { futbol: pitch, voley: voleyCourt };
 
 const dialogId = (player: Player) => `stats-${player.id}`;
 
-export default function SquadBoard({ teamName, players, stats }: Props) {
+/** The label under a player on the pitch: the first two words of the name. The table and the card keep it whole. */
+const pitchName = (name: string) => name.trim().split(/\s+/).slice(0, 2).join(' ');
+
+export default function SquadBoard({ teamName, players, stats, court = 'futbol' }: Props) {
 	const statsByPlayer = new Map(stats.map((row) => [row.playerId, row]));
 	// Where each one stands is a sample layout (D-022): the schema has no position.
-	const placements = squadPlacements(players);
+	const placements = squadPlacements(players, court);
 	const dialogs = useRef(new Map<string, HTMLDialogElement>());
 
 	const open = (player: Player) => dialogs.current.get(dialogId(player))?.showModal();
@@ -55,8 +63,9 @@ export default function SquadBoard({ teamName, players, stats }: Props) {
 					<div className={styles['pitch-field']}>
 						<PixelImage
 							className={`${styles['pitch-art']} pixelated`}
-							image={pitch}
+							image={COURT_ART[court]}
 							alt=""
+							data-court={court}
 							width={240}
 							densities={[2]}
 							loading="lazy"
@@ -93,7 +102,7 @@ export default function SquadBoard({ teamName, players, stats }: Props) {
 												</svg>
 												<span className={styles['shirt-number']}>{shirtNumber}</span>
 											</span>
-											<span className={styles['pitch-name']}>{player.name}</span>
+											<span className={styles['pitch-name']}>{pitchName(player.name)}</span>
 										</button>
 									</li>
 								);
