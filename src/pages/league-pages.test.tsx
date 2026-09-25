@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { apiRoutes } from '../test/betting-fixtures';
 import { fail, mockFetch, ok, type RecordedCall } from '../test/fetch-mock';
-import { aguilas, apiMatch, competitionsRoute, copa, futbol, halcones, liga, leagueRoutes, matchesRoute, page, pumas, standingRow } from '../test/league-fixtures';
+import { aguilas, apiMatch, apiTeamDetail, competitionsRoute, copa, futbol, halcones, liga, leagueRoutes, matchesRoute, page, pumas, squadMember, standingRow } from '../test/league-fixtures';
 import { renderLeague, where } from '../test/render-league';
 
 /**
@@ -366,6 +366,44 @@ describe('squad (T-22, D-022)', () => {
 		const card = await screen.findByRole('dialog');
 		expect(within(card).getByText(/Atributos de muestra/)).toBeTruthy();
 		expect(within(card).getByText('Luis Paredes')).toBeTruthy();
+	});
+
+	it('the card shows the player photo from the API, and the placeholder without one', async () => {
+		mockFetch(
+			apiRoutes(
+				leagueRoutes({
+					'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, [squadMember(500, 'Luis Paredes', 9, 'jugadores/luis-paredes.webp'), squadMember(501, 'Sofía Díaz', 4)])),
+				}),
+			),
+		);
+		renderLeague('/plantilla/100');
+		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+		const portraitOf = (playerId: string) => document.querySelector(`[data-player-card][data-player-id="${playerId}"] [data-card-portrait]`)!;
+		// A path inside the site becomes root-relative, shown with <img> at a fixed size.
+		expect(portraitOf('500').getAttribute('src')).toBe('/jugadores/luis-paredes.webp');
+		expect(portraitOf('500').getAttribute('width')).toBe('192');
+		// A real photo is shown smooth, never pixelated (user decision).
+		expect(portraitOf('500').classList.contains('pixelated')).toBe(false);
+		// No photo: the build-time placeholder.
+		expect(portraitOf('501').getAttribute('src')).not.toMatch(/^\/jugadores\//);
+	});
+
+	it('a photo whose file is not there falls back to the placeholder, never a hole', async () => {
+		mockFetch(
+			apiRoutes(
+				leagueRoutes({
+					'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, [squadMember(500, 'Luis Paredes', 9, 'jugadores/no-existe.webp')])),
+				}),
+			),
+		);
+		renderLeague('/plantilla/100');
+		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+		const card = document.querySelector('[data-player-card][data-player-id="500"]')!;
+		card.querySelector('[data-card-portrait]')!.dispatchEvent(new Event('error'));
+
+		await waitFor(() => expect(card.querySelector('[data-card-portrait]')!.getAttribute('src')).not.toBe('/jugadores/no-existe.webp'));
 	});
 
 	it('an id that is not a team, or one the API refuses, is the not-found page', async () => {

@@ -101,7 +101,7 @@ export default function SquadBoard({ teamName, players, stats }: Props) {
 						</ul>
 					</div>
 					<p className={styles['pitch-hint']}>Toca un jugador para ver su ficha</p>
-					<p className={styles['pitch-hint']}>La ubicación en la cancha es de muestra; el dorsal es el inscrito en el plantel.</p>
+					{/* <p className={styles['pitch-hint']}>La ubicación en la cancha es de muestra; el dorsal es el inscrito en el plantel.</p> */}
 				</figure>
 
 				<table className={`${styles.roster} pixel-box`}>

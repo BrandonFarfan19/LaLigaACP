@@ -81,6 +81,12 @@
 	height: 100%;
 }
 
+/* A photo of any shape fills the square frame, cut from the top so the face stays. */
+.portrait-photo {
+	object-fit: cover;
+	object-position: top;
+}
+
 /* 240px over an 80-cell grid: every radar pixel is exactly 3px. */
 .radar {
 	position: relative;
