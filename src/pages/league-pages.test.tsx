@@ -368,6 +368,47 @@ describe('squad (T-22, D-022)', () => {
 		expect(within(card).getByText('Luis Paredes')).toBeTruthy();
 	});
 
+	it('the pitch shows the first two words of each name, the table and the card the whole name', async () => {
+		mockFetch(
+			apiRoutes(
+				leagueRoutes({
+					'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, [squadMember(500, 'Taboada Yarleque Miguel Luis', 9), squadMember(501, 'Orlando', 4)])),
+				}),
+			),
+		);
+		renderLeague('/plantilla/100');
+		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+		const onPitch = (name: string) => screen.getAllByRole('button', { name: new RegExp(`^Ver estadísticas de ${name}, dorsal`) })[0]!;
+		expect(onPitch('Taboada Yarleque Miguel Luis').textContent).toMatch(/Taboada Yarleque$/);
+		// A one-word name stays as it is.
+		expect(onPitch('Orlando').textContent).toMatch(/Orlando$/);
+		// The table keeps the whole name.
+		expect(within(screen.getByRole('table')).getByText('Taboada Yarleque Miguel Luis')).toBeTruthy();
+	});
+
+	it('a volleyball team stands on the volleyball court, grouped on one side of the net', async () => {
+		const members = Array.from({ length: 8 }, (_, index) => squadMember(600 + index, `Jugadora ${index + 1}`, index + 1));
+		mockFetch(apiRoutes(leagueRoutes({ 'GET /api/public/equipos/200': () => ok(apiTeamDetail(aguilas, copa, members)) })));
+		renderLeague('/plantilla/200');
+		await screen.findByRole('heading', { name: 'Águilas', level: 1 });
+
+		expect(document.querySelector('[data-court]')!.getAttribute('data-court')).toBe('voley');
+		const spots = within(screen.getByRole('list', { name: 'Jugadores en la cancha' })).getAllByRole('listitem');
+		expect(spots).toHaveLength(6);
+		for (const spot of spots) expect(parseFloat(spot.style.getPropertyValue('--y'))).toBeGreaterThan(44);
+		// The whole squad is still in the table.
+		expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(9);
+	});
+
+	it('a football team keeps the pitch', async () => {
+		mockFetch(apiRoutes(leagueRoutes()));
+		renderLeague('/plantilla/100');
+		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+		expect(document.querySelector('[data-court]')!.getAttribute('data-court')).toBe('futbol');
+	});
+
 	it('the card shows the player photo from the API, and the placeholder without one', async () => {
 		mockFetch(
 			apiRoutes(

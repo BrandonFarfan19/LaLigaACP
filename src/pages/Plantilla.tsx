@@ -5,6 +5,7 @@ import SquadBoard from '../components/SquadBoard';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { statsForPlayer } from '../data/player-stats';
 import { getTeamWithSquad } from '../lib/league';
+import { courtFor } from '../lib/squad-layout';
 import styles from './Plantilla.module.css';
 
 /**
@@ -45,7 +46,7 @@ export default function Plantilla() {
 			{players.length === 0 ? (
 				<p className={styles.empty}>Este equipo todavía no tiene jugadores inscritos.</p>
 			) : (
-				<SquadBoard teamName={team.name} players={players} stats={stats} />
+				<SquadBoard teamName={team.name} players={players} stats={stats} court={courtFor(competition.sport.name)} />
 			)}
 		</section>
 	);
