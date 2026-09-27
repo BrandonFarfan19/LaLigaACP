@@ -110,7 +110,10 @@ export default function SquadBoard({ teamName, players, stats, court = 'futbol' 
 						</ul>
 					</div>
 					<p className={styles['pitch-hint']}>Toca un jugador para ver su ficha</p>
-					{/* <p className={styles['pitch-hint']}>La ubicación en la cancha es de muestra; el dorsal es el inscrito en el plantel.</p> */}
+					{/* Two facts, kept short (C-04): the layout is dealt by list order, so
+					    nobody stands where they really play; the shirt number is the real
+					    one, which nobody would assume if only the first half were said. */}
+					<p className={styles['pitch-hint']}>Posiciones de muestra; el dorsal sí es real</p>
 				</figure>
 
 				<table className={`${styles.roster} pixel-box`}>

@@ -38,6 +38,70 @@ describe('parseEnv', () => {
 		}
 	});
 
+	it.each([
+		['https://acpleague2026.grupoacp.com.pe/', 'https://acpleague2026.grupoacp.com.pe'],
+		['  https://ACPLeague2026.GrupoACP.com.pe  ', 'https://acpleague2026.grupoacp.com.pe'],
+		['https://acpleague2026.grupoacp.com.pe:443', 'https://acpleague2026.grupoacp.com.pe'],
+		['http://localhost:5173/', 'http://localhost:5173'],
+	])('reduces CORS_ORIGIN %j to the Origin a browser sends', (value, expected) => {
+		expect(parseEnv({ ...process.env, CORS_ORIGIN: value }).corsOrigin).toBe(expected);
+	});
+
+	it.each([
+		['a path', 'https://acpleague2026.grupoacp.com.pe/app'],
+		['a query', 'https://acpleague2026.grupoacp.com.pe/?x=1'],
+		['credentials', 'https://user:pass@acpleague2026.grupoacp.com.pe'],
+		['another scheme', 'ftp://acpleague2026.grupoacp.com.pe'],
+		['no URL', 'acpleague2026.grupoacp.com.pe'],
+	])('rejects a CORS_ORIGIN with %s', (_label, value) => {
+		expect(() => parseEnv({ ...process.env, CORS_ORIGIN: value })).toThrow(/CORS_ORIGIN/);
+	});
+
+	/**
+	 * `csrfProtection` escribe `env.corsOrigin` en el registro **sin** pasarlo
+	 * por `textoParaLog`, y eso solo vale mientras un salto de línea no pueda
+	 * llegar hasta ahí y partir la línea. No puede: el analizador de URL borra
+	 * CR, LF y tabulación del texto antes de mirarlo, así que `url.origin` no
+	 * puede contenerlos, y lo que queda después de borrarlos suele dejar de ser
+	 * una URL válida y se rechaza al arrancar. Si algún día `corsOrigin` dejara
+	 * de salir de `parseCorsOrigin`, esta prueba cae y hay que sanearlo también.
+	 */
+	it('ningún CORS_ORIGIN puede meter un salto de línea en el registro', () => {
+		const intentos = [
+			'https://liga.ejemplo.com\nCSRF: línea falsa',
+			'https://liga\n.ejemplo.com',
+			'https://liga.ejemplo.com\r\nX-Falsa: 1',
+			'https://liga\tejemplo.com',
+			'https://liga.ejemplo.com\r',
+		];
+		const resultados = intentos.map((value) => {
+			try {
+				return parseEnv({ ...process.env, CORS_ORIGIN: value }).corsOrigin;
+			} catch {
+				// Rechazado al arrancar: el proceso no llega a registrar nada.
+				return null;
+			}
+		});
+
+		for (const [index, origen] of resultados.entries()) {
+			if (origen !== null) expect(origen, intentos[index]).not.toMatch(/[\r\n\t]/);
+		}
+		// Y no es una prueba vacía: al menos uno de los intentos se acepta, ya
+		// limpio, así que lo que se ejercita es el borrado y no solo el rechazo.
+		expect(resultados.filter((origen) => origen !== null).length).toBeGreaterThan(0);
+	});
+
+	it('requires an https CORS_ORIGIN in production, where the session cookie is Secure', () => {
+		const production = { ...process.env, NODE_ENV: 'production' };
+
+		expect(() => parseEnv({ ...production, CORS_ORIGIN: 'http://acpleague2026.grupoacp.com.pe' })).toThrow(
+			/CORS_ORIGIN: en producción debe ser https/,
+		);
+		expect(parseEnv({ ...production, CORS_ORIGIN: 'https://acpleague2026.grupoacp.com.pe/' }).corsOrigin).toBe(
+			'https://acpleague2026.grupoacp.com.pe',
+		);
+	});
+
 	it('requires a SESSION_SECRET of at least 32 characters', () => {
 		const missing = { ...process.env };
 		delete missing.SESSION_SECRET;
@@ -119,7 +183,7 @@ describe('parseEnv', () => {
 
 	it('derives the session cookie settings from NODE_ENV', () => {
 		const dev = parseEnv({ ...process.env, NODE_ENV: 'development' });
-		const prod = parseEnv({ ...process.env, NODE_ENV: 'production' });
+		const prod = parseEnv({ ...process.env, NODE_ENV: 'production', CORS_ORIGIN: 'https://liga.example' });
 
 		expect(dev.session).toMatchObject({ cookieName: 'liga_sid', secureCookie: false });
 		expect(prod.session).toMatchObject({ cookieName: '__Host-liga_sid', secureCookie: true });

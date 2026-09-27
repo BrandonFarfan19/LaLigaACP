@@ -56,6 +56,32 @@ function parseTrustProxy(raw: string, ctx: z.RefinementCtx): TrustProxy {
 }
 
 /**
+ * The browser sends `Origin` as scheme + host + port, lowercased, with no
+ * path and no default port, and `csrfProtection` compares it as text. So the
+ * configured value is reduced to that same form: a trailing slash, capitals or
+ * `:443` would otherwise refuse every write with "Origen no permitido".
+ * Anything that isn't just an origin (a path, a query, credentials) is refused.
+ */
+function parseCorsOrigin(raw: string, ctx: z.RefinementCtx): string {
+	let url: URL;
+	try {
+		url = new URL(raw.trim());
+	} catch {
+		ctx.addIssue({ code: 'custom', message: 'no es una URL (ejemplo: https://liga.tu-dominio.com)' });
+		return z.NEVER;
+	}
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		ctx.addIssue({ code: 'custom', message: 'debe empezar con http:// o https://' });
+		return z.NEVER;
+	}
+	if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+		ctx.addIssue({ code: 'custom', message: `solo el origen, sin ruta ni parámetros: ${url.origin}` });
+		return z.NEVER;
+	}
+	return url.origin;
+}
+
+/**
  * Typed, validated configuration — read once at startup (NFR-005: no
  * business rule, including "is the app configured at all", depends only on
  * the frontend). Every other module gets its `Env` from `loadEnv()`; nothing
@@ -85,7 +111,7 @@ const schema = z
 	.object({
 		NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 		PORT: port.default(3001),
-		CORS_ORIGIN: z.url(),
+		CORS_ORIGIN: z.string().transform(parseCorsOrigin),
 		DB_HOST: z.string().min(1),
 		DB_PORT: port,
 		MYSQL_USER: z.string().min(1),
@@ -145,6 +171,12 @@ const schema = z
 	.refine((raw) => raw.MYSQL_DATABASE_TEST !== raw.MYSQL_DATABASE, {
 		path: ['MYSQL_DATABASE_TEST'],
 		message: 'no puede ser igual a MYSQL_DATABASE (las pruebas borran esa base)',
+	})
+	// In production the session cookie is Secure with the __Host- prefix: over
+	// http the browser drops it, so an http origin could never sign anyone in.
+	.refine((raw) => raw.NODE_ENV !== 'production' || raw.CORS_ORIGIN.startsWith('https://'), {
+		path: ['CORS_ORIGIN'],
+		message: 'en producción debe ser https:// (la cookie de sesión solo viaja por HTTPS)',
 	});
 
 export interface Env {

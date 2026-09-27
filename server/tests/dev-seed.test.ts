@@ -137,7 +137,7 @@ describe('development sample data (D-013, D-016)', () => {
 				['sin NODE_ENV, base de pruebas', [DEV_SEED_FLAG], { NODE_ENV: undefined, MYSQL_DATABASE: testDb, MYSQL_DATABASE_TEST: 'otra_de_pruebas', DEV_SEED_DATABASE: guardDb }, [/sin definir/, /es de pruebas/, /no es la de desarrollo/]],
 				['sin NODE_ENV', [DEV_SEED_FLAG], { NODE_ENV: undefined, MYSQL_DATABASE: guardDb, DEV_SEED_DATABASE: guardDb }, [/NODE_ENV.*sin definir/]],
 				['sin NODE_ENV, limpieza', ['clean', DEV_SEED_FLAG], { NODE_ENV: undefined, MYSQL_DATABASE: guardDb, DEV_SEED_DATABASE: guardDb }, [/sin definir/]],
-				['NODE_ENV=production', [DEV_SEED_FLAG], { NODE_ENV: 'production', MYSQL_DATABASE: guardDb, DEV_SEED_DATABASE: guardDb }, [/tiene que ser development/]],
+				['NODE_ENV=production', [DEV_SEED_FLAG], { NODE_ENV: 'production', CORS_ORIGIN: 'https://liga.example', MYSQL_DATABASE: guardDb, DEV_SEED_DATABASE: guardDb }, [/tiene que ser development/]],
 				['NODE_ENV=test', [DEV_SEED_FLAG], { NODE_ENV: 'test', MYSQL_DATABASE_TEST: testDb, DEV_SEED_DATABASE: guardDb }, [/tiene que ser development/, /es de pruebas/]],
 				['otra base', [DEV_SEED_FLAG], { NODE_ENV: 'development', MYSQL_DATABASE: 'otra_base', DEV_SEED_DATABASE: guardDb }, [/no es la de desarrollo/]],
 				['base de pruebas declarada como de desarrollo', [DEV_SEED_FLAG], { NODE_ENV: 'development', MYSQL_DATABASE: testDb, MYSQL_DATABASE_TEST: 'otra_de_pruebas', DEV_SEED_DATABASE: testDb }, [/es de pruebas/]],

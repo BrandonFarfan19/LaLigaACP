@@ -241,7 +241,7 @@ En `.env` hay que dejar, como mínimo (el detalle está en el bloque **PRODUCCI�
 
 - `MYSQL_PASSWORD` y `MYSQL_ROOT_PASSWORD`: contraseñas propias. **Nunca dejar las de ejemplo.**
 - `SESSION_SECRET`: el valor que acaba de generar `openssl`. El backend rechaza el del ejemplo.
-- `CORS_ORIGIN`: tu dominio, con `https://` y **sin** barra final (`https://liga.tu-dominio.com`).
+- `CORS_ORIGIN`: tu dominio, con `https://` (`https://liga.tu-dominio.com`). El backend lo reduce al origen (una barra final, mayúsculas o `:443` ya no rompen el ingreso), rechaza una ruta o parámetros y, con `NODE_ENV=production`, no arranca si no es `https://`. Si el nginx del host reenvía también el puerto 80, el contenedor `web` redirige a HTTPS (`X-Forwarded-Proto: http`).
 - `TRUST_PROXY`: **borrarla o poner `2`** (compose ya usa 2). Nunca `1`: ver "Por qué está armado así".
 - `WEB_PORT`: solo si el 8080 está ocupado.
 
@@ -396,6 +396,34 @@ curl -sI  http://liga.tu-dominio.com/             | head -1   # 301 a https
 ```
 
 Y en el navegador: entrar con la cuenta de administrador. **Si el ingreso falla pero `/api/health` responde bien**, casi siempre es una de dos: el sitio se está sirviendo por HTTP (la cookie `__Host-` necesita HTTPS) o `CORS_ORIGIN` no coincide **exactamente** con el dominio que muestra el navegador. Un **502** de nginx quiere decir que la pila no está escuchando en el puerto del `proxy_pass` (paso 4).
+
+**Cómo distinguirlas.** Si el ingreso devuelve **403 con `Origen no permitido`**, es lo segundo, y el servidor deja escrito qué esperaba y qué llegó:
+
+```sh
+docker compose -f compose.prod.yaml logs server | grep CSRF
+```
+
+```text
+CSRF: origen no permitido en POST /auth/login. Origin recibido: https://acpleague2026.grupoacp.com.pe | CORS_ORIGIN configurado: http://localhost:5173
+```
+
+Los dos valores están ahí para compararlos de un vistazo. **Eso no sale nunca en la respuesta al navegador**, que solo dice `Origen no permitido`: la configuración no se le cuenta a quien pregunta.
+
+**Las dos causas reales, en el orden en que conviene sospecharlas.** No son hipótesis: es lo que pasó en el primer despliegue de este proyecto, en ese orden.
+
+1. **El `.env` de producción es una copia del de desarrollo y `CORS_ORIGIN` nunca se ajustó.** Quedó en `http://localhost:5173`, que es el valor de desarrollo, y el ingreso fallaba. Es la primera que hay que mirar, y la que el registro de arriba muestra tal cual.
+2. **El esquema.** Cambiarlo al dominio real **no alcanzó**: quedó en `http://acpleague2026.grupoacp.com.pe/` y siguió fallando, porque el sitio se sirve por HTTPS y el navegador manda el `Origin` con `https`. Con `https://acpleague2026.grupoacp.com.pe/` funcionó.
+
+Tres cosas que **no** son la causa, porque el backend ya las normaliza al arrancar (`parseCorsOrigin`, con `url.origin`): **la barra final**, **las mayúsculas** y **el puerto por defecto** (`:443`). El valor que hoy funciona en producción está escrito con barra final y coincide igual, así que no hay que perder tiempo ahí. Si el esquema y la barra están bien y aun así no coincide, lo que queda es el **host** (un `www.` de más o de menos) o un **puerto no estándar**.
+
+Se corrige en el `.env`, y **no alcanza con `restart`** —eso no relee el `.env`—: hay que recrear el contenedor.
+
+```sh
+nano .env    # dejar CORS_ORIGIN igual al Origin recibido
+docker compose -f compose.prod.yaml up -d server
+```
+
+Si en cambio el `grep` muestra `CSRF: token ausente` o `token inválido`, el origen está bien y el problema es el token: **ausente** suele ser un proxy que no reenvía la cabecera `X-CSRF-Token`, e **inválido**, una pestaña con una sesión vieja (recargar). Del token no se registra ningún valor, solo cuál de los dos casos fue.
 
 #### Actualizar a una versión nueva
 
