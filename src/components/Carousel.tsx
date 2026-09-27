@@ -123,10 +123,10 @@ export default function Carousel({ slides, label = 'Destacados', autoplay = true
 
 			<div ref={trackRef} className={styles.track} data-carousel-track tabIndex={0}>
 				{slides.map((slide, index) => {
-					// Width only — forcing a square height would squash the crests that aren't square.
+					// `.crest` stretches the frame to the stage; the image keeps its aspect ratio inside (object-fit: contain).
 					const crest = (
 						<div className={styles.stage}>
-							<Crest team={slide.team} size={96} alt={slide.alt} loading={index === 0 ? 'eager' : 'lazy'} />
+							<Crest team={slide.team} size={100} className={styles.crest} alt={slide.alt} loading={index === 0 ? 'eager' : 'lazy'} />
 						</div>
 					);
 

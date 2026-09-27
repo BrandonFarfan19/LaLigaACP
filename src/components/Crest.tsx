@@ -11,15 +11,32 @@ import styles from './TeamCrest.module.css';
  *
  * The size is fixed by the caller and written on the element: the layout never
  * depends on the real file, which is not a build-time rendition (`PixelImage`
- * only works with those).
+ * only works with those). With a `className` the class sizes the frame instead
+ * (the carousel stretches it to its stage), and `size` only sets the `<img>`'s
+ * intrinsic dimensions.
  */
-export default function Crest({ team, size, alt = '', loading = 'lazy' }: { team: Pick<Team, 'crest' | 'shortName'>; size: number; alt?: string; loading?: 'lazy' | 'eager' }) {
+export default function Crest({
+	team,
+	size,
+	alt = '',
+	loading = 'lazy',
+	className,
+}: {
+	team: Pick<Team, 'crest' | 'shortName'>;
+	size: number;
+	alt?: string;
+	loading?: 'lazy' | 'eager';
+	className?: string;
+}) {
 	// A crest whose file isn't there (a path the API keeps but the site doesn't serve)
 	// would leave a hole: the initials take its place instead.
 	const [broken, setBroken] = useState(false);
 	const src = broken ? null : team.crest;
 	return (
-		<span className={styles.frame} style={{ width: size, height: size }} aria-hidden={alt ? undefined : 'true'}>
+		<span
+			className={className ? `${styles.frame} ${className}` : styles.frame}
+			style={className ? undefined : { width: size, height: size }}
+			aria-hidden={alt ? undefined : 'true'}>
 			{src ? (
 				<img
 					className={`${styles.img} pixelated`}
