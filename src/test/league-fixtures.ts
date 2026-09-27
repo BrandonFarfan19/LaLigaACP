@@ -16,6 +16,39 @@ import { ok } from './fetch-mock';
 export const futbol = { id: 1, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true };
 export const voley = { id: 2, nombre: 'Vóley', slug: 'voley', permiteEmpate: false };
 
+/**
+ * C-05: the statistics profiles, as the API sends them beside a sport in
+ * `/public/deportes` and in a team's detail (never inside a match or a
+ * competition, where the sport travels without it).
+ */
+export const futbolProfile = {
+	codigo: 'futbol',
+	nombre: 'Fútbol',
+	atributos: [
+		{ codigo: 'disparo', nombre: 'Disparo' },
+		{ codigo: 'pase', nombre: 'Pase' },
+		{ codigo: 'fuerza', nombre: 'Fuerza' },
+		{ codigo: 'defensa', nombre: 'Defensa' },
+		{ codigo: 'velocidad', nombre: 'Velocidad' },
+		{ codigo: 'dribbling', nombre: 'Dribbling' },
+	],
+};
+export const voleyProfile = {
+	codigo: 'voley',
+	nombre: 'Vóley',
+	atributos: [
+		{ codigo: 'mate', nombre: 'Mate' },
+		{ codigo: 'saque', nombre: 'Saque' },
+		{ codigo: 'recepcion', nombre: 'Recepción' },
+		{ codigo: 'armado', nombre: 'Armado' },
+		{ codigo: 'bloqueo', nombre: 'Bloqueo' },
+	],
+};
+const PROFILE_OF: Record<string, typeof futbolProfile | null> = { futbol: futbolProfile, voley: voleyProfile };
+
+/** A sport with its profile, the shape of `/public/deportes` and of a team's `deporte`. */
+export const withProfile = (deporte: typeof futbol) => ({ ...deporte, perfilEstadistico: PROFILE_OF[deporte.slug] ?? null });
+
 export const liga = { id: 10, nombre: 'Liga Apertura', slug: 'liga-apertura', deporte: futbol };
 export const copa = { id: 11, nombre: 'Copa Vóley', slug: 'copa-voley', deporte: voley };
 
@@ -58,11 +91,16 @@ export function apiMatch({ id, jornada = 1, estado = 'programado', fechaHora = '
 	};
 }
 
-/** A team with its squad, exactly as `GET /public/equipos/:id` answers. */
-export const apiTeamDetail = (equipo: typeof halcones, competicion: typeof liga, plantel: ReturnType<typeof squadMember>[]) => ({
+/** A team with its squad, exactly as `GET /public/equipos/:id` answers: the sport with its profile (C-05). */
+export const apiTeamDetail = (
+	equipo: typeof halcones,
+	competicion: typeof liga,
+	plantel: ReturnType<typeof squadMember>[],
+	deporte: ReturnType<typeof withProfile> = withProfile(competicion.deporte),
+) => ({
 	...equipo,
 	competicion: ref(competicion),
-	deporte: competicion.deporte,
+	deporte,
 	plantel,
 });
 
@@ -80,7 +118,17 @@ export const standingRow = (equipo: typeof halcones, posicion: number, puntos: n
 	...extra,
 });
 
-export const squadMember = (jugadorId: number, nombre: string, numeroCamiseta: number, foto: string | null = null) => ({ jugadorId, nombre, foto, numeroCamiseta });
+/** A squad member; `estadisticas` (C-05) is `codigo` → 0-99 for every attribute of the profile, or `null`. */
+export const squadMember = (jugadorId: number, nombre: string, numeroCamiseta: number, foto: string | null = null, estadisticas: Record<string, number> | null = null) => ({
+	jugadorId,
+	nombre,
+	foto,
+	numeroCamiseta,
+	estadisticas,
+});
+
+/** A whole football set, as the API stores it. */
+export const futbolStats = { disparo: 88, pase: 75, fuerza: 60, defensa: 42, velocidad: 91, dribbling: 80 };
 
 export const page = <T>(items: T[], extra: Partial<{ page: number; pageSize: number; total: number; totalPages: number }> = {}) => ({
 	items,
@@ -136,7 +184,7 @@ export function matchesRoute(all: ApiMatchRow[], now: number = Date.now()): Hand
 /** A league API with two sports, two competitions and one fixture; each route replaceable. */
 export function leagueRoutes(extra: Record<string, Handler> = {}): Record<string, Handler> {
 	return {
-		'GET /api/public/deportes': () => ok([futbol, voley]),
+		'GET /api/public/deportes': () => ok([withProfile(futbol), withProfile(voley)]),
 		'GET /api/public/competiciones': competitionsRoute(),
 		'GET /api/public/competiciones/10': () => ok(liga),
 		'GET /api/public/competiciones/11': () => ok(copa),
@@ -145,7 +193,8 @@ export function leagueRoutes(extra: Record<string, Handler> = {}): Record<string
 		'GET /api/public/competiciones/10/posiciones': () => ok({ competicion: liga, filas: [standingRow(halcones, 1, 9), standingRow(pumas, 2, 3)] }),
 		'GET /api/public/competiciones/11/posiciones': () => ok({ competicion: copa, filas: [] }),
 		'GET /api/public/partidos': matchesRoute([apiMatch({ id: 1 })]),
-		'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, [squadMember(500, 'Luis Paredes', 9), squadMember(501, 'Sofía Díaz', 4)])),
+		// Luis has his statistics (C-05), Sofía doesn't.
+		'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, [squadMember(500, 'Luis Paredes', 9, null, futbolStats), squadMember(501, 'Sofía Díaz', 4)])),
 		...extra,
 	};
 }

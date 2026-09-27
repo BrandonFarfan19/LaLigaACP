@@ -12,11 +12,13 @@ import styles from './SquadBoard.module.css';
 /**
  * A team's squad: the pitch on one side, the roster table on the other.
  * Stacked on a phone, side by side from 48rem up. Each name opens that
- * player's stats card.
+ * player's card: the real statistics (C-05) or, without them, "Sin
+ * estadísticas".
  */
 interface Props {
 	teamName: string;
 	players: Player[];
+	/** Only the players who have them (C-05). */
 	stats: PlayerStats[];
 	/** The drawing and formation of the team's sport (`courtFor`). */
 	court?: Court;
@@ -31,7 +33,7 @@ const pitchName = (name: string) => name.trim().split(/\s+/).slice(0, 2).join(' 
 
 export default function SquadBoard({ teamName, players, stats, court = 'futbol' }: Props) {
 	const statsByPlayer = new Map(stats.map((row) => [row.playerId, row]));
-	// Where each one stands is a sample layout (D-022): the schema has no position.
+	// Where each one stands is a sample layout (D-033): the schema has no position.
 	const placements = squadPlacements(players, court);
 	const dialogs = useRef(new Map<string, HTMLDialogElement>());
 
@@ -72,7 +74,6 @@ export default function SquadBoard({ teamName, players, stats, court = 'futbol' 
 						/>
 						<ul className={styles['pitch-players']} aria-label="Jugadores en la cancha">
 							{placements.map(({ id, player, shirtNumber, x, y }) => {
-								const hasStats = statsByPlayer.has(player.id);
 								return (
 									<li
 										key={id}
@@ -82,11 +83,10 @@ export default function SquadBoard({ teamName, players, stats, court = 'futbol' 
 										<button
 											className={styles['pitch-player']}
 											type="button"
-											disabled={!hasStats}
 											aria-label={`Ver estadísticas de ${player.name}, dorsal ${shirtNumber}`}
 											aria-haspopup="dialog"
-											aria-controls={hasStats ? dialogId(player) : undefined}
-											data-stats-open={hasStats ? dialogId(player) : undefined}
+											aria-controls={dialogId(player)}
+											data-stats-open={dialogId(player)}
 											onClick={() => open(player)}
 										>
 											<span className={styles.sprite} aria-hidden="true">
@@ -127,19 +127,16 @@ export default function SquadBoard({ teamName, players, stats, court = 'futbol' 
 						{players.map((player) => (
 							<tr key={player.id}>
 								<td>
-									{statsByPlayer.has(player.id) ? (
-										<button
-											className={styles.player}
-											type="button"
-											aria-haspopup="dialog"
-											data-stats-open={dialogId(player)}
-											onClick={() => open(player)}
-										>
-											{player.name}
-										</button>
-									) : (
-										player.name
-									)}
+									<button
+										className={styles.player}
+										type="button"
+										aria-haspopup="dialog"
+										aria-controls={dialogId(player)}
+										data-stats-open={dialogId(player)}
+										onClick={() => open(player)}
+									>
+										{player.name}
+									</button>
 								</td>
 							</tr>
 						))}
@@ -148,8 +145,6 @@ export default function SquadBoard({ teamName, players, stats, court = 'futbol' 
 			</div>
 
 			{players.map((player) => {
-				const playerStats = statsByPlayer.get(player.id);
-				if (!playerStats) return null;
 				const id = dialogId(player);
 				return (
 					<PlayerStatsDialog
@@ -163,7 +158,7 @@ export default function SquadBoard({ teamName, players, stats, court = 'futbol' 
 						id={id}
 						teamName={teamName}
 						player={player}
-						stats={playerStats}
+						stats={statsByPlayer.get(player.id) ?? null}
 					/>
 				);
 			})}

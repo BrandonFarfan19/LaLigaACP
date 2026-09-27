@@ -4,12 +4,15 @@ import portrait from '../assets/jugadoresPixel/futbol/jugador-marron-claro-fifa2
 import { GRID, radarLabels, rasterizeRadar, type RadarPixel } from '../utils/pixel-radar';
 import { captureElement } from '../utils/share-image';
 import PixelImage from './PixelImage';
-import type { Player, PlayerStatKey, PlayerStats } from '../types';
+import type { Player, PlayerStats } from '../types';
 import styles from './PlayerStatsDialog.module.css';
 
 /**
  * A player's attribute card: portrait, pixel radar and the numbers behind
- * it, in a native modal `<dialog>`. `SquadBoard` opens it from the player's
+ * it, in a native modal `<dialog>`. The attributes are those of the sport's
+ * profile (C-05, D-034: six in football, five in volleyball), real values from
+ * 0 to 99; a player without them gets "Sin estadísticas" instead of an empty
+ * radar. `SquadBoard` opens it from the player's
  * buttons, or on landing with `#<this dialog's id>` — the link the share
  * buttons hand out. The shared image is a capture of this dialog itself.
  */
@@ -19,20 +22,9 @@ interface Props {
 	/** For the share text: "Plantilla de <team> en La Liga ACP". */
 	teamName: string;
 	player: Player;
-	stats: PlayerStats;
+	/** In the profile's order: the radar's axes go clockwise from the top. `null`: none loaded. */
+	stats: PlayerStats | null;
 }
-
-// Axis order around the radar, clockwise from the top.
-const ATTRIBUTES: { key: PlayerStatKey; short: string; label: string }[] = [
-	{ key: 'shooting', short: 'DIS', label: 'Disparo' },
-	{ key: 'passing', short: 'PAS', label: 'Pase' },
-	{ key: 'strength', short: 'FUE', label: 'Fuerza' },
-	{ key: 'defense', short: 'DEF', label: 'Defensa' },
-	{ key: 'speed', short: 'VEL', label: 'Velocidad' },
-	{ key: 'dribbling', short: 'DRI', label: 'Dribbling' },
-];
-
-const labels = radarLabels(ATTRIBUTES.length);
 
 /** Every kind `rasterizeRadar()` produces; matches the CSS Module classes below. */
 const RADAR_KINDS: RadarPixel[] = ['disc', 'ring', 'fill', 'edge'];
@@ -73,12 +65,14 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 	const photo = photoBroken ? null : player.photo;
 	const withImages = sharesImages();
 
-	const values = ATTRIBUTES.map((attribute) => stats[attribute.key]);
-	const average = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
-	const runs = rasterizeRadar(values);
+	const attributes = stats?.attributes ?? [];
+	const values = attributes.map((attribute) => attribute.value);
+	const average = values.length > 0 ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
+	const runs = values.length > 0 ? rasterizeRadar(values) : [];
+	const labels = radarLabels(attributes.length);
 	const titleId = `${id}-title`;
 
-	const playerText = `${player.name} · Media ${average} en La Liga ACP`;
+	const playerText = average === null ? `${player.name} en La Liga ACP` : `${player.name} · Media ${average} en La Liga ACP`;
 	const teamText = `Plantilla de ${teamName} en La Liga ACP`;
 	const teamUrl = () => `${location.origin}${location.pathname}`;
 	// On a phone the link opens this player's card; on desktop it is the team page.
@@ -128,7 +122,7 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 			const fill = getComputedStyle(rects[0]).fill;
 			for (const rect of rects) rect.setAttribute('fill', fill);
 		}
-	}, []);
+	}, [stats]);
 
 	const shareTo = async (network: string) => {
 		setStatus('');
@@ -183,11 +177,11 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 					<h2 className={styles.name} id={titleId}>
 						{player.name}
 					</h2>
-					<p className={styles.average}>
-						Media <span className={styles['average-value']}>{average}</span>
-					</p>
-					{/* D-022: the six attributes are a sample; the player and the squad are real. */}
-					<p className={styles.sample}>Atributos de muestra: todavía no hay estadísticas oficiales.</p>
+					{average !== null && (
+						<p className={styles.average}>
+							Media <span className={styles['average-value']}>{average}</span>
+						</p>
+					)}
 				</div>
 				<form method="dialog" data-capture-exclude>
 					<button className={styles.close} aria-label="Cerrar">
@@ -228,42 +222,50 @@ export default function PlayerStatsDialog({ ref, id, teamName, player, stats }: 
 					)}
 				</figure>
 
-				{/* Decorative: the table below carries every value. */}
-				<div className={styles.radar} aria-hidden="true">
-					<svg ref={radarRef} viewBox={`0 0 ${GRID} ${GRID}`} shapeRendering="crispEdges">
-						{runs.map((run) => (
-							<rect
-								key={`${run.x}-${run.y}`}
-								className={styles[run.kind]}
-								x={run.x}
-								y={run.y}
-								width={run.width}
-								height="1"
-							/>
-						))}
-					</svg>
-					{ATTRIBUTES.map((attribute, i) => (
-						<span
-							key={attribute.key}
-							className={styles.axis}
-							style={{ left: `${labels[i].left}%`, top: `${labels[i].top}%` }}
-						>
-							{attribute.short}
-						</span>
-					))}
-				</div>
+				{stats === null ? (
+					<p className={`${styles.empty} pixel-bevel`} data-no-stats>
+						Sin estadísticas
+					</p>
+				) : (
+					<>
+						{/* Decorative: the table below carries every value. */}
+						<div className={styles.radar} aria-hidden="true">
+							<svg ref={radarRef} viewBox={`0 0 ${GRID} ${GRID}`} shapeRendering="crispEdges">
+								{runs.map((run) => (
+									<rect
+										key={`${run.x}-${run.y}`}
+										className={styles[run.kind]}
+										x={run.x}
+										y={run.y}
+										width={run.width}
+										height="1"
+									/>
+								))}
+							</svg>
+							{attributes.map((attribute, i) => (
+								<span
+									key={attribute.key}
+									className={styles.axis}
+									style={{ left: `${labels[i].left}%`, top: `${labels[i].top}%` }}
+								>
+									{attribute.short}
+								</span>
+							))}
+						</div>
 
-				<table className={styles.values}>
-					<caption className={styles['visually-hidden']}>Estadísticas de {player.name}</caption>
-					<tbody>
-						{ATTRIBUTES.map((attribute) => (
-							<tr key={attribute.key} style={{ '--value': stats[attribute.key] } as CSSProperties}>
-								<th scope="row">{attribute.label}</th>
-								<td>{stats[attribute.key]}</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
+						<table className={styles.values}>
+							<caption className={styles['visually-hidden']}>Estadísticas de {player.name}</caption>
+							<tbody>
+								{attributes.map((attribute) => (
+									<tr key={attribute.key} style={{ '--value': attribute.value } as CSSProperties}>
+										<th scope="row">{attribute.label}</th>
+										<td>{attribute.value}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					</>
+				)}
 			</div>
 
 			{/* Left out of the captured image. */}

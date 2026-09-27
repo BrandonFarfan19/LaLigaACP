@@ -8,6 +8,7 @@ import {
 	auditRecord,
 	counts,
 	enrollment,
+	enrollmentStats,
 	league,
 	pageOf,
 	participant,
@@ -273,7 +274,8 @@ describe('catalog (T-21, BR-001)', () => {
 		await waitFor(() => expect(document.activeElement).toBe(nombre));
 		expect(nombre.getAttribute('aria-invalid')).toBe('true');
 		expect(within(form).getByText('Tiene que tener al menos una letra o un número.')).toBeTruthy();
-		expect(writes(calls)[0]!.body).toEqual({ nombre: '!!', permiteEmpate: false });
+		// No profile chosen: "Sin estadísticas" sends null (C-05).
+		expect(writes(calls)[0]!.body).toEqual({ nombre: '!!', permiteEmpate: false, perfilEstadistico: null });
 
 		await user.clear(within(form).getByLabelText('Nombre'));
 		await user.type(within(form).getByLabelText('Nombre'), 'Básquet');
@@ -305,7 +307,7 @@ describe('catalog (T-21, BR-001)', () => {
 		expect((await screen.findByRole('alert')).textContent).toMatch(
 			/sus partidos tienen apuestas\. Si necesitas otra regla, crea un deporte nuevo con ella\./,
 		);
-		expect(writes(calls)[0]!.body).toEqual({ nombre: 'Fútbol', slug: 'futbol', permiteEmpate: false });
+		expect(writes(calls)[0]!.body).toEqual({ nombre: 'Fútbol', slug: 'futbol', permiteEmpate: false, perfilEstadistico: 'futbol' });
 
 		await user.click(within(form).getByRole('checkbox', { name: 'Admite empate' }));
 		await user.clear(within(form).getByLabelText('Nombre'));
@@ -318,6 +320,132 @@ describe('catalog (T-21, BR-001)', () => {
 		expect(screen.getByText('Solo se borra un deporte sin competiciones. Queda en la auditoría.')).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: 'Sí, borrar' }));
 		expect((await screen.findByRole('alert')).textContent).toBe('No se pudo: No se puede borrar el deporte: tiene 1 competición. Borra antes sus competiciones.');
+	});
+
+	it('sports: the statistics profile is a short fixed list, shown in the table, and STATS_PROFILE_LOCKED marks it (C-05)', async () => {
+		const { calls } = mockFetch(
+			adminRoutes({
+				'PATCH /api/admin/deportes/1': () =>
+					fail(409, 'STATS_PROFILE_LOCKED', 'No se puede cambiar el perfil de estadísticas: 1 inscripción del deporte tiene estadísticas cargadas con el perfil actual.', {
+						inscripcionesConEstadisticas: 1,
+					}),
+			}),
+		);
+		renderApp('/admin/deportes');
+		const table = await screen.findByRole('table', { name: 'Deportes' });
+		expect(within(table).getAllByRole('row')[1]!.textContent).toMatch(/Fútbol.*Fútbol/);
+		const add = screen.getByRole('form', { name: 'Agregar el deporte' });
+		const choice = within(add).getByRole('combobox', { name: 'Estadísticas de los jugadores' }) as HTMLSelectElement;
+		expect([...choice.options].map((option) => option.value)).toEqual(['', 'futbol', 'voley']);
+		// Short options (nothing cut at 320 px, D-014); the chosen profile's attributes go in the hint.
+		expect([...choice.options].map((option) => option.textContent)).toEqual(['Sin estadísticas', 'Fútbol', 'Vóley']);
+		expect(choice.value).toBe('');
+		const hint = () => document.getElementById(choice.getAttribute('aria-describedby')!.split(' ')[0]!)!.textContent;
+		expect(hint()).toMatch(/no llevan estadísticas/);
+		await userEvent.setup().selectOptions(choice, 'voley');
+		expect(hint()).toMatch(/Mate, Saque, Recepción, Armado y Bloqueo/);
+
+		const user = userEvent.setup();
+		await user.click(within(within(table).getAllByRole('row')[1]!).getByRole('button', { name: 'Editar' }));
+		const form = screen.getByRole('form', { name: 'Editar el deporte' });
+		const current = within(form).getByRole('combobox', { name: 'Estadísticas de los jugadores' }) as HTMLSelectElement;
+		expect(current.value).toBe('futbol');
+		await user.selectOptions(current, 'voley');
+		await user.click(within(form).getByRole('button', { name: 'Guardar cambios' }));
+		expect((await screen.findByRole('alert')).textContent).toMatch(/Quita antes las estadísticas de esas inscripciones/);
+		expect(writes(calls)[0]!.body).toMatchObject({ perfilEstadistico: 'voley' });
+		await waitFor(() => expect(current.getAttribute('aria-invalid')).toBe('true'));
+	});
+
+	it('squads: each row says whether it has statistics, and its panel edits them one field per attribute (C-05)', async () => {
+		const { calls } = mockFetch(
+			adminRoutes({
+				'PUT /api/admin/planteles/700/estadisticas': ({ body }) => {
+					const valores = (body as { valores: Record<string, number> }).valores;
+					if (valores.pase === 100) return fail(400, 'VALIDATION_ERROR', 'Solicitud inválida.', [{ path: 'valores.pase', message: 'Tiene que estar entre 0 y 99.' }]);
+					return ok(enrollmentStats({ valores }));
+				},
+				'DELETE /api/admin/planteles/700/estadisticas': () => ok(enrollmentStats({ valores: null })),
+			}),
+		);
+		renderApp('/admin/planteles');
+		const table = await screen.findByRole('table', { name: 'Planteles' });
+		const row = (name: string) => within(table).getAllByRole('row').find((line) => line.textContent?.includes(name))!;
+		expect(row('Luis Paredes').textContent).toMatch(/Cargadas/);
+		expect(row('Sofía Díaz').textContent).toMatch(/Sin estadísticas/);
+
+		const user = userEvent.setup();
+		await user.click(within(row('Luis Paredes')).getByRole('button', { name: 'Estadísticas' }));
+		const form = await screen.findByRole('form', { name: 'Estadísticas de Luis Paredes' });
+		const fields = within(form).getAllByRole('spinbutton') as HTMLInputElement[];
+		expect(fields.map((field) => [field.labels?.[0]?.textContent, field.value])).toEqual([
+			['Disparo', '88'],
+			['Pase', '75'],
+			['Fuerza', '60'],
+			['Defensa', '42'],
+			['Velocidad', '91'],
+			['Dribbling', '80'],
+		]);
+
+		// A value out of range: the backend's message on that field, which takes the focus.
+		await user.clear(within(form).getByLabelText('Pase'));
+		await user.type(within(form).getByLabelText('Pase'), '100');
+		await user.click(within(form).getByRole('button', { name: 'Guardar estadísticas' }));
+		const pase = within(form).getByLabelText('Pase');
+		await waitFor(() => expect(document.activeElement).toBe(pase));
+		expect(pase.getAttribute('aria-invalid')).toBe('true');
+		expect(within(form).getByText('Tiene que estar entre 0 y 99.')).toBeTruthy();
+
+		await user.clear(pase);
+		await user.type(pase, '76');
+		await user.click(within(form).getByRole('button', { name: 'Guardar estadísticas' }));
+		expect(await screen.findByText('Se guardaron las estadísticas de Luis Paredes.')).toBeTruthy();
+		expect(writes(calls).at(-1)!.body).toEqual({ valores: { disparo: 88, pase: 76, fuerza: 60, defensa: 42, velocidad: 91, dribbling: 80 } });
+
+		// Removing them takes its explicit step.
+		await user.click(screen.getByRole('button', { name: 'Quitar estadísticas' }));
+		await user.click(screen.getByRole('button', { name: 'Sí, quitar' }));
+		expect(await screen.findByText('Se quitaron las estadísticas de Luis Paredes.')).toBeTruthy();
+		expect(writes(calls).at(-1)!.method).toBe('DELETE');
+		await waitFor(() => expect((within(screen.getByRole('form', { name: 'Estadísticas de Luis Paredes' })).getByLabelText('Disparo') as HTMLInputElement).value).toBe(''));
+		expect(screen.queryByRole('button', { name: 'Quitar estadísticas' })).toBeNull();
+	});
+
+	it('squads: an empty field goes missing and the backend names it; a sport without a profile says where to choose one (C-05)', async () => {
+		const { calls } = mockFetch(
+			adminRoutes({
+				// What the backend answers: zod's message for a decimal, the service's for a missing attribute.
+				'PUT /api/admin/planteles/701/estadisticas': ({ body }) =>
+					Number.isInteger((body as { valores: Record<string, unknown> }).valores.dribbling) || !('dribbling' in (body as { valores: object }).valores)
+						? fail(400, 'VALIDATION_ERROR', 'Solicitud inválida.', [{ path: 'valores.dribbling', message: 'Falta Dribbling: se cargan todos los atributos juntos.' }])
+						: fail(400, 'VALIDATION_ERROR', 'Solicitud inválida.', [{ path: 'valores.dribbling', message: 'Debe ser un número entero.' }]),
+				'GET /api/admin/planteles/700/estadisticas': () => ok(enrollmentStats({ perfil: null, valores: null })),
+			}),
+		);
+		renderApp('/admin/planteles');
+		const table = await screen.findByRole('table', { name: 'Planteles' });
+		const row = (name: string) => within(table).getAllByRole('row').find((line) => line.textContent?.includes(name))!;
+		const user = userEvent.setup();
+
+		await user.click(within(row('Sofía Díaz')).getByRole('button', { name: 'Estadísticas' }));
+		const form = await screen.findByRole('form', { name: 'Estadísticas de Sofía Díaz' });
+		expect(within(form).getByText(/Todavía no tiene/)).toBeTruthy();
+		const typed: Array<[string, string]> = [['Disparo', '70'], ['Pase', '71'], ['Fuerza', '72'], ['Defensa', '73'], ['Velocidad', '74']];
+		for (const [label, value] of typed) await user.type(within(form).getByLabelText(label), value);
+		await user.click(within(form).getByRole('button', { name: 'Guardar estadísticas' }));
+		expect(await within(form).findByText('Falta Dribbling: se cargan todos los atributos juntos.')).toBeTruthy();
+		expect(writes(calls)[0]!.body).toEqual({ valores: { disparo: 70, pase: 71, fuerza: 72, defensa: 73, velocidad: 74 } });
+
+		// A decimal goes as a number, so the backend says it has to be whole (C-05 fix), not "Debe ser un número".
+		await user.type(within(form).getByLabelText('Dribbling'), '7.5');
+		await user.click(within(form).getByRole('button', { name: 'Guardar estadísticas' }));
+		expect(await within(form).findByText('Debe ser un número entero.')).toBeTruthy();
+		expect(writes(calls)[1]!.body).toEqual({ valores: { disparo: 70, pase: 71, fuerza: 72, defensa: 73, velocidad: 74, dribbling: 7.5 } });
+
+		await user.click(within(row('Luis Paredes')).getByRole('button', { name: 'Estadísticas' }));
+		const explained = await screen.findByText(/no tiene perfil de estadísticas/);
+		expect(within(explained).getByRole('link', { name: 'Deportes' }).getAttribute('href')).toBe('/admin/deportes');
+		expect(screen.queryByRole('form', { name: 'Estadísticas de Luis Paredes' })).toBeNull();
 	});
 
 	it('teams: crests only as images, and the competition is searched in the API (D-019)', async () => {

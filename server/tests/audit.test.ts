@@ -236,7 +236,9 @@ describe('audit log (T-17: NFR-006)', () => {
 			const deleted = await audited(api.del(`/partidos/${otherId}`), 'borrado_partido', () => otherId);
 			expect(deleted).toMatchObject({ anterior: { id: otherId, estado: 'cancelado', jornada: 2 } });
 			let spareSport = 0;
-			await audited(api.post('/deportes', { nombre: 'Vóley', permiteEmpate: false }).then((r) => ((spareSport = r.body.data.id), r)), 'alta_deporte', bodyId);
+			expect(
+				await audited(api.post('/deportes', { nombre: 'Vóley', permiteEmpate: false, perfilEstadistico: 'voley' }).then((r) => ((spareSport = r.body.data.id), r)), 'alta_deporte', bodyId),
+			).toEqual({ nuevo: { id: expect.any(Number), nombre: 'Vóley', slug: 'voley', permiteEmpate: false, perfilEstadistico: 'voley' } });
 			let spareComp = 0;
 			await audited(api.post('/competiciones', { deporteId: spareSport, nombre: 'Copa' }).then((r) => ((spareComp = r.body.data.id), r)), 'alta_competicion', bodyId);
 			let spareTeam = 0;
@@ -249,6 +251,18 @@ describe('audit log (T-17: NFR-006)', () => {
 				'alta_plantel',
 				bodyId,
 			);
+			// C-05: the statistics of the enrollment, only their stored values.
+			const valores = { mate: 90, saque: 80, recepcion: 70, armado: 60, bloqueo: 0 };
+			expect(await audited(api.put(`/planteles/${spareEnrollment}/estadisticas`, { valores }), 'registro_estadisticas_plantel', () => spareEnrollment)).toEqual({
+				valores,
+				anterior: null,
+			});
+			expect(
+				await audited(api.put(`/planteles/${spareEnrollment}/estadisticas`, { valores: { ...valores, bloqueo: 5 } }), 'registro_estadisticas_plantel', () => spareEnrollment),
+			).toEqual({ valores: { ...valores, bloqueo: 5 }, anterior: valores });
+			expect(await audited(api.del(`/planteles/${spareEnrollment}/estadisticas`), 'borrado_estadisticas_plantel', () => spareEnrollment)).toEqual({
+				anterior: { ...valores, bloqueo: 5 },
+			});
 			await audited(api.del(`/planteles/${spareEnrollment}`), 'borrado_plantel', () => spareEnrollment);
 			await audited(api.del(`/jugadores/${sparePlayer}`), 'borrado_jugador', () => sparePlayer);
 			await audited(api.del(`/equipos/${spareTeam}`), 'borrado_equipo', () => spareTeam);

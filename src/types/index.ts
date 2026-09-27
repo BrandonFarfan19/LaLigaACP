@@ -66,22 +66,29 @@ export interface ResolvedSquadPlacement extends SquadPlacement {
 	player: Player;
 }
 
-/** The six attributes drawn on a player's radar. */
-export type PlayerStatKey =
-	| 'shooting'
-	| 'passing'
-	| 'strength'
-	| 'defense'
-	| 'speed'
-	| 'dribbling';
+/**
+ * One attribute of a sport's statistics profile (C-05, D-034): football has
+ * six (Disparo, Pase…), volleyball five (Mate, Saque…). The set comes from the
+ * API, never from the screen.
+ */
+export interface StatAttribute {
+	/** The API's code (`disparo`), stable: never shown. */
+	key: string;
+	/** Its name as the API gives it ("Recepción"). */
+	label: string;
+	/** Three letters for the radar's axis ("REC"), unique within the profile. */
+	short: string;
+}
 
 /**
- * A player's attribute ratings, 0–100.
- *
- * One row per player, referenced by id — the future `player_stats` table.
+ * A player's real statistics in their team (C-05): every attribute of the
+ * sport's profile, in the profile's order (the radar goes around them
+ * clockwise), each a whole number from 0 to 99. A player without them has
+ * none at all: never a half-drawn radar.
  */
-export interface PlayerStats extends Record<PlayerStatKey, number> {
+export interface PlayerStats {
 	playerId: string;
+	attributes: Array<StatAttribute & { value: number }>;
 }
 
 /** BR-012: `cancelado` also reaches the fixture (BR-049), so it has its own state. */

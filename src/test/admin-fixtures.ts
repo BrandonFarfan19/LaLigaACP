@@ -2,6 +2,7 @@ import type {
 	AdminBet,
 	AdminCompetition,
 	AdminEnrollment,
+	AdminEnrollmentStats,
 	AdminGoal,
 	AdminMatch,
 	AdminParticipant,
@@ -56,15 +57,35 @@ export const participant = (overrides: Partial<AdminParticipant> = {}): AdminPar
 	...overrides,
 });
 
-export const sport: AdminSport = { id: 1, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true };
-export const voleyball: AdminSport = { id: 2, nombre: 'Vóley', slug: 'voley', permiteEmpate: false };
+export const sport: AdminSport = { id: 1, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true, perfilEstadistico: 'futbol', perfilEstadisticoNombre: 'Fútbol' };
+export const voleyball: AdminSport = { id: 2, nombre: 'Vóley', slug: 'voley', permiteEmpate: false, perfilEstadistico: 'voley', perfilEstadisticoNombre: 'Vóley' };
 export const league: AdminCompetition = { id: 10, deporteId: 1, deporteNombre: 'Fútbol', nombre: 'Liga', slug: 'liga' };
 export const home: AdminTeam = { id: 100, competicionId: 10, competicionNombre: 'Liga', deporteNombre: 'Fútbol', nombre: 'Halcones', nombreCorto: 'HAL', escudo: 'favicon.png', colorAcento: '#3cf281' };
 export const away: AdminTeam = { id: 101, competicionId: 10, competicionNombre: 'Liga', deporteNombre: 'Fútbol', nombre: 'Pumas', nombreCorto: 'PUM', escudo: 'https://img.test/pumas.png', colorAcento: '#ffd23f' };
 export const player: AdminPlayer = { id: 500, nombre: 'Luis Paredes', foto: null };
-export const enrollment: AdminEnrollment = { id: 700, jugadorId: 500, jugadorNombre: 'Luis Paredes', equipoId: 100, equipoNombre: 'Halcones', competicionId: 10, competicionNombre: 'Liga', deporteNombre: 'Fútbol', numeroCamiseta: 9 };
+export const enrollment: AdminEnrollment = { id: 700, jugadorId: 500, jugadorNombre: 'Luis Paredes', equipoId: 100, equipoNombre: 'Halcones', competicionId: 10, competicionNombre: 'Liga', deporteNombre: 'Fútbol', numeroCamiseta: 9, tieneEstadisticas: true };
 /** The away side's own squad: the panel asks for each team separately (`Partido.tsx`). */
-export const awayEnrollment: AdminEnrollment = { ...enrollment, id: 701, jugadorId: 501, jugadorNombre: 'Sofía Díaz', equipoId: 101, equipoNombre: 'Pumas', numeroCamiseta: 4 };
+export const awayEnrollment: AdminEnrollment = { ...enrollment, id: 701, jugadorId: 501, jugadorNombre: 'Sofía Díaz', equipoId: 101, equipoNombre: 'Pumas', numeroCamiseta: 4, tieneEstadisticas: false };
+
+/** C-05: `GET /admin/planteles/:id/estadisticas` as the backend answers it (`enrollment-stats.service.ts`). */
+export const footballProfile: NonNullable<AdminEnrollmentStats['perfil']> = {
+	codigo: 'futbol',
+	nombre: 'Fútbol',
+	atributos: [
+		{ codigo: 'disparo', nombre: 'Disparo' },
+		{ codigo: 'pase', nombre: 'Pase' },
+		{ codigo: 'fuerza', nombre: 'Fuerza' },
+		{ codigo: 'defensa', nombre: 'Defensa' },
+		{ codigo: 'velocidad', nombre: 'Velocidad' },
+		{ codigo: 'dribbling', nombre: 'Dribbling' },
+	],
+};
+export const enrollmentStats = (overrides: Partial<AdminEnrollmentStats> = {}): AdminEnrollmentStats => ({
+	plantelId: 700,
+	perfil: footballProfile,
+	valores: { disparo: 88, pase: 75, fuerza: 60, defensa: 42, velocidad: 91, dribbling: 80 },
+	...overrides,
+});
 
 export const adminMatch = (overrides: Partial<AdminMatch> = {}): AdminMatch => ({
 	id: 42,
@@ -198,6 +219,8 @@ export function adminRoutes(extra: Record<string, Handler> = {}, user: AuthUser 
 		'GET /api/admin/equipos/101': () => ok(away),
 		'GET /api/admin/deportes/1': () => ok(sport),
 		'GET /api/admin/jugadores/500': () => ok(player),
+		'GET /api/admin/planteles/700/estadisticas': () => ok(enrollmentStats()),
+		'GET /api/admin/planteles/701/estadisticas': () => ok(enrollmentStats({ plantelId: 701, valores: null })),
 		'GET /api/admin/partidos/42/resultado': () => ok(resultPreview()),
 		'GET /api/admin/partidos/42/goles': () => ok([]),
 		'GET /api/admin/partidos/42/multimedia': () => ok(noMedia),

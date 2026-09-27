@@ -8,6 +8,7 @@ import type { CreateSportBody, ListSportsQuery, UpdateSportBody } from '../schem
 import type { Page } from '../schemas/common.schema.js';
 import { type AdminActionContext, runAdminAction } from './admin-action.js';
 import { type Db, dependents, describeDependents, likePattern, pageOf, Where } from './catalog-query.js';
+import { statsProfileId } from './stats-profiles.js';
 import { plural } from '../lib/plural.js';
 
 /** Módulo Informativo: `deporte` (BR-001, BR-011, BR-015, BR-048). */
@@ -17,6 +18,10 @@ export interface Sport {
 	nombre: string;
 	slug: string;
 	permiteEmpate: boolean;
+	/** C-05 (D-034): the `codigo` of its players' statistics profile, or `null` (no statistics). */
+	perfilEstadistico: string | null;
+	/** Joined, never stored or audited. */
+	perfilEstadisticoNombre: string | null;
 }
 
 /**
@@ -29,17 +34,24 @@ export interface Sport {
  */
 export type DrawRuleGuard = (conn: TransactionConnection, sportId: number) => Promise<string | null>;
 
-const COLUMNS = 'd.id, d.nombre, d.slug, d.permite_empate';
+const COLUMNS = 'd.id, d.nombre, d.slug, d.permite_empate, pe.codigo AS perfil_codigo, pe.nombre AS perfil_nombre';
+const FROM = 'FROM deporte d LEFT JOIN perfil_estadistico pe ON pe.id = d.perfil_estadistico_id';
 
 function toSport(row: RowDataPacket): Sport {
-	return { id: Number(row.id), nombre: String(row.nombre), slug: String(row.slug), permiteEmpate: Boolean(row.permite_empate) };
+	return {
+		id: Number(row.id),
+		nombre: String(row.nombre),
+		slug: String(row.slug),
+		permiteEmpate: Boolean(row.permite_empate),
+		perfilEstadistico: row.perfil_codigo === null ? null : String(row.perfil_codigo),
+		perfilEstadisticoNombre: row.perfil_nombre === null ? null : String(row.perfil_nombre),
+	};
 }
 
 async function find(db: Db, id: number, lock = false): Promise<Sport> {
-	const [[row]] = await db.query<RowDataPacket[]>(
-		`SELECT ${COLUMNS} FROM deporte d WHERE d.id = ?${lock ? ' FOR UPDATE' : ''}`,
-		[id],
-	);
+	// Locks with its own statement by primary key (server/README.md, "Orden de bloqueo"), then reads.
+	if (lock) await db.query('SELECT id FROM deporte FORCE INDEX (PRIMARY) WHERE id = ? FOR UPDATE', [id]);
+	const [[row]] = await db.query<RowDataPacket[]>(`SELECT ${COLUMNS} ${FROM} WHERE d.id = ?`, [id]);
 	if (!row) throw HttpError.notFound('No existe ese deporte.', ErrorCode.SPORT_NOT_FOUND);
 	return toSport(row);
 }
@@ -48,7 +60,7 @@ export function listSports(pool: Pool, query: ListSportsQuery): Promise<Page<Spo
 	const where = new Where();
 	if (query.q) where.add('(d.nombre LIKE ? OR d.slug LIKE ?)', likePattern(query.q), likePattern(query.q));
 	if (query.permiteEmpate !== undefined) where.add('d.permite_empate = ?', query.permiteEmpate);
-	return pageOf(pool, { columns: COLUMNS, from: 'FROM deporte d', where, orderBy: 'd.nombre, d.id' }, query, toSport);
+	return pageOf(pool, { columns: COLUMNS, from: FROM, where, orderBy: 'd.nombre, d.id' }, query, toSport);
 }
 
 export function getSport(pool: Pool, id: number): Promise<Sport> {
@@ -59,12 +71,24 @@ export function getSport(pool: Pool, id: number): Promise<Sport> {
 export async function createSport(pool: Pool, ctx: AdminActionContext, input: CreateSportBody): Promise<Sport> {
 	const outcome = await runAdminAction<Sport>(pool, ctx, 'crear', 'deporte', async (conn) => {
 		const [result] = await conn.query<ResultSetHeader>(
-			'INSERT INTO deporte (nombre, slug, permite_empate) VALUES (?, ?, ?)',
-			[input.nombre, input.slug ?? requireSlug(input.nombre), input.permiteEmpate],
+			'INSERT INTO deporte (nombre, slug, permite_empate, perfil_estadistico_id) VALUES (?, ?, ?, ?)',
+			[input.nombre, input.slug ?? requireSlug(input.nombre), input.permiteEmpate, await profileIdOf(conn, input.perfilEstadistico ?? null)],
 		);
 		return { id: result.insertId, before: null, after: await find(conn, result.insertId) };
 	});
 	return outcome.after!;
+}
+
+/** The id of a profile named by its `codigo` (`null` stays `null`); an unknown one is a 400 on `perfilEstadistico`. */
+async function profileIdOf(db: Db, codigo: string | null): Promise<number | null> {
+	if (codigo === null) return null;
+	const id = await statsProfileId(db, codigo);
+	if (id === undefined) {
+		throw HttpError.badRequest('Solicitud inválida.', [
+			{ path: 'perfilEstadistico', message: 'No existe ese perfil de estadísticas (futbol o voley).' },
+		]);
+	}
+	return id;
 }
 
 export function requireSlug(nombre: string): string {
@@ -86,6 +110,12 @@ export function requireSlug(nombre: string): string {
  * `DrawRuleGuard` must agree (Polla refuses if any selection exists on the
  * sport's matches). Otherwise 409 `DRAW_RULE_LOCKED`. The sport row is locked
  * for the whole check.
+ *
+ * The statistics profile (C-05, D-034) only changes while none of the sport's
+ * enrollments has statistics: they hold the old profile's attributes.
+ * Otherwise 409 `STATS_PROFILE_LOCKED`. Counted after locking the sport's
+ * row, which a squad's statistics lock `FOR SHARE` before reading it: either
+ * this count sees them, or they see the new profile.
  */
 export async function updateSport(
 	pool: Pool,
@@ -123,12 +153,34 @@ export async function updateSport(
 			}
 		}
 
+		let perfilId: number | null | undefined;
+		if (input.perfilEstadistico !== undefined && input.perfilEstadistico !== before.perfilEstadistico) {
+			perfilId = await profileIdOf(conn, input.perfilEstadistico);
+			const [[loaded]] = await conn.query<RowDataPacket[]>(
+				`SELECT COUNT(DISTINCT pe.plantel_id) AS n FROM plantel_estadistica pe
+				JOIN plantel pl ON pl.id = pe.plantel_id
+				JOIN competicion c ON c.id = pl.competicion_id
+				WHERE c.deporte_id = ?`,
+				[id],
+			);
+			const n = Number(loaded?.n ?? 0);
+			if (n > 0) {
+				throw new HttpError(
+					409,
+					ErrorCode.STATS_PROFILE_LOCKED,
+					`No se puede cambiar el perfil de estadísticas: ${plural(n, 'inscripción del deporte tiene', 'inscripciones del deporte tienen')} estadísticas cargadas con el perfil actual.`,
+					{ inscripcionesConEstadisticas: n },
+				);
+			}
+		}
+
 		await conn.query('UPDATE deporte SET nombre = ?, slug = ?, permite_empate = ? WHERE id = ?', [
 			input.nombre ?? before.nombre,
 			input.slug ?? before.slug,
 			input.permiteEmpate ?? before.permiteEmpate,
 			id,
 		]);
+		if (perfilId !== undefined) await conn.query('UPDATE deporte SET perfil_estadistico_id = ? WHERE id = ?', [perfilId, id]);
 		return { id, before, after: await find(conn, id) };
 	});
 	return outcome.after!;

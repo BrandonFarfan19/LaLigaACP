@@ -101,6 +101,7 @@ describe('admin: jugadores y planteles (BR-001, EsquemaBD D2/D4)', () => {
 				competicionNombre: 'Apertura',
 				deporteNombre: 'Fútbol',
 				numeroCamiseta: 10,
+				tieneEstadisticas: false,
 			});
 			expect((await api.get(`/planteles?equipoId=${teamId}`)).body.data.total).toBe(1);
 			expect((await api.get(`/planteles?jugadorId=${ana.id}&competicionId=${competitionId}`)).body.data.total).toBe(1);

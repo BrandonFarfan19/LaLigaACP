@@ -45,6 +45,10 @@ const DUPLICATES: Record<string, Answer> = {
 	uq_gol_imagen: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese archivo ya está asociado a otro gol.'),
 	uq_multimedia_imagen: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese archivo ya está asociado a otra imagen.'),
 	uq_partido_equipo_lado: conflict(ErrorCode.DUPLICATE_ENTRY, 'El partido ya tiene ese lado (local o visita).'),
+	// C-05: fixed catalogs (02-catalogos.sql); the app never writes them.
+	uq_perfil_estadistico_codigo: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ya existe un perfil de estadísticas con ese código.'),
+	uq_estadistica_perfil_codigo: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese perfil ya tiene un atributo con ese código.'),
+	uq_estadistica_perfil_orden: conflict(ErrorCode.DUPLICATE_ENTRY, 'Ese perfil ya tiene un atributo en esa posición.'),
 };
 
 /** 1452 (the referenced row is missing) and 1451 (the row is referenced), by FOREIGN KEY name. */
@@ -108,6 +112,23 @@ const FOREIGN_KEYS: Record<string, { missing: Answer; inUse: Answer }> = {
 	fk_gol_plantel: {
 		missing: conflict(ErrorCode.COMPETITION_MISMATCH, 'La inscripción no existe o no es de ese equipo.'),
 		inUse: conflict(ErrorCode.ENROLLMENT_IN_USE, 'La inscripción tiene goles registrados.'),
+	},
+	// C-05 (D-034): player statistics.
+	fk_deporte_perfil_estadistico: {
+		missing: conflict(ErrorCode.INVALID_REFERENCE, 'No existe ese perfil de estadísticas.'),
+		inUse: conflict(ErrorCode.RESOURCE_IN_USE, 'Hay deportes con ese perfil de estadísticas.'),
+	},
+	fk_estadistica_perfil: {
+		missing: conflict(ErrorCode.INVALID_REFERENCE, 'No existe ese perfil de estadísticas.'),
+		inUse: conflict(ErrorCode.RESOURCE_IN_USE, 'El perfil de estadísticas tiene atributos.'),
+	},
+	fk_plantel_estadistica_plantel: {
+		missing: notFound(ErrorCode.ENROLLMENT_NOT_FOUND, 'No existe esa inscripción.'),
+		inUse: conflict(ErrorCode.ENROLLMENT_IN_USE, 'La inscripción tiene estadísticas cargadas.'),
+	},
+	fk_plantel_estadistica_estadistica: {
+		missing: conflict(ErrorCode.INVALID_REFERENCE, 'No existe ese atributo.'),
+		inUse: conflict(ErrorCode.RESOURCE_IN_USE, 'Hay estadísticas cargadas de ese atributo.'),
 	},
 };
 

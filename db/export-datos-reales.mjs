@@ -1,19 +1,28 @@
 #!/usr/bin/env node
 /**
  * Genera el volcado de los datos reales del Módulo Informativo para llevarlos
- * a producción: `deporte`, `competicion`, `equipo`, `jugador` y `plantel`.
+ * a producción: `deporte` (con su perfil de estadísticas, C-05), `competicion`,
+ * `equipo`, `jugador`, `plantel` y `plantel_estadistica` (C-05).
  *
  * SOLO LEE. Las dos únicas cosas que corre contra MySQL son `mysqldump` y
- * `SELECT COUNT(*)`; no hay una sola escritura en este archivo, ni siquiera
+ * `SELECT` (conteos y los ids de los catálogos de estadísticas); no hay una
+ * sola escritura en este archivo, ni siquiera
  * para una tabla temporal. El archivo que produce sí escribe, pero se carga a
  * mano en el servidor y trae su propia barrera (aborta si la base ya tiene
  * datos). Ver el README, "Llevar los datos reales a producción".
  *
  * Qué NO exporta, a propósito:
- * - Los 9 catálogos (`rol`, `estado_usuario`, `estado_pago`, `estado_partido`,
+ * - Los 11 catálogos (`rol`, `estado_usuario`, `estado_pago`, `estado_partido`,
  *   `tipo_apuesta`, `resultado_general`, `estado_seleccion`, `tipo_movimiento`,
- *   `accion_auditoria`): los carga `db/init/02-catalogos.sql` al crear el
- *   volumen, y repetirlos rompe por `codigo` único.
+ *   `accion_auditoria`, `perfil_estadistico`, `estadistica`): los carga
+ *   `db/init/02-catalogos.sql` al crear el volumen, y repetirlos rompe por
+ *   `codigo` único.
+ *
+ * Los catálogos de estadísticas (C-05) viajan por referencia:
+ * `deporte.perfil_estadistico_id` y `plantel_estadistica.estadistica_id` son
+ * ids numéricos de esos catálogos. El archivo lleva el id de origen de cada
+ * `codigo` y se niega a cargar, antes de insertar nada, si en el destino no es
+ * el mismo, en vez de dejar a un jugador con el atributo equivocado.
  * - `usuario`, `sesion`, `auditoria` y todo Polla (`ticket`, `seleccion`,
  *   `movimiento_moneda`): llevar hashes de contraseña y sesiones de una base de
  *   desarrollo a un servidor real es justo lo que no hay que hacer. El
@@ -27,7 +36,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 /** En este orden: es el de las claves foráneas, y mysqldump respeta el orden dado. */
-const TABLAS = ['deporte', 'competicion', 'equipo', 'jugador', 'plantel'];
+const TABLAS = ['deporte', 'competicion', 'equipo', 'jugador', 'plantel', 'plantel_estadistica'];
 
 /** Los catálogos que ya carga `02-catalogos.sql`. Ninguno puede salir en el volcado. */
 const CATALOGOS = [
@@ -40,6 +49,8 @@ const CATALOGOS = [
 	'estado_seleccion',
 	'tipo_movimiento',
 	'accion_auditoria',
+	'perfil_estadistico',
+	'estadistica',
 ];
 
 /** Tablas con datos de cuentas o de la polla. Ninguna puede salir en el volcado. */
@@ -103,6 +114,23 @@ function main() {
 		if (!Number.isInteger(conteos.get(tabla))) throw new Error(`No se pudo contar ${tabla}.`);
 	}
 
+	// 1b. Los ids de los catálogos de estadísticas (C-05), por código. También es de lectura.
+	const consultaIds = `SELECT 'perfil', p.id, p.codigo, '-' FROM perfil_estadistico p
+		UNION ALL SELECT 'atributo', e.id, p.codigo, e.codigo FROM estadistica e JOIN perfil_estadistico p ON p.id = e.perfil_estadistico_id
+		ORDER BY 1 DESC, 2`;
+	const ids = enDb(['mysql', '-uroot', `-p${clave}`, '--default-character-set=utf8mb4', '-N', '-B', base, '-e', consultaIds])
+		.trim()
+		.split(/\r?\n/)
+		.filter(Boolean)
+		.map((linea) => linea.split('\t'))
+		.map(([tipo, id, perfil, atributo]) => ({ tipo, id: Number(id), perfil, atributo }));
+	const codigo = /^[a-z][a-z0-9_]*$/;
+	const perfiles = ids.filter((f) => f.tipo === 'perfil');
+	const atributos = ids.filter((f) => f.tipo === 'atributo');
+	if (perfiles.length === 0 || ids.some((f) => !Number.isInteger(f.id) || !codigo.test(f.perfil) || (f.tipo === 'atributo' && !codigo.test(f.atributo)))) {
+		throw new Error('No se pudieron leer los catálogos de estadísticas. ¿Se aplicó la migración C-05 (db/migraciones/)?');
+	}
+
 	// 2. El volcado. `--single-transaction` es una instantánea consistente y sin
 	//    bloquear a nadie; `--complete-insert` nombra las columnas, así que los
 	//    ids viajan explícitos (las URLs son /plantilla/42 y `plantel` apunta a
@@ -141,7 +169,7 @@ function main() {
 	}
 
 	const esperado = TABLAS.map((t) => `${t}=${conteos.get(t)}`).join(', ');
-	writeFileSync(salida, archivo(cuerpo, conteos, base, esperado), 'utf8');
+	writeFileSync(salida, archivo(cuerpo, conteos, base, esperado, { perfiles, atributos }), 'utf8');
 
 	console.log(`Volcado escrito en ${salida}`);
 	console.log(`Filas: ${esperado}`);
@@ -165,16 +193,26 @@ EXECUTE comprobacion;
 DEALLOCATE PREPARE comprobacion;`;
 }
 
-function archivo(cuerpo, conteos, base, esperado) {
+function archivo(cuerpo, conteos, base, esperado, { perfiles, atributos }) {
 	const vacias = TABLAS.map((t) => `(SELECT COUNT(*) FROM \`${t}\`)`).join(' + ');
 	const bien = TABLAS.map((t) => `(SELECT COUNT(*) FROM \`${t}\`) = ${conteos.get(t)}`).join('\n    AND ');
+	// Los códigos ya pasaron por /^[a-z][a-z0-9_]*$/ en main(): van literales sin riesgo.
+	const mismosIds = [
+		`(SELECT COUNT(*) FROM perfil_estadistico) = ${perfiles.length}`,
+		`(SELECT COUNT(*) FROM estadistica) = ${atributos.length}`,
+		...perfiles.map((f) => `COALESCE((SELECT id FROM perfil_estadistico WHERE codigo = '${f.perfil}'), 0) = ${f.id}`),
+		...atributos.map(
+			(f) =>
+				`COALESCE((SELECT e.id FROM estadistica e JOIN perfil_estadistico p ON p.id = e.perfil_estadistico_id WHERE p.codigo = '${f.perfil}' AND e.codigo = '${f.atributo}'), 0) = ${f.id}`,
+		),
+	].join('\n    AND ');
 
 	return `-- Datos reales del Módulo Informativo de La Liga ACP.
 -- GENERADO por db/export-datos-reales.mjs desde la base "${base}". No editar a mano.
 -- Generado: ${new Date().toISOString()}
 --
 -- Contiene, en orden de claves foráneas: ${esperado}.
--- NO contiene los 9 catálogos (los carga db/init/02-catalogos.sql) ni ninguna
+-- NO contiene los 11 catálogos (los carga db/init/02-catalogos.sql) ni ninguna
 -- tabla de cuentas o de la polla. Los ids viajan explícitos y se conservan:
 -- las URLs de la app son /plantilla/42 y plantel apunta por id.
 --
@@ -206,6 +244,14 @@ START TRANSACTION;
 ${guardia(`(${vacias}) = 0`, 'ABORTADO_la_base_ya_tiene_datos_informativos', 'Base vacía: se puede cargar')}
 
 -- ---------------------------------------------------------------------------
+-- Barrera (C-05): los catálogos de estadísticas del destino tienen los mismos
+-- ids que los del origen, código por código. deporte y plantel_estadistica los
+-- referencian por id: con otros ids, un jugador quedaría con el atributo
+-- equivocado. db/init/ los crea siempre en el mismo orden (perfil, orden).
+-- ---------------------------------------------------------------------------
+${guardia(mismosIds, 'ABORTADO_los_ids_de_los_catalogos_de_estadisticas_no_coinciden', 'Catálogos de estadísticas iguales a los del origen')}
+
+-- ---------------------------------------------------------------------------
 -- Los datos.
 -- ---------------------------------------------------------------------------
 ${cuerpo}
@@ -217,7 +263,8 @@ SELECT 'deporte' AS tabla, COUNT(*) AS filas, ${conteos.get('deporte')} AS esper
 UNION ALL SELECT 'competicion', COUNT(*), ${conteos.get('competicion')} FROM \`competicion\`
 UNION ALL SELECT 'equipo', COUNT(*), ${conteos.get('equipo')} FROM \`equipo\`
 UNION ALL SELECT 'jugador', COUNT(*), ${conteos.get('jugador')} FROM \`jugador\`
-UNION ALL SELECT 'plantel', COUNT(*), ${conteos.get('plantel')} FROM \`plantel\`;
+UNION ALL SELECT 'plantel', COUNT(*), ${conteos.get('plantel')} FROM \`plantel\`
+UNION ALL SELECT 'plantel_estadistica', COUNT(*), ${conteos.get('plantel_estadistica')} FROM \`plantel_estadistica\`;
 
 ${guardia(`${bien}`, 'VERIFICACION_FALLIDA_los_conteos_no_coinciden', 'Verificación OK')}
 

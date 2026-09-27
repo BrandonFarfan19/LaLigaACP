@@ -392,3 +392,19 @@ Formato de cada entrada:
 - **Motivo de conservar el aviso:** las posiciones **no existen en la base de datos**. No hay ninguna columna que diga si alguien es arquero o delantero: `src/lib/squad-layout.ts` reparte a los jugadores en un 1-2-3-2-1 por orden de lista. Con 102 personas reales cargadas y con foto, alguien puede verse puesto de defensa jugando de delantero y no tener forma de saber que es un dibujo. El segundo hecho importa por el motivo inverso: sin él, alguien podría suponer que el dorsal también es inventado, y sí es el real.
 - **Por qué era razonable acortarlo:** eran **dos párrafos apilados** bajo la cancha (`pitch-hint`), y el segundo era una frase entera; a 320 px eso ocupa varios renglones para decir algo secundario. Acortar no pierde nada; quitarlo, sí.
 - **Dónde quedó aplicada:** `src/components/SquadBoard.tsx` y su comprobación en `src/pages/league-pages.test.tsx`.
+
+## D-034 · 2026-09-27 · C-05 — Estadísticas reales de los jugadores, por deporte (reemplaza a D-022)
+
+- **Qué pidió el usuario:** que las estadísticas de cada jugador dejen de ser de muestra (D-022: seis atributos inventados a partir del id) y sean datos reales, con un juego distinto por deporte, **sin tocar los datos que ya están cargados**.
+- **Lo que decidió el usuario:**
+  - Fútbol (también fútbol femenino): Disparo, Pase, Fuerza, Defensa, Velocidad, Dribbling.
+  - Vóley: Mate, Saque, Recepción, Armado, Bloqueo.
+  - Cada atributo es una calificación entera **de 0 a 99**.
+  - Un jugador sin estadísticas cargadas muestra **«Sin estadísticas»**. Se acaban los valores de muestra.
+- **Lo que decidió el coordinador (diseño):**
+  - **Cómo sabe cada deporte su juego de atributos:** con un catálogo `perfil_estadistico` (`futbol`, `voley`) al que apunta `deporte`, en lugar de adivinarlo por el nombre. Fútbol y fútbol femenino comparten `futbol`, y un deporte nuevo solo elige su perfil. Otras opciones: detectarlo por el nombre, como hace hoy la cancha (`courtFor`); se descartó porque es frágil para datos que carga un administrador. Otra: un perfil por competición; se descartó porque el perfil depende del deporte.
+  - **Dónde van los valores:** en el **plantel** (la inscripción en un equipo de una competición), no en el jugador. La misma persona puede estar en una competición de fútbol y en otra de vóley, y cada una tiene sus propios atributos.
+  - **Juego completo o nada:** se guardan todos los atributos del perfil juntos o ninguno, para que el radar nunca quede a medias.
+  - **Sin cascada:** un plantel con estadísticas no se borra hasta quitárselas. Un deporte no cambia de perfil mientras alguno de sus planteles tenga estadísticas. Es el mismo criterio del resto del catálogo.
+  - **No interferir con los datos actuales:** el cambio solo agrega tablas y catálogos, más una columna de `deporte` que admite vacío. Las bases que ya tienen datos (desarrollo y producción) se actualizan con un script de migración aparte, que asigna el perfil a los deportes existentes según su nombre. Ningún jugador recibe estadísticas inventadas.
+- **Dónde quedó aplicada:** C-05.

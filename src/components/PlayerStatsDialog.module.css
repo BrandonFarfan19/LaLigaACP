@@ -287,11 +287,28 @@
 	}
 }
 
-/* D-022: says the six attributes are made up, next to the average. */
-.sample {
-	margin: var(--space-1) 0 0;
-	font-size: var(--text-xs);
+/* C-05: a player without statistics gets this plate where the radar would be,
+   never an empty radar. As wide as the radar on each layout. */
+.empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 240px;
+	max-width: 100%;
+	margin: 0;
+	padding: var(--space-12) var(--space-4);
+	background: var(--color-surface-raised);
+	font-family: var(--font-display);
+	font-size: var(--text-sm);
 	line-height: 1.5;
-	overflow-wrap: anywhere;
+	text-align: center;
+	/* No uppercase: Press Start 2P draws a capital "Í" badly (docs/pendientes.md). */
 	color: var(--color-text-muted);
+}
+
+@media (min-width: 48rem) {
+	.empty {
+		width: 320px;
+		flex-shrink: 0;
+	}
 }

@@ -44,10 +44,14 @@ describe('resetDatabase', () => {
 	it('keeps every catalog loaded from 02-catalogos.sql', async () => {
 		expect([...CATALOG_TABLES].sort()).toEqual([
 			'accion_auditoria',
+			// C-05: the attributes of each statistics profile.
+			'estadistica',
 			'estado_pago',
 			'estado_partido',
 			'estado_seleccion',
 			'estado_usuario',
+			// C-05: the statistics profiles.
+			'perfil_estadistico',
 			'resultado_general',
 			'rol',
 			'tipo_apuesta',

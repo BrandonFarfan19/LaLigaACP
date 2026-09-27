@@ -105,6 +105,9 @@ const side = (value: unknown) => {
 
 const videoUrl = (value: unknown) => ((value as { url?: unknown } | null)?.url ?? null);
 
+/** An enrollment's statistics (C-05): `codigo` → value, or `null`. */
+const valuesOf = (value: unknown) => ((value as { valores?: Record<string, number> | null } | null)?.valores ?? null);
+
 /**
  * Only the fields each row stores (second fix of T-17): no calculated or
  * joined values such as a match's `cierreApuestas` (fechaHora − 24 h), its
@@ -114,8 +117,10 @@ const videoUrl = (value: unknown) => ((value as { url?: unknown } | null)?.url ?
  * the stored one in a way that shows up. Images keep their API path, the
  * stored file name's only form outside the server. A competition, a team and
  * an enrollment carry their joined names since T-21 (the panel's lists show
- * them without a list of options): those go out too. A sport and a player
- * already are their stored columns.
+ * them without a list of options): those go out too, and so does an
+ * enrollment's `tieneEstadisticas` (C-05). A sport keeps its profile's
+ * `codigo` (the stored id, as the API names it) without its joined name; a
+ * player already is its stored columns.
  */
 export function soloGuardados(entity: AdminActionOutcome['entity'], row: unknown): unknown {
 	if (!row || typeof row !== 'object') return row ?? null;
@@ -145,10 +150,23 @@ export function soloGuardados(entity: AdminActionOutcome['entity'], row: unknown
 		case 'multimedia':
 			return { id: r.id, imagen: r.url ?? null, video: videoUrl(r.video), creadoEn: r.creadoEn };
 		// Joined names (T-21): shown in lists, never a stored column of the row.
+		// A sport's profile is stored as its id; the API names it by `codigo` (C-05), its name is joined.
+		case 'deporte': {
+			const { perfilEstadisticoNombre: _perfil, ...stored } = r;
+			return stored;
+		}
 		case 'plantel':
 		case 'competicion':
 		case 'equipo': {
-			const { jugadorNombre: _jugador, equipoNombre: _equipo, competicionNombre: _competicion, deporteNombre: _deporte, ...stored } = r;
+			const {
+				jugadorNombre: _jugador,
+				equipoNombre: _equipo,
+				competicionNombre: _competicion,
+				deporteNombre: _deporte,
+				// An enrollment's "has statistics" (C-05) is computed from another table.
+				tieneEstadisticas: _stats,
+				...stored
+			} = r;
 			return stored;
 		}
 		default:
@@ -179,6 +197,19 @@ export function detailOf(outcome: AdminActionOutcome): DetalleAuditoria | null {
 			return { marcador: marcador(after), ...detail };
 		case 'cancelar_partido':
 			return { estadoAnterior: (before as ScoreCarrier | null)?.estado ?? null, ...detail };
+		// C-05: only the stored values (the profile is the sport's, not the enrollment's). The same
+		// set loaded again, or removing a set that wasn't there, records nothing (D-004).
+		case 'registrar_estadisticas_plantel': {
+			const anterior = valuesOf(outcome.before);
+			const valores = valuesOf(outcome.after);
+			if (!extra && JSON.stringify(anterior) === JSON.stringify(valores)) return null;
+			return { valores, anterior, ...detail };
+		}
+		case 'borrar_estadisticas_plantel': {
+			const anterior = valuesOf(outcome.before);
+			if (!extra && anterior === null) return null;
+			return { anterior, ...detail };
+		}
 	}
 	if (action.startsWith('crear_')) return { nuevo: after, ...detail };
 	if (action.startsWith('borrar_')) return { anterior: before, ...detail };

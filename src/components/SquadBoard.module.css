@@ -114,13 +114,12 @@
 	color: var(--color-accent-alt);
 }
 
-.pitch-player:disabled { opacity: 0.65; }
-
+/* Every player opens a card since C-05 (with or without statistics): none is disabled. */
 @media (hover: hover) {
-	.pitch-player:hover:not(:disabled) .sprite {
+	.pitch-player:hover .sprite {
 		transform: translateY(calc(-1 * var(--px)));
 	}
-	.pitch-player:hover:not(:disabled) .pitch-name { color: var(--color-accent-alt); }
+	.pitch-player:hover .pitch-name { color: var(--color-accent-alt); }
 }
 
 @media (prefers-reduced-motion: reduce) {

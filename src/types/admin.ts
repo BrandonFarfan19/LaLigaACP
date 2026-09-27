@@ -29,6 +29,10 @@ export interface AdminSport {
 	nombre: string;
 	slug: string;
 	permiteEmpate: boolean;
+	/** C-05: the `codigo` of its players' statistics profile (`futbol`, `voley`), or `null` (none). */
+	perfilEstadistico: string | null;
+	/** Its name, joined by the API. */
+	perfilEstadisticoNombre: string | null;
 }
 
 export interface AdminCompetition {
@@ -72,6 +76,17 @@ export interface AdminEnrollment {
 	competicionNombre: string;
 	deporteNombre: string;
 	numeroCamiseta: number;
+	/** C-05: whether the player's statistics are loaded in this enrollment. */
+	tieneEstadisticas: boolean;
+}
+
+/** C-05: `GET/PUT/DELETE /admin/planteles/:id/estadisticas`. */
+export interface AdminEnrollmentStats {
+	plantelId: number;
+	/** The profile of the enrollment's sport, its attributes in order; `null`: the sport takes none. */
+	perfil: { codigo: string; nombre: string; atributos: Array<{ codigo: string; nombre: string }> } | null;
+	/** `codigo` → 0 to 99, every attribute; `null` when none is loaded. */
+	valores: Record<string, number> | null;
 }
 
 export interface AdminMatchSide {

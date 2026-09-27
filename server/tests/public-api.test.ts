@@ -28,7 +28,35 @@ const ALLOWED_KEYS = new Set([
 	'multimedia', 'imagenes', 'videos', 'tipo', 'creadoEn',
 	'filas', 'posicion', 'jugados', 'ganados', 'empatados', 'perdidos', 'golesAFavor', 'golesEnContra', 'diferencia', 'puntos',
 	'plantel', 'jugadorId', 'numeroCamiseta',
+	// C-05: a sport's statistics profile and a player's values, keyed by the catalog's codes.
+	'perfilEstadistico', 'codigo', 'atributos', 'estadisticas',
+	'disparo', 'pase', 'fuerza', 'defensa', 'velocidad', 'dribbling', 'mate', 'saque', 'recepcion', 'armado', 'bloqueo',
 ]);
+
+const FUTBOL_PROFILE = {
+	codigo: 'futbol',
+	nombre: 'Fútbol',
+	atributos: [
+		{ codigo: 'disparo', nombre: 'Disparo' },
+		{ codigo: 'pase', nombre: 'Pase' },
+		{ codigo: 'fuerza', nombre: 'Fuerza' },
+		{ codigo: 'defensa', nombre: 'Defensa' },
+		{ codigo: 'velocidad', nombre: 'Velocidad' },
+		{ codigo: 'dribbling', nombre: 'Dribbling' },
+	],
+};
+const VOLEY_PROFILE = {
+	codigo: 'voley',
+	nombre: 'Vóley',
+	atributos: [
+		{ codigo: 'mate', nombre: 'Mate' },
+		{ codigo: 'saque', nombre: 'Saque' },
+		{ codigo: 'recepcion', nombre: 'Recepción' },
+		{ codigo: 'armado', nombre: 'Armado' },
+		{ codigo: 'bloqueo', nombre: 'Bloqueo' },
+	],
+};
+const ANA_STATS = { disparo: 88, pase: 0, fuerza: 99, defensa: 41, velocidad: 70, dribbling: 65 };
 
 function keysOf(value: unknown, into = new Set<string>()): Set<string> {
 	if (Array.isArray(value)) value.forEach((v) => keysOf(v, into));
@@ -72,8 +100,8 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 		api = await adminApi(app, pool);
 		const post = <T = { id: number }>(path: string, body: unknown) => created<T>(api.post(path, body));
 
-		s.futbol = (await post('/deportes', { nombre: 'Fútbol', permiteEmpate: true })).id;
-		s.voley = (await post('/deportes', { nombre: 'Vóley', permiteEmpate: false })).id;
+		s.futbol = (await post('/deportes', { nombre: 'Fútbol', permiteEmpate: true, perfilEstadistico: 'futbol' })).id;
+		s.voley = (await post('/deportes', { nombre: 'Vóley', permiteEmpate: false, perfilEstadistico: 'voley' })).id;
 		s.liga = (await post('/competiciones', { deporteId: s.futbol, nombre: 'Liga 1' })).id;
 		s.copa = (await post('/competiciones', { deporteId: s.futbol, nombre: 'Copa' })).id;
 		s.ligaVoley = (await post('/competiciones', { deporteId: s.voley, nombre: 'Liga Vóley' })).id;
@@ -125,6 +153,8 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 			s.players[key] = (await post('/jugadores', { nombre, foto: key === 'ana' ? 'https://cdn.example.com/ana.jpg' : undefined })).id;
 			s.enrollments[key] = (await post('/planteles', { jugadorId: s.players[key], equipoId: s.team[equipo], numeroCamiseta: numero })).id;
 		}
+		// C-05: Ana has her statistics, Bea doesn't.
+		expect((await api.put(`/planteles/${s.enrollments.ana}/estadisticas`, { valores: ANA_STATS })).status).toBe(200);
 		await insertGoal(pool, s.match.CA, s.team.C!, s.enrollments.cris!);
 		await insertGoal(pool, s.match.CA, s.team.A!, s.enrollments.ana!);
 		// Media as T-13 stores it: a server-made file name and a normalized video link.
@@ -146,16 +176,32 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 	});
 
 	describe('deportes y competiciones (BR-048)', () => {
-		it('lists every sport with permiteEmpate, by name', async () => {
+		it('lists every sport with permiteEmpate and its statistics profile (C-05), by name', async () => {
 			const res = await get('/deportes');
 
 			expect(res.status).toBe(200);
 			expect(res.body).toEqual({
 				data: [
-					{ id: s.futbol, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true },
-					{ id: s.voley, nombre: 'Vóley', slug: 'voley', permiteEmpate: false },
+					{ id: s.futbol, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true, perfilEstadistico: FUTBOL_PROFILE },
+					{ id: s.voley, nombre: 'Vóley', slug: 'voley', permiteEmpate: false, perfilEstadistico: VOLEY_PROFILE },
 				],
 			});
+		});
+
+		it('a sport without a profile says so with null (C-05)', async () => {
+			const sport = await created<{ id: number }>(api.post('/deportes', { nombre: 'Ajedrez', permiteEmpate: true }));
+			try {
+				const res = await get('/deportes');
+				expect(res.body.data.find((d: { id: number }) => d.id === sport.id)).toEqual({
+					id: sport.id,
+					nombre: 'Ajedrez',
+					slug: 'ajedrez',
+					permiteEmpate: true,
+					perfilEstadistico: null,
+				});
+			} finally {
+				await api.del(`/deportes/${sport.id}`);
+			}
 		});
 
 		it('lists competitions with their sport, filterable and paginated', async () => {
@@ -393,12 +439,14 @@ describe('public API (T-08: BR-013, BR-048 to BR-050)', () => {
 				escudo: 'escudos/A.webp',
 				colorAcento: '#a50044',
 				competicion: { id: s.liga, nombre: 'Liga 1', slug: 'liga-1' },
-				deporte: { id: s.futbol, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true },
+				deporte: { id: s.futbol, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true, perfilEstadistico: FUTBOL_PROFILE },
+				// C-05: each player's values in the profile's order, or null without them.
 				plantel: [
-					{ jugadorId: s.players.bea, nombre: 'Bea Soto', foto: null, numeroCamiseta: 1 },
-					{ jugadorId: s.players.ana, nombre: 'Ana Pérez', foto: 'https://cdn.example.com/ana.jpg', numeroCamiseta: 9 },
+					{ jugadorId: s.players.bea, nombre: 'Bea Soto', foto: null, numeroCamiseta: 1, estadisticas: null },
+					{ jugadorId: s.players.ana, nombre: 'Ana Pérez', foto: 'https://cdn.example.com/ana.jpg', numeroCamiseta: 9, estadisticas: ANA_STATS },
 				],
 			});
+			expect(Object.keys(res.body.data.plantel[1].estadisticas)).toEqual(FUTBOL_PROFILE.atributos.map((a) => a.codigo));
 			expect((await get(`/equipos/${s.team.E}`)).body.data.plantel).toEqual([]);
 		});
 	});

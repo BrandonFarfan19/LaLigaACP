@@ -141,6 +141,16 @@ const search = z
 const notEmpty = (value: object) => Object.values(value).some((v) => v !== undefined);
 const NOTHING_TO_CHANGE = { message: 'No hay campos para modificar.' };
 
+/**
+ * A `codigo` of the statistics catalogs (C-05): `futbol`, `disparo`... Only
+ * its shape here; whether it exists is the database's (the service answers
+ * 400 on the same path).
+ */
+const statsCode = z.string({ error: 'Debe ser un texto.' }).regex(/^[a-z][a-z0-9_]{0,49}$/, 'No es un código válido.');
+
+/** A sport's statistics profile by `codigo`; `null` means none (its players take no statistics). */
+const perfilEstadistico = statsCode.nullable();
+
 // --- deporte ---------------------------------------------------------------
 
 export const listSportsQuery = z.strictObject({
@@ -152,12 +162,15 @@ export const createSportBody = z.strictObject({
 	nombre: nombre(100),
 	slug: slug.optional(),
 	permiteEmpate: z.boolean({ error: 'Debe ser true o false.' }),
+	/** C-05: missing is `null`. */
+	perfilEstadistico: perfilEstadistico.optional(),
 });
 export const updateSportBody = z
 	.strictObject({
 		nombre: nombre(100).optional(),
 		slug: slug.optional(),
 		permiteEmpate: z.boolean({ error: 'Debe ser true o false.' }).optional(),
+		perfilEstadistico: perfilEstadistico.optional(),
 	})
 	.refine(notEmpty, NOTHING_TO_CHANGE);
 
@@ -252,6 +265,28 @@ export const updateEnrollmentBody = z
 	})
 	.refine(notEmpty, NOTHING_TO_CHANGE);
 
+/** A rating of one attribute (C-05, D-034): a whole number from 0 to 99. */
+const statValue = z
+	.number({ error: 'Debe ser un número.' })
+	.int('Debe ser un número entero.')
+	.min(0, 'Tiene que estar entre 0 y 99.')
+	.max(99, 'Tiene que estar entre 0 y 99.');
+
+/** Most attributes a set may name (the largest profile has 6): an unbounded object is refused before the service sees it. */
+const MAX_STATS = 20;
+
+/**
+ * `PUT /admin/planteles/:id/estadisticas`: every attribute of the profile at
+ * once, `{ valores: { disparo: 80, ... } }`. The service checks that the set
+ * is exactly the profile's (none missing, none foreign).
+ */
+export const enrollmentStatsBody = z.strictObject({
+	valores: z
+		.record(statsCode, statValue, { error: 'Tiene que ser un objeto con un valor por atributo.' })
+		.refine((values) => Object.keys(values).length <= MAX_STATS, `No puede tener más de ${MAX_STATS} atributos.`),
+});
+
+export type EnrollmentStatsBody = z.infer<typeof enrollmentStatsBody>;
 export type ListSportsQuery = z.infer<typeof listSportsQuery>;
 export type CreateSportBody = z.infer<typeof createSportBody>;
 export type UpdateSportBody = z.infer<typeof updateSportBody>;

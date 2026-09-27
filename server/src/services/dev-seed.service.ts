@@ -28,6 +28,12 @@ import { insertUser } from './users.service.js';
  * Matches are written directly (not through the admin API), because some of
  * them are in the past: in progress, finished and cancelled. No audit record
  * is written for them.
+ *
+ * Statistics (C-05, D-034): the football and volleyball samples take their
+ * profile, and two of each team's three players get a whole set of sample
+ * values while the third stays without, so both cards can be seen. They are
+ * marked as `plantel_estadistica` with the enrollment's id, and cleaning
+ * removes every value of the sample enrollments.
  */
 
 export const DEMO_EMAIL_DOMAIN = '@demo.liga.test';
@@ -141,12 +147,14 @@ export async function ensureMarksTable(pool: Pool): Promise<void> {
 }
 
 /** The tables whose rows the command creates and marks. */
-type MarkedTable = 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'partido' | 'partido_equipo' | 'usuario';
+type MarkedTable = 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'plantel_estadistica' | 'partido' | 'partido_equipo' | 'usuario';
 
 interface SportSeed {
 	slug: string;
 	nombre: string;
 	permiteEmpate: boolean;
+	/** C-05: the `codigo` of its statistics profile, or `null` (no statistics). */
+	perfil: 'futbol' | 'voley' | null;
 	competicion: { slug: string; nombre: string };
 	equipos: Array<{ nombre: string; corto: string; color: string }>;
 }
@@ -159,6 +167,7 @@ const SPORTS: SportSeed[] = [
 		slug: `${DEMO_SLUG_PREFIX}futbol`,
 		nombre: 'Fútbol (demo)',
 		permiteEmpate: true,
+		perfil: 'futbol',
 		competicion: { slug: `${DEMO_SLUG_PREFIX}liga`, nombre: 'Liga Demo' },
 		equipos: [
 			{ nombre: 'Halcones', corto: 'HAL', color: '#3cf281' },
@@ -171,6 +180,7 @@ const SPORTS: SportSeed[] = [
 		slug: `${DEMO_SLUG_PREFIX}voley`,
 		nombre: 'Vóley (demo)',
 		permiteEmpate: false,
+		perfil: 'voley',
 		competicion: { slug: `${DEMO_SLUG_PREFIX}copa-voley`, nombre: 'Copa Vóley Demo' },
 		equipos: [
 			{ nombre: 'Águilas', corto: 'AGU', color: '#4d53a6' },
@@ -181,6 +191,7 @@ const SPORTS: SportSeed[] = [
 		slug: `${DEMO_SLUG_PREFIX}basquet`,
 		nombre: 'Básquet (demo)',
 		permiteEmpate: false,
+		perfil: null,
 		competicion: { slug: `${DEMO_SLUG_PREFIX}liga-basquet`, nombre: 'Liga Básquet Demo' },
 		equipos: [
 			{ nombre: 'Toros', corto: 'TOR', color: '#ff4d6d' },
@@ -188,6 +199,12 @@ const SPORTS: SportSeed[] = [
 		],
 	},
 ];
+
+/** Which of a team's three sample players get statistics (by shirt number): the third stays without. */
+const WITH_STATS = new Set([7, 14]);
+
+/** A sample rating from 0 to 99, the same on every run. */
+const sampleValue = (enrollment: number, attribute: number) => 55 + ((enrollment * 7 + attribute * 13) % 45);
 
 const PLAYERS = ['Ana Rojas', 'Luis Paredes', 'Sofía Díaz', 'Mateo Quispe', 'Valeria Chávez', 'Diego Salas'];
 
@@ -365,6 +382,8 @@ async function cleanIn(conn: TransactionConnection): Promise<CleanSummary> {
 	await deleteIn(conn, 'DELETE FROM multimedia_partido WHERE id IN (?)', media);
 	await deleteIn(conn, 'DELETE FROM partido_equipo WHERE id IN (?)', sides);
 	const partidos = await deleteIn(conn, 'DELETE FROM partido WHERE id IN (?)', matches);
+	// C-05: every value of a sample enrollment (the sample admin may have edited them too).
+	await deleteIn(conn, 'DELETE FROM plantel_estadistica WHERE plantel_id IN (?)', enrollments);
 	await deleteIn(conn, 'DELETE FROM plantel WHERE id IN (?)', enrollments);
 	await deleteIn(conn, 'DELETE FROM equipo WHERE id IN (?)', teams);
 	await deleteIn(conn, 'DELETE FROM competicion WHERE id IN (?)', competitions);
@@ -423,11 +442,14 @@ export async function seedDevData(pool: Pool, now: Date = new Date()): Promise<S
 		const competitionIds: number[] = [];
 		let players = 0;
 		for (const sport of SPORTS) {
-			const [deporte] = await conn.query<ResultSetHeader>('INSERT INTO deporte (nombre, slug, permite_empate) VALUES (?, ?, ?)', [
-				sport.nombre,
-				sport.slug,
-				sport.permiteEmpate,
-			]);
+			const [deporte] = await conn.query<ResultSetHeader>(
+				'INSERT INTO deporte (nombre, slug, permite_empate, perfil_estadistico_id) VALUES (?, ?, ?, (SELECT id FROM perfil_estadistico WHERE codigo = ?))',
+				[sport.nombre, sport.slug, sport.permiteEmpate, sport.perfil],
+			);
+			const [attributes] = await conn.query<RowDataPacket[]>(
+				'SELECT e.id FROM estadistica e JOIN perfil_estadistico p ON p.id = e.perfil_estadistico_id WHERE p.codigo = ? ORDER BY e.orden',
+				[sport.perfil],
+			);
 			const [competicion] = await conn.query<ResultSetHeader>('INSERT INTO competicion (deporte_id, nombre, slug) VALUES (?, ?, ?)', [
 				deporte.insertId,
 				sport.competicion.nombre,
@@ -453,6 +475,12 @@ export async function seedDevData(pool: Pool, now: Date = new Date()): Promise<S
 						shirt * 7,
 					]);
 					marks.push(['jugador', jugador.insertId], ['plantel', plantel.insertId]);
+					if (attributes.length > 0 && WITH_STATS.has(shirt * 7)) {
+						await conn.query('INSERT INTO plantel_estadistica (plantel_id, estadistica_id, valor) VALUES ?', [
+							attributes.map((attribute, i) => [plantel.insertId, attribute.id, sampleValue(plantel.insertId, i)]),
+						]);
+						marks.push(['plantel_estadistica', plantel.insertId]);
+					}
 				}
 				players += 3;
 			}

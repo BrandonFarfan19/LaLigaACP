@@ -212,14 +212,14 @@ Lo mismo vale para los otros dos comandos: en producción son `node dist/cli/coi
   1. `NODE_ENV=development` en el entorno real del proceso (`loadEnv` lo lee antes de cargar `.env`; el valor por defecto no cuenta);
   2. la base configurada igual a `DEV_SEED_DATABASE` (comentada en `.env.example`: se activa a propósito, solo en desarrollo) y que no sea de pruebas (ni `MYSQL_DATABASE_TEST` ni un nombre con `test`); ya conectado, comprueba `SELECT DATABASE()`;
   3. la bandera `--yes-dev-data`.
-- **Marcas** (D-016): la tabla `dato_demo (tabla, fila_id)`, que el comando crea con `CREATE TABLE IF NOT EXISTS` fuera de la transacción. No está en `db/init`: no es parte del esquema de la aplicación, y nada de la aplicación la lee ni la escribe. Registra cada deporte, competición, equipo, jugador, inscripción, partido, lado de partido y cuenta que crea.
+- **Marcas** (D-016): la tabla `dato_demo (tabla, fila_id)`, que el comando crea con `CREATE TABLE IF NOT EXISTS` fuera de la transacción. No está en `db/init`: no es parte del esquema de la aplicación, y nada de la aplicación la lee ni la escribe. Registra cada deporte, competición, equipo, jugador, inscripción, partido, lado de partido y cuenta que crea, y (C-05) cada inscripción con estadísticas como `plantel_estadistica` con el id del plantel.
 
-- **Qué carga:** 3 deportes (Fútbol con empate, Vóley y Básquet sin empate), una competición por deporte, 8 equipos con 3 jugadores inscritos cada uno, 14 partidos en todos los estados de apuesta (disponibles, cerrados, en curso, finalizados con marcador y cancelados, con fechas relativas al momento en que se corre) y 12 cuentas: un admin, diez apostadores validados con sus 10 monedas (movimiento `validacion` real) y uno pendiente. Desde T-20, además, 7 tickets de Ana, Carla, Dani, Eva y Fede sobre esos partidos (desde T-21, uno de Fede sobre un partido que empezó hace 2 horas y espera su resultado, para el recorrido del panel): se debitan con `debitSelections` como una confirmación, y todos se confirman antes del cierre de apuestas de cada uno de sus partidos (BR-014; corrección de T-20, una prueba lo exige). Después, los partidos finalizados se liquidan con el liquidador real (`settleMatchSelections`, T-14), y la carga comprueba que cada selección quedó en el estado previsto. Las del partido cancelado se anulan con el mismo UPDATE de la cancelación y se devuelven con `refundSelections`; no se llama a `cancelMatch` (T-16) porque abre su propia transacción y escribe auditoría como un admin, y la carga es una sola transacción que se aplica entera o nada. Ana y Carla empatan arriba del ranking (6 puntos y 2 aciertos). El comando muestra el saldo real de cada cuenta. Las credenciales están en el README de la raíz y solo sirven en desarrollo.
+- **Qué carga:** 3 deportes (Fútbol con empate, Vóley y Básquet sin empate), una competición por deporte, 8 equipos con 3 jugadores inscritos cada uno (desde C-05, Fútbol y Vóley con su perfil, y dos de los tres jugadores de cada equipo con estadísticas; el tercero queda «Sin estadísticas», igual que todo Básquet, que no tiene perfil), 14 partidos en todos los estados de apuesta (disponibles, cerrados, en curso, finalizados con marcador y cancelados, con fechas relativas al momento en que se corre) y 12 cuentas: un admin, diez apostadores validados con sus 10 monedas (movimiento `validacion` real) y uno pendiente. Desde T-20, además, 7 tickets de Ana, Carla, Dani, Eva y Fede sobre esos partidos (desde T-21, uno de Fede sobre un partido que empezó hace 2 horas y espera su resultado, para el recorrido del panel): se debitan con `debitSelections` como una confirmación, y todos se confirman antes del cierre de apuestas de cada uno de sus partidos (BR-014; corrección de T-20, una prueba lo exige). Después, los partidos finalizados se liquidan con el liquidador real (`settleMatchSelections`, T-14), y la carga comprueba que cada selección quedó en el estado previsto. Las del partido cancelado se anulan con el mismo UPDATE de la cancelación y se devuelven con `refundSelections`; no se llama a `cancelMatch` (T-16) porque abre su propia transacción y escribe auditoría como un admin, y la carga es una sola transacción que se aplica entera o nada. Ana y Carla empatan arriba del ranking (6 puntos y 2 aciertos). El comando muestra el saldo real de cada cuenta. Las credenciales están en el README de la raíz y solo sirven en desarrollo.
 - **Nombres:** deportes con slug `demo-...`, jugadores con ` (demo)` al final y cuentas `@demo.liga.test`, solo para reconocerlos a la vista: la limpieza no los usa. Si ya existe una fila real con uno de esos slugs o correos, la carga se niega. Los escudos apuntan a `favicon.png` del sitio.
-- **Limpieza:** en una transacción, borra solo las filas marcadas, más lo que hicieron las cuentas de ejemplo: sus movimientos, selecciones, tickets, sesiones y registros de auditoría (D-015: la aplicación nunca borra auditoría; esta herramienta sí borra la de sus propias cuentas), y los goles y la multimedia de partidos de ejemplo que cargó el admin de ejemplo (según su registro `alta_gol` o `alta_multimedia`). Los archivos de imagen quedan en `UPLOADS_DIR`. Al final vacía `dato_demo`.
+- **Limpieza:** en una transacción, borra solo las filas marcadas, más lo que hicieron las cuentas de ejemplo: sus movimientos, selecciones, tickets, sesiones y registros de auditoría (D-015: la aplicación nunca borra auditoría; esta herramienta sí borra la de sus propias cuentas), y los goles y la multimedia de partidos de ejemplo que cargó el admin de ejemplo (según su registro `alta_gol` o `alta_multimedia`). Los archivos de imagen quedan en `UPLOADS_DIR`. Las estadísticas de las inscripciones de ejemplo se borran todas (C-05). Al final vacía `dato_demo`.
 - **Se niega sin borrar nada** si hay datos reales colgados: apuestas de otras cuentas sobre partidos de ejemplo (con sus correos), competiciones, equipos, partidos o inscripciones reales que usan filas de ejemplo, goles o multimedia que no cargó el admin de ejemplo, o cualquier registro de auditoría de otro administrador sobre una fila de ejemplo (un resultado cargado, una edición, una validación). El mensaje lista cada motivo con su cantidad.
 - **Repetible:** cargar otra vez limpia primero con la misma regla (y se niega en los mismos casos).
-- **Pruebas** (`tests/dev-seed.test.ts`): la barrera, en la función y con el comando real (sin `NODE_ENV`, `production`, `test`, otra base, la de pruebas, sin bandera, también para la limpieza); la carga con cada estado de apuesta y sus 116 marcas; la repetición; la limpieza que conserva los parecidos reales (`Demo Ball`, `demo-rugby` con su competición, equipos y partido, `Juan (demo)` inscrito, una cuenta real `@demo.liga.test`); la limpieza de lo que hizo el admin de ejemplo; cada negativa (apuesta, inscripción, gol con resultado, resultado, video, equipo, partido, competición y edición reales); y la carga que choca con un correo o un slug real.
+- **Pruebas** (`tests/dev-seed.test.ts`): la barrera, en la función y con el comando real (sin `NODE_ENV`, `production`, `test`, otra base, la de pruebas, sin bandera, también para la limpieza); la carga con cada estado de apuesta y sus 128 marcas (116 más las 12 inscripciones con estadísticas); la repetición; la limpieza que conserva los parecidos reales (`Demo Ball`, `demo-rugby` con su competición, equipos y partido, `Juan (demo)` inscrito, una cuenta real `@demo.liga.test`); la limpieza de lo que hizo el admin de ejemplo; cada negativa (apuesta, inscripción, gol con resultado, resultado, video, equipo, partido, competición y edición reales); y la carga que choca con un correo o un slug real.
 
 ## Participantes (T-04)
 
@@ -306,7 +306,7 @@ Administración de `deporte`, `competicion`, `equipo`, `jugador` y `plantel`, to
 
 | Recurso | Campos | Filtros del listado (además de `page`, `pageSize`) | Orden |
 |---|---|---|---|
-| `/admin/deportes` | `nombre`, `slug?`, `permiteEmpate` | `q` (nombre o slug), `permiteEmpate=true\|false` | nombre |
+| `/admin/deportes` | `nombre`, `slug?`, `permiteEmpate`, `perfilEstadistico?` (C-05) | `q` (nombre o slug), `permiteEmpate=true\|false` | nombre |
 | `/admin/competiciones` | `deporteId`, `nombre`, `slug?` | `q`, `deporteId` | nombre |
 | `/admin/equipos` | `competicionId`, `nombre`, `nombreCorto`, `escudo`, `colorAcento` | `q` (nombre o nombre corto), `competicionId`, `deporteId` | nombre |
 | `/admin/jugadores` | `nombre`, `foto?` (`null` la quita) | `q`, `equipoId`, `competicionId` (los inscritos ahí) | nombre |
@@ -344,7 +344,7 @@ Cada recurso tiene `GET /` (paginado), `GET /:id`, `POST /` (201), `PATCH /:id` 
   | Competición | Equipos, partidos o jugadores inscritos | `COMPETITION_IN_USE` |
   | Equipo | Partidos, jugadores inscritos o goles | `TEAM_IN_USE` |
   | Jugador | Inscripciones (y sus goles) | `PLAYER_IN_USE` |
-  | Inscripción | Goles | `ENROLLMENT_IN_USE` |
+  | Inscripción | Goles o estadísticas (C-05) | `ENROLLMENT_IN_USE` |
 - **Mover:**
   - Una competición cambia de deporte solo si no tiene partidos, porque sus partidos siguen la regla de empate del deporte.
   - Un equipo cambia de competición solo si no tiene partidos, inscripciones ni goles.
@@ -359,6 +359,29 @@ Cada recurso tiene `GET /` (paginado), `GET /:id`, `POST /` (201), `PATCH /:id` 
   - 1406, 1264 y 1366 (valor demasiado largo, fuera de rango o de otro tipo) dan 400.
   - Nunca un 500, nunca el texto del driver. Los servicios igual comprueban antes los casos comunes para devolver `details`; la traducción es la red por si hay una carrera. **Al agregar un UNIQUE o una FK, agregar su traducción ahí.**
 - **Auditoría (T-17):** toda escritura pasa por `runAdminAction` (`services/admin-action.ts`). Su `hooks.inTransaction(conn, outcome)` recibe `action`, `entity`, `actorId`, `id`, `before` y `after`, dentro de la misma transacción; si falla, se deshace la acción. Se inyecta con `createCatalogRouter(pool, { hooks })`.
+
+## Estadísticas de los jugadores (C-05, D-034)
+
+Módulo Informativo. Reemplaza las calificaciones de muestra del front (D-022). Código en `services/enrollment-stats.service.ts` (las del plantel), `services/stats-profiles.ts` (los perfiles, leídos de una vez) y `services/sports.service.ts` (el perfil del deporte).
+
+- **Perfiles, un catálogo fijo** (`02-catalogos.sql`): `perfil_estadistico` (`futbol`, `voley`) y `estadistica` con sus atributos en orden. `futbol`: `disparo`, `pase`, `fuerza`, `defensa`, `velocidad`, `dribbling`. `voley`: `mate`, `saque`, `recepcion`, `armado`, `bloqueo`. La aplicación nunca los escribe.
+- **El deporte elige su perfil** por `codigo`: `perfilEstadistico` en `POST` y `PATCH /admin/deportes` (`futbol`, `voley` o `null`; si falta al crear, `null`). Un código que no existe o con otra forma da 400 en `perfilEstadistico`. Las filas devuelven `perfilEstadistico` y `perfilEstadisticoNombre` (unido, no se audita). **Solo cambia mientras ninguna inscripción del deporte tenga estadísticas**: si no, 409 `STATS_PROFILE_LOCKED` con `details.inscripcionesConEstadisticas`. Mandar el mismo perfil no es un cambio.
+- **Las estadísticas van en la inscripción** (`plantel_estadistica`), no en la persona:
+
+  | Ruta | Qué hace |
+  |---|---|
+  | `GET /admin/planteles/:id/estadisticas` | `{ plantelId, perfil, valores }`: el perfil del deporte (`codigo`, `nombre`, `atributos` en orden, o `null`) y los valores (`codigo` → 0-99, o `null`). |
+  | `PUT /admin/planteles/:id/estadisticas` | `{ valores: { codigo: entero } }`, **todos los atributos del perfil a la vez**. Responde como el `GET`. |
+  | `DELETE /admin/planteles/:id/estadisticas` | Quita el juego entero. Responde como el `GET`, con `valores: null`. |
+
+  - El body es estricto (zod): `valores` es un objeto de hasta 20 códigos, cada valor un **entero de 0 a 99** (un decimal, un texto, `null`, 100 o -1 dan 400 en `valores.<codigo>`). El servicio exige además que el juego sea **exactamente** el del perfil: un atributo que falta, uno de otro perfil o uno que no existe dan 400, con un detalle por `valores.<codigo>`. Nada se escribe.
+  - Un deporte sin perfil no admite estadísticas: 409 `SPORT_WITHOUT_STATS`. Una inscripción que no existe: 404 `ENROLLMENT_NOT_FOUND`.
+  - **Auditoría (T-17):** `registrar_estadisticas_plantel` → `registro_estadisticas_plantel`, con `{ valores, anterior }`, y `borrar_estadisticas_plantel` → `borrado_estadisticas_plantel`, con `{ anterior }`; la entidad es el plantel, que sigue existiendo. Guardar el mismo juego otra vez, o quitar un juego que no había, no deja registro (D-004).
+  - **Bloqueos** ("Orden de bloqueo"): la inscripción `FOR UPDATE` por clave primaria (el mismo que toma su borrado, así que nunca se entrecruzan) y después el deporte `FOR SHARE`, leído con ese bloqueo para ver un cambio de perfil ya confirmado. El cambio de perfil bloquea el deporte `FOR UPDATE` antes de contar estadísticas: o el conteo las ve, o ellas ven el perfil nuevo.
+- **Sin cascada:** una inscripción con estadísticas no se borra (409 `ENROLLMENT_IN_USE`, `details.estadisticas` con los atributos cargados); la FK `fk_plantel_estadistica_plantel` da el mismo código si la comprobación se saltara. Las filas de `/admin/planteles` dicen `tieneEstadisticas`.
+- **Público:** `/public/deportes` y el `deporte` de `/public/equipos/:id` traen `perfilEstadistico` (o `null`), y cada jugador del plantel trae `estadisticas` (`codigo` → valor, o `null`). Los valores de todo el plantel salen de una sola consulta y los perfiles de otra: nunca una por jugador. El `deporte` dentro de un partido o una competición no lo trae.
+- **Bases con datos:** `db/migraciones/C-05-estadisticas.sql` (README de la raíz, "Migraciones de una base con datos").
+- **Pruebas** (`tests/enrollment-stats.test.ts`): el perfil del deporte al crear y editar, los códigos inválidos, el bloqueo del cambio de perfil; el `GET` con y sin perfil; el `PUT` completo y en otro orden, vóley, cada forma de juego incompleto o ajeno, cada valor fuera de rango o de otro tipo, el deporte sin perfil, el mismo juego sin auditoría y el `CHECK` de la base; el `DELETE` sin nada que quitar; el borrado bloqueado de la inscripción (servicio y FK); y la respuesta pública. `tests/audit.test.ts` recorre los dos códigos nuevos con su detalle.
 
 ## Partidos (T-07)
 
@@ -881,6 +904,7 @@ Módulo Auditoría (`services/audit.service.ts`, `lib/audit.ts`, `routes/audit.r
 | `crear_*`, `editar_*`, `borrar_*` de deporte, competición, equipo, jugador y plantel (T-06) | `alta_*`, `modificacion_*`, `borrado_*` | la de cada uno |
 | `crear_gol`, `editar_gol` (también poner o quitar su imagen o video), `borrar_gol` (T-13) | `alta_gol`, `modificacion_gol`, `borrado_gol` | `gol` |
 | `crear_multimedia`, `borrar_multimedia` (T-13; imágenes y videos del partido) | `alta_multimedia`, `borrado_multimedia` | `multimedia_partido` |
+| `registrar_estadisticas_plantel`, `borrar_estadisticas_plantel` (C-05; las estadísticas del jugador en su inscripción) | `registro_estadisticas_plantel`, `borrado_estadisticas_plantel` | `plantel` |
 | `crear_administrador`, `promover_administrador` (comando `admin:create`, D-005) | `creacion_administrador`, `promocion_administrador` | `usuario` |
 
 Las cinco de NFR-006 están incluidas. Una prueba verifica que `02-catalogos.sql` y el mapa coincidan, código por código y con su entidad, y que cada código se use.
@@ -1021,7 +1045,7 @@ Formas comunes:
 | `Standing` / `ResolvedStanding` | `filas[]` | `played` es `jugados`, `won` es `ganados`, `drawn` es `empatados`, `lost` es `perdidos`, `goalsFor` es `golesAFavor`, `goalsAgainst` es `golesEnContra` y `points` es `puntos`. `position` ya viene como `posicion`, y `team` como `equipo`. `src/lib/standings.ts` deja de calcular; la API también da `diferencia`. |
 | `Player` | `plantel[]` de `/public/equipos/:id` | `id` sale de `jugadorId` (a texto), `teamId` del equipo pedido y `name` de `nombre`. La API trae además `foto`. |
 | `SquadPlacement` | `plantel[].numeroCamiseta` | `shirtNumber` es `numeroCamiseta`. **`x`, `y` no existen** (la ubicación en la cancha es de muestra): el front las sigue generando o guardando aparte. **No hay "posición"** del jugador en el esquema. |
-| `PlayerStats` | — | Siguen siendo datos aleatorios del front (CLAUDE.md); la API no los tiene. |
+| `PlayerStats` | `plantel[].estadisticas` y `deporte.perfilEstadistico` (C-05) | Los atributos del perfil en orden: `key` es `codigo`, `label` es `nombre` y `value` el valor del jugador; `short` lo arma el front. Sin estadísticas, el jugador no tiene `PlayerStats` y su ficha dice «Sin estadísticas». |
 
 ## Selecciones y cierre (T-09)
 

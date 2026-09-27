@@ -84,15 +84,45 @@ CREATE TABLE sesion (
 -- Módulo Informativo (backbone compartido: landing/fixture/posiciones y polla)
 -- ---------------------------------------------------------------------------
 
+-- C-05 (D-034): el juego de atributos de un jugador depende del deporte.
+-- Catálogo fijo (02-catalogos.sql): futbol, voley. Fútbol y fútbol femenino
+-- comparten `futbol`; un deporte nuevo solo elige su perfil.
+CREATE TABLE perfil_estadistico (
+  id     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  codigo VARCHAR(50)     NOT NULL,
+  nombre VARCHAR(100)    NOT NULL,
+  PRIMARY KEY (id),
+  CONSTRAINT uq_perfil_estadistico_codigo UNIQUE (codigo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Los atributos de cada perfil, en el orden en que se muestran (el radar los
+-- recorre así, en el sentido del reloj). Catálogo fijo: la lógica compara por `codigo`.
+CREATE TABLE estadistica (
+  id                    BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  perfil_estadistico_id BIGINT UNSIGNED  NOT NULL,
+  codigo                VARCHAR(50)      NOT NULL,
+  nombre                VARCHAR(100)     NOT NULL,
+  orden                 TINYINT UNSIGNED NOT NULL,
+  PRIMARY KEY (id),
+  CONSTRAINT uq_estadistica_perfil_codigo UNIQUE (perfil_estadistico_id, codigo),
+  CONSTRAINT uq_estadistica_perfil_orden UNIQUE (perfil_estadistico_id, orden),
+  CONSTRAINT fk_estadistica_perfil FOREIGN KEY (perfil_estadistico_id) REFERENCES perfil_estadistico (id),
+  CONSTRAINT ck_estadistica_orden CHECK (orden >= 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- BR-001/BR-048: "Fútbol", "Vóley"... permite_empate sigue controlando si el
 -- resultado general de esa disciplina admite empate (ver EsquemaBD.md, abierto).
+-- perfil_estadistico_id (C-05): qué atributos tienen sus jugadores; NULL = el
+-- deporte no admite estadísticas.
 CREATE TABLE deporte (
-  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  nombre         VARCHAR(100)    NOT NULL,
-  slug           VARCHAR(100)    NOT NULL,
-  permite_empate BOOLEAN         NOT NULL,
+  id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  nombre                VARCHAR(100)    NOT NULL,
+  slug                  VARCHAR(100)    NOT NULL,
+  permite_empate        BOOLEAN         NOT NULL,
+  perfil_estadistico_id BIGINT UNSIGNED NULL,
   PRIMARY KEY (id),
-  CONSTRAINT uq_deporte_slug UNIQUE (slug)
+  CONSTRAINT uq_deporte_slug UNIQUE (slug),
+  CONSTRAINT fk_deporte_perfil_estadistico FOREIGN KEY (perfil_estadistico_id) REFERENCES perfil_estadistico (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BR-011: "Competición o torneo", distinta del deporte. Sin temporadas: cada
@@ -145,6 +175,21 @@ CREATE TABLE plantel (
   CONSTRAINT fk_plantel_competicion FOREIGN KEY (competicion_id) REFERENCES competicion (id),
   CONSTRAINT fk_plantel_equipo_competicion FOREIGN KEY (equipo_id, competicion_id)
     REFERENCES equipo (id, competicion_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- C-05 (D-034): las estadísticas de un jugador en una inscripción, no en la
+-- persona (la misma puede jugar fútbol en una competición y vóley en otra).
+-- Juego completo o nada, y cada atributo es del perfil del deporte de la
+-- competición del plantel: lo valida el backend, como otras reglas entre
+-- tablas. Sin cascada: un plantel con estadísticas no se borra.
+CREATE TABLE plantel_estadistica (
+  plantel_id     BIGINT UNSIGNED  NOT NULL,
+  estadistica_id BIGINT UNSIGNED  NOT NULL,
+  valor          TINYINT UNSIGNED NOT NULL,
+  PRIMARY KEY (plantel_id, estadistica_id),
+  CONSTRAINT fk_plantel_estadistica_plantel FOREIGN KEY (plantel_id) REFERENCES plantel (id),
+  CONSTRAINT fk_plantel_estadistica_estadistica FOREIGN KEY (estadistica_id) REFERENCES estadistica (id),
+  CONSTRAINT ck_plantel_estadistica_valor CHECK (valor BETWEEN 0 AND 99)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BR-012: estados mínimos del partido.

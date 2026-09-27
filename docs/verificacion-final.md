@@ -14,7 +14,7 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
-| **BR-001** Rol administrador | `/admin/*` (sesión + `requireRole('admin')`, `routes/admin.route.ts`); panel `/admin` con participantes, catálogo, partidos, resultado, goles, multimedia, apuestas, ranking, estadísticas y auditoría (`src/pages/admin/`). El admin **no participa**: `requireBettor` lo rechaza, las acciones de participante responden 404 `NOT_A_PARTICIPANT` y toda consulta de la polla filtra `rol = 'apostador'`. Los roles no se cambian desde la app (solo `npm run admin:create`). | `authorization.test.ts`, `participants-actions.test.ts`, `admin-bets.test.ts`, `ranking.test.ts`, `create-admin.test.ts`; front `panel.test.tsx`, `partidos.test.tsx` | Cumplida |
+| **BR-001** Rol administrador | `/admin/*` (sesión + `requireRole('admin')`, `routes/admin.route.ts`); panel `/admin` con participantes, catálogo (desde C-05, con el perfil de estadísticas de cada deporte y las estadísticas de cada inscripción), partidos, resultado, goles, multimedia, apuestas, ranking, estadísticas y auditoría (`src/pages/admin/`). El admin **no participa**: `requireBettor` lo rechaza, las acciones de participante responden 404 `NOT_A_PARTICIPANT` y toda consulta de la polla filtra `rol = 'apostador'`. Los roles no se cambian desde la app (solo `npm run admin:create`). | `authorization.test.ts`, `participants-actions.test.ts`, `admin-bets.test.ts`, `ranking.test.ts`, `create-admin.test.ts`; front `panel.test.tsx`, `partidos.test.tsx` | Cumplida |
 | **BR-002** Rol usuario | `/apuestas/*`, `/monedas/*`, `/ranking` con `requireBettor`/`requireParticipant`; pantallas `/apuestas`, `/mis-apuestas`, `/ranking`, `/cuenta` | `authorization.test.ts`, `betting.test.ts`, `bet-history.test.ts`; front `Apuestas.test.tsx`, `MisApuestas.test.tsx`, `Ranking.test.tsx` | Cumplida |
 
 ## Registro, autenticación y validación
@@ -134,11 +134,13 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | **NFR-003** Pixel art | `src/styles/global.css` (tokens, `pixel-box`, `pixel-bevel`, `pixel-shadow`); sin `border-radius`, sin desenfoques, sin `backdrop-filter`, gradientes en bandas, `steps()` en todo movimiento y todo apagado con `prefers-reduced-motion` | Auditoría automática del CSS (T-23, sobre los archivos) + revisión visual en el navegador | Cumplida |
 | **NFR-004** Indicador de monedas | `SessionBar` + `CoinIcon` (sprite 8×8 con `box-shadow`), siempre visible para el apostador | front `SessionBar.test.tsx` | Cumplida |
 | **NFR-005** Seguridad | argon2id, sesiones en servidor con cookie `HttpOnly`/`SameSite=Strict`, CSRF en toda escritura, `requireAuth`/`requireRole`/`requireBettor`/`requireParticipant`, zod en body, params y query, límites por IP, subida de imágenes validada por contenido, `helmet`, CORS cerrado y errores sin datos internos | `authorization.test.ts`, `csrf.test.ts`, `auth-rate-limits.test.ts`, `rate-limit.test.ts`, `query-params.test.ts`, `body-errors.test.ts`, `media-lib.test.ts`, `env.test.ts`, `read-secret.test.ts` | Cumplida |
-| **NFR-006** Auditoría | `services/audit.service.ts` + `lib/audit.ts`: una fila por escritura del admin, en su misma transacción, con administrador, acción, fecha, registro afectado y detalle acotado; consulta en `GET /admin/auditoria` | `audit.test.ts`; front `panel.test.tsx` | Cumplida |
+| **NFR-006** Auditoría | `services/audit.service.ts` + `lib/audit.ts`: una fila por escritura del admin (desde C-05, también las estadísticas de una inscripción), en su misma transacción, con administrador, acción, fecha, registro afectado y detalle acotado; consulta en `GET /admin/auditoria` | `audit.test.ts`, `enrollment-stats.test.ts`; front `panel.test.tsx` | Cumplida |
 
 ## Resumen
 
 - **61 reglas revisadas** (55 BR + 6 NFR): todas **cumplidas**, cinco de ellas con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-042 y BR-046).
 
 > Revisado el 2026-09-18 tras el cambio **C-01** (contraseña de 6 a 20 caracteres, D-024): solo cambian BR-003 y BR-004; el resto de la tabla sigue igual.
+>
+> Revisado el 2026-09-27 tras el cambio **C-05** (estadísticas reales de los jugadores, D-034): ninguna BR las define; se movió dónde se cumplen BR-001 (el catálogo del panel) y NFR-006 (dos acciones auditadas más, también en `business-rules.md`). El resto sigue igual.
 - Ninguna regla quedó pendiente. Lo que sigue abierto son mejoras y deudas técnicas, no incumplimientos: están en [pendientes.md](pendientes.md).

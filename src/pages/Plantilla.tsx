@@ -3,7 +3,6 @@ import { data, Link, useLoaderData, type LoaderFunctionArgs } from 'react-router
 import Crest from '../components/Crest';
 import SquadBoard from '../components/SquadBoard';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
-import { statsForPlayer } from '../data/player-stats';
 import { getTeamWithSquad } from '../lib/league';
 import { courtFor } from '../lib/squad-layout';
 import styles from './Plantilla.module.css';
@@ -17,8 +16,8 @@ import styles from './Plantilla.module.css';
 export async function loader({ params, request }: LoaderFunctionArgs) {
 	const found = params.id ? await getTeamWithSquad(params.id, request.signal) : undefined;
 	if (!found) throw data(null, { status: 404 });
-	// Sample ratings from each player's real id (D-022): the card says so.
-	return { ...found, stats: found.players.map((player) => statsForPlayer(player.id)) };
+	// The real statistics (C-05, D-034) travel with the squad; a player without them says so on the card.
+	return found;
 }
 
 export default function Plantilla() {

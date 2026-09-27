@@ -1166,7 +1166,7 @@ Como mínimo:
 
 Precisiones (T-17):
 
-* Además de las cinco mínimas, se registran la creación y la promoción de administradores con el comando del servidor (D-005) y todas las escrituras del administrador: confirmar y revertir un pago; alta, modificación y borrado de partidos, deportes, competiciones, equipos, jugadores e inscripciones en planteles; alta, modificación y borrado de goles (poner o quitar la imagen o el video de un gol es una modificación), y alta y borrado de imágenes y videos del partido.
+* Además de las cinco mínimas, se registran la creación y la promoción de administradores con el comando del servidor (D-005) y todas las escrituras del administrador: confirmar y revertir un pago; alta, modificación y borrado de partidos, deportes, competiciones, equipos, jugadores e inscripciones en planteles; alta, modificación y borrado de goles (poner o quitar la imagen o el video de un gol es una modificación), y alta y borrado de imágenes y videos del partido. Desde C-05 (D-034), también el registro y el borrado de las estadísticas de un jugador en su inscripción; guardar las mismas estadísticas otra vez no deja registro.
 * Cada registro guarda el administrador, la acción, la fecha y hora (UTC), el registro afectado y un detalle breve: los datos que cambiaron con su valor anterior y el nuevo, lo creado o lo borrado, el marcador registrado o confirmado, o las cifras de la cancelación.
 * El detalle nunca guarda contraseñas, claves, tokens, correos ni saldos, y tiene un tamaño máximo; si no entra, se guardan solo los nombres de los datos.
 * El registro se hace en la misma operación que la acción: una acción rechazada o fallida no deja registro, y si no se puede registrar, la acción no se aplica.

@@ -23,7 +23,6 @@ Web del torneo (fixture, posiciones, equipos y plantillas), más una polla depor
 │   ├── components/         # admin/AdminUi (piezas del panel), Navbar, SessionBar, CoinIcon, PixelIcon, TextField, BetMatchCard, TicketPanel, TeamCrest, Hero, Carousel, Fixture, MatchCard, SquadBoard, PlayerStatsDialog, PixelImage
 │   ├── hooks/              # título por página, scroll, sesión y foco en errores
 │   ├── lib/                # capa de datos (league.ts lee la API pública), cliente de la API (api.ts), sesión (auth.ts) y guardas de rutas
-│   ├── data/               # atributos de muestra del radar (D-022); el resto de los datos vienen de la API
 │   ├── types/              # contratos de las entidades y de la API (api.ts)
 │   ├── test/               # utilidades de las pruebas del front (fetch simulado, router en memoria)
 │   ├── utils/              # radar pixel y captura de imagen para compartir
@@ -31,6 +30,7 @@ Web del torneo (fixture, posiciones, equipos y plantillas), más una polla depor
 │   └── assets/             # escudos, logos y fondos (se importan con ?pixel=<preset>)
 ├── server/                 # API Express + TypeScript — package.json propio, ver server/README.md
 ├── db/init/                # esquema SQL, ver EsquemaBD.md
+├── db/migraciones/         # cambios de esquema para bases que ya tienen datos (C-05 en adelante)
 ├── db/export-datos-reales.mjs # genera el volcado de datos reales para producción (solo lee)
 ├── compose.yaml            # desarrollo: base + backend con recarga
 ├── compose.prod.yaml       # producción: base + backend compilado
@@ -116,7 +116,7 @@ El front llama a la API **en su mismo origen**, con rutas relativas bajo `/api` 
 - **Equipos:** `/plantilla/:id` usa el id numérico del equipo (`/plantilla/42`). Un id que no es número, o que no existe, muestra "Página no encontrada": la API responde 400 o 404 y la capa de datos trata los dos igual.
 - **Imágenes:** los escudos y las fotos vienen de la API como URL `https://` o ruta del sitio, así que no son recortes generados al compilar: se muestran con `<img>` pequeños, tamaño fijo y `pixelated` (`Crest`), nunca como SVG incrustado. Si el valor no sirve, se ven las iniciales del equipo. Las ilustraciones propias (logo, cancha, retrato, fondos) siguen con `PixelImage` y sus presets.
 - **Estados:** si no hay competiciones, si la competición no tiene nada cargado o si una lectura falla, la página lo dice sin taparse, y el fallo ofrece "Reintentar".
-- **Radar del jugador (D-022):** los seis atributos siguen siendo de muestra, generados a partir del id real del jugador (iguales en cada recarga). La ficha lo advierte, y la cancha aclara que la ubicación es de muestra: el dorsal sí es el del plantel.
+- **Radar del jugador (C-05, D-034):** las estadísticas son reales y dependen del deporte: fútbol tiene Disparo, Pase, Fuerza, Defensa, Velocidad y Dribbling; vóley, Mate, Saque, Recepción, Armado y Bloqueo; cada una de 0 a 99. Las carga el administrador en cada inscripción (panel, Planteles). Todo jugador abre su ficha: con estadísticas, el radar (un eje por atributo), la tabla y la media; sin ellas, «Sin estadísticas». La cancha sigue aclarando que la ubicación es de muestra (D-033): el dorsal sí es el del plantel.
 
 ### Panel de administración (T-21)
 
@@ -449,11 +449,11 @@ docker compose -f compose.prod.yaml down               # parar todo (SIN -v: -v 
 
 ### Llevar los datos reales a producción
 
-La base de producción arranca **vacía**: al crear el volumen se ejecutan `db/init/01-schema.sql` (el esquema) y `db/init/02-catalogos.sql` (los 9 catálogos). Los datos que ya están cargados en la base de desarrollo —**3 deportes, 3 competiciones, 15 equipos, 102 jugadores y 134 planteles**— se llevan con un volcado.
+La base de producción arranca **vacía**: al crear el volumen se ejecutan `db/init/01-schema.sql` (el esquema) y `db/init/02-catalogos.sql` (los 11 catálogos). Los datos que ya están cargados en la base de desarrollo —**3 deportes, 3 competiciones, 15 equipos, 102 jugadores y 134 planteles**, más las estadísticas de los jugadores que se hayan cargado (C-05)— se llevan con un volcado. (Una producción que **ya** tiene datos no usa esto: se actualiza con la [migración](#migraciones-de-una-base-con-datos).)
 
-**Qué viaja y qué no.** Solo las cinco tablas con datos reales del Módulo Informativo: `deporte`, `competicion`, `equipo`, `jugador` y `plantel`, en ese orden, que es el de las claves foráneas. **No** viajan los catálogos (los carga `02-catalogos.sql`, y repetirlos rompe por `codigo` único) ni `usuario`, `sesion`, `auditoria`, `ticket`, `seleccion` o `movimiento_moneda`: llevar hashes de contraseña y sesiones de una base de desarrollo a un servidor real es justo lo que no hay que hacer. **El administrador de producción se crea allá**, con `create-admin` (paso 7). Las tablas de partidos (`partido`, `partido_equipo`, `gol`, `multimedia_partido`) están vacías en desarrollo, así que no hay nada que llevar.
+**Qué viaja y qué no.** Solo las seis tablas con datos reales del Módulo Informativo: `deporte` (con su perfil de estadísticas), `competicion`, `equipo`, `jugador`, `plantel` y `plantel_estadistica`, en ese orden, que es el de las claves foráneas. **No** viajan los catálogos (los carga `02-catalogos.sql`, y repetirlos rompe por `codigo` único) ni `usuario`, `sesion`, `auditoria`, `ticket`, `seleccion` o `movimiento_moneda`: llevar hashes de contraseña y sesiones de una base de desarrollo a un servidor real es justo lo que no hay que hacer. **El administrador de producción se crea allá**, con `create-admin` (paso 7). Las tablas de partidos (`partido`, `partido_equipo`, `gol`, `multimedia_partido`) están vacías en desarrollo, así que no hay nada que llevar.
 
-**Los ids se conservan.** Las URLs de la app son `/plantilla/42`, o sea que el id es visible y estable, y `plantel` referencia equipos y jugadores por id. El volcado los trae explícitos.
+**Los ids se conservan.** Las URLs de la app son `/plantilla/42`, o sea que el id es visible y estable, y `plantel` referencia equipos y jugadores por id. El volcado los trae explícitos. `deporte` y `plantel_estadistica` también apuntan por id a los catálogos de estadísticas (C-05), que viajan por `02-catalogos.sql`: el archivo trae el id de origen de cada código y **se niega a cargar**, antes de insertar nada, si en el destino no coinciden.
 
 #### Paso 1 — generar el volcado (en la máquina de desarrollo)
 
@@ -462,7 +462,7 @@ docker compose up -d db      # la base de DESARROLLO
 npm run db:export-real       # escribe db/datos-reales.sql
 ```
 
-Solo lee: lo único que corre contra MySQL son `mysqldump` y `SELECT COUNT(*)`. La base de desarrollo no se toca. La salida dice cuántas filas lleva cada tabla; tienen que ser 3, 3, 15, 102 y 134.
+Solo lee: lo único que corre contra MySQL son `mysqldump` y dos `SELECT` (los conteos y los ids de los catálogos de estadísticas). La base de desarrollo no se toca, pero tiene que tener aplicada la migración C-05. La salida dice cuántas filas lleva cada tabla; tienen que ser 3, 3, 15, 102 y 134, y en `plantel_estadistica` las que se hayan cargado (6 por jugador de fútbol, 5 por jugador de vóley).
 
 #### Paso 2 — copiarlo al servidor
 
@@ -494,12 +494,15 @@ docker compose -f compose.prod.yaml exec -T db \
 ```text
 control
 Base vacía: se puede cargar
-tabla        filas  esperadas
-deporte      3      3
-competicion  3      3
-equipo       15     15
-jugador      102    102
-plantel      134    134
+control
+Catálogos de estadísticas iguales a los del origen
+tabla                filas  esperadas
+deporte              3      3
+competicion          3      3
+equipo               15     15
+jugador              102    102
+plantel              134    134
+plantel_estadistica  0      0
 control
 Verificación OK
 resultado
@@ -511,10 +514,11 @@ Carga completa y verificada.
 | Error | Qué pasó | Qué hacer |
 | :-- | :-- | :-- |
 | `Table '...ABORTADO_la_base_ya_tiene_datos_informativos' doesn't exist` | Las tablas ya tenían filas. El archivo **no** insertó nada. | Mirar qué hay cargado antes de decidir. No se vuelve a correr "por las dudas". |
+| `Table '...ABORTADO_los_ids_de_los_catalogos_de_estadisticas_no_coinciden' doesn't exist` | Los catálogos de estadísticas del destino no tienen los mismos ids que los de desarrollo (C-05). No se insertó nada. | No pasa con una base creada desde `db/init/` de esta versión. Revisar `SELECT * FROM estadistica` en las dos bases antes de seguir. |
 | `Table '...VERIFICACION_FALLIDA_los_conteos_no_coinciden' doesn't exist` | Entraron menos filas de las esperadas (archivo truncado en la copia). La transacción se deshizo: la base quedó **vacía**. | Copiar el archivo de nuevo y repetir. La tabla de conteos que se imprime arriba dice qué tabla falló. |
 | Un error de clave foránea | El archivo llegó cortado. También se deshizo todo. | Igual que el anterior. |
 
-**Se corre una sola vez.** El archivo **no es idempotente a propósito**: en lugar de `INSERT IGNORE` o `REPLACE`, lleva una barrera que aborta si las cinco tablas no están vacías. Es una carga inicial única sobre una base nueva; si ya hay algo, lo correcto es detenerse y mirar por qué, no mezclar en silencio con lo que hubiera. Correrlo dos veces falla limpio y **no duplica ni una fila**.
+**Se corre una sola vez.** El archivo **no es idempotente a propósito**: en lugar de `INSERT IGNORE` o `REPLACE`, lleva una barrera que aborta si las seis tablas no están vacías. Es una carga inicial única sobre una base nueva; si ya hay algo, lo correcto es detenerse y mirar por qué, no mezclar en silencio con lo que hubiera. Correrlo dos veces falla limpio y **no duplica ni una fila**.
 
 Después de cargar, el sitio ya muestra equipos y plantillas. Lo que falta cargar desde el panel son los **partidos**, que en desarrollo no existen.
 
@@ -558,7 +562,7 @@ Antes de este cambio, con nginx del host sirviendo `dist/`, ya se habían compro
 
 - **`NODE_ENV=production` exige HTTPS.** El backend decide **solo por esa variable** si la cookie de sesión lleva `Secure` y el prefijo `__Host-`; no mira si hay TLS. Servir `production` por HTTP deja el sitio **sin poder iniciar sesión** (el navegador descarta la cookie), y servir `development` por HTTPS manda la cookie sin `Secure`. Por eso el sitio de nginx redirige HTTP a HTTPS.
 - **La base real nunca puede llamarse `la_liga_acp_test`.** `MYSQL_DATABASE_TEST` vale `la_liga_acp_test` por defecto y el backend **no arranca** si coincide con `MYSQL_DATABASE`. En producción no hace falta definirla, pero sí evitar ese nombre para la base real.
-- **No hay sistema de migraciones.** Los scripts de `db/init/` corren **una sola vez**, con el volumen de MySQL vacío. Con datos reales cargados, cambiar `01-schema.sql` no hace nada: hay que aplicar el cambio a mano con `ALTER TABLE` sobre la base en marcha (con respaldo antes) y dejar `01-schema.sql` y `EsquemaBD.md` en paso, para que una instalación nueva nazca igual. Borrar el volumen para "reaplicar el esquema" **borra los datos**. Respaldo antes de tocar nada:
+- **No hay sistema de migraciones automático.** Los scripts de `db/init/` corren **una sola vez**, con el volumen de MySQL vacío. Con datos reales cargados, cambiar `01-schema.sql` no hace nada: el cambio se aplica con el script de `db/migraciones/` que lo acompaña (ver [Migraciones de una base con datos](#migraciones-de-una-base-con-datos); la primera es C-05) y `01-schema.sql` y `EsquemaBD.md` quedan en paso, para que una instalación nueva nazca igual. Borrar el volumen para "reaplicar el esquema" **borra los datos**. Respaldo antes de tocar nada:
 
   ```sh
   # Comillas simples: la contraseña y el nombre de la base se expanden DENTRO
@@ -672,14 +676,69 @@ docker compose down -v
 docker compose up -d
 ```
 
-Los scripts de `db/init/` solo corren con el volumen vacío: si los cambias, hay que resetear. T-03 agregó la tabla `sesion` (con su índice sobre `expira_en`): un volumen creado antes no la tiene, así que el backend falla al iniciar sesión hasta que resetees. `down -v` también borra el volumen anónimo de `node_modules` del servicio `server`; no hay que hacer nada, porque el siguiente `up` lo vuelve a llenar con las dependencias de la imagen. El backend no tiene otros datos propios que se pierdan.
+Los scripts de `db/init/` solo corren con el volumen vacío: si los cambias, hay que resetear. T-03 agregó la tabla `sesion` (con su índice sobre `expira_en`): un volumen creado antes no la tiene, así que el backend falla al iniciar sesión hasta que resetees. `down -v` también borra el volumen anónimo de `node_modules` del servicio `server`; no hay que hacer nada, porque el siguiente `up` lo vuelve a llenar con las dependencias de la imagen. El backend no tiene otros datos propios que se pierdan. **Con datos reales cargados no se resetea:** se aplica la migración, abajo.
+
+### Migraciones de una base con datos
+
+Resetear borra los datos, así que un cambio de esquema para una base que ya los tiene (la de desarrollo con los datos del usuario, o la de producción) viaja como un script en `db/migraciones/`. `db/init/` ya trae el mismo cambio para las bases nuevas: **una base creada después del cambio no necesita la migración** (y si se le aplica, se niega sin tocar nada).
+
+| Migración | Qué hace |
+| :-- | :-- |
+| `C-05-estadisticas.sql` | Estadísticas reales de los jugadores (D-034): crea `perfil_estadistico`, `estadistica` y `plantel_estadistica` (vacía), agrega `deporte.perfil_estadistico_id` y asigna el perfil a cada deporte por su nombre (fútbol en cualquier variante, incluido femenino → `futbol`; vóley, voleibol o volley → `voley`; otro nombre queda sin perfil, y se elige en el panel). Agrega también los dos códigos de auditoría nuevos. Ningún jugador recibe estadísticas. |
+
+Cómo se comporta cada una (así está escrita `C-05`):
+
+- **Se niega si ya se aplicó**, sin tocar nada: `ERROR 1644 (45000) ... C-05 ya está aplicada en esta base: no se cambió nada.`
+- **Los datos van en una transacción** que comprueba los conteos antes del `COMMIT`. El DDL de MySQL confirma solo, así que las tablas nuevas pueden quedar creadas (vacías) si algo falla después; **reintentar funciona** y las reutiliza. Lo que la marca como aplicada entra en la misma transacción que los datos.
+- **No toca ninguna fila existente** fuera de lo que dice. En C-05 eso se midió sobre una copia de la base de desarrollo, con `CHECKSUM TABLE` antes y después de cada tabla y un hash de las columnas de siempre de `deporte`: cambian **`deporte`**, solo por su columna nueva `perfil_estadistico_id` (el perfil que le toca a cada deporte; `id`, `nombre`, `slug` y `permite_empate` quedan iguales), y **`accion_auditoria`**, por sus dos filas nuevas. Todo lo demás queda idéntico.
+- **Los catálogos nuevos entran con ids fijos** (futbol = 1, voley = 2, atributos 1 a 11, los mismos de `db/init/`), también después de un intento fallido que ya gastó valores de AUTO_INCREMENT, y se comprueban antes del `COMMIT`. El volcado de datos reales depende de eso.
+- Si falla, deja un procedimiento temporal (`c05_migrar`) que el siguiente intento borra solo; para quitarlo a mano: `DROP PROCEDURE IF EXISTS c05_migrar;`.
+
+**Siempre con respaldo antes**, y como root de MySQL (el usuario de la aplicación no puede crear tablas ni procedimientos).
+
+En **desarrollo** (desde la raíz del repo):
+
+```sh
+# 1. Respaldo. Comillas simples: la contraseña y la base se expanden DENTRO del contenedor.
+docker compose exec -T db \
+  sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --databases "$MYSQL_DATABASE"' \
+  > respaldo-antes-de-C-05.sql
+
+# 2. La migración. Imprime cada deporte con el perfil que le tocó.
+docker compose exec -T db \
+  sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 "$MYSQL_DATABASE"' \
+  < db/migraciones/C-05-estadisticas.sql
+```
+
+En **producción** es lo mismo con el compose de producción, en `/srv/la-liga-acp` después del `git pull` y **antes** de `up -d --build` (el backend nuevo lee las tablas nuevas; con la base sin migrar, las pantallas de deportes y plantillas fallan):
+
+```sh
+cd /srv/la-liga-acp
+docker compose -f compose.prod.yaml exec -T db \
+  sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --databases "$MYSQL_DATABASE"' \
+  > respaldo-antes-de-C-05.sql
+docker compose -f compose.prod.yaml exec -T db \
+  sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 "$MYSQL_DATABASE"' \
+  < db/migraciones/C-05-estadisticas.sql
+docker compose -f compose.prod.yaml up -d --build
+```
+
+Lo que tiene que imprimir es la lista de deportes con su perfil (`futbol`, `voley` o `NULL`). Un deporte que quedó en `NULL` y debería tener estadísticas se corrige en el panel, sección Deportes. **Volver atrás** es restaurar el respaldo (lleva su propio `CREATE DATABASE`/`USE` y recrea cada tabla que tenía) y borrar después las tres tablas que el respaldo no conoce, en este orden por sus claves foráneas:
+
+```sh
+docker compose -f compose.prod.yaml exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"' < respaldo-antes-de-C-05.sql
+docker compose -f compose.prod.yaml exec -T db \
+  sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "DROP TABLE plantel_estadistica, estadistica, perfil_estadistico"'
+```
+
+(En desarrollo, lo mismo sin `-f compose.prod.yaml`.) Y volver al código anterior: el backend de C-05 necesita las tablas.
 
 ## ⚠️ Limitaciones conocidas
 
 Lo que conviene saber antes de usarlo o desplegarlo. El detalle, y todo lo demás que quedó abierto, está en [docs/pendientes.md](docs/pendientes.md).
 
 - **Las pantallas públicas van hasta 30 segundos atrás** de lo que acaba de cargar el administrador: la API pública responde `Cache-Control: public, max-age=30` (ver arriba). El panel siempre ve el dato nuevo.
-- **Las estadísticas del radar del jugador son de muestra** (D-022): se generan a partir del id real del jugador y ninguna regla de negocio las define. La ficha lo dice en pantalla, igual que la ubicación en la cancha.
+- **La ubicación de cada jugador en la cancha es de muestra** (D-033): el esquema no guarda posiciones, así que se reparte por dorsal. La cancha lo dice en pantalla. Las estadísticas del radar, en cambio, son reales desde C-05 (las carga el administrador; sin ellas la ficha dice «Sin estadísticas»).
 - **El escudo del equipo y la foto del jugador se cargan como URL o ruta**, no como archivo subido: el servidor nunca las descarga, y el front solo las muestra con `<img>`. Migrarlas a la subida de T-13 es una tarea propia.
 - **El ranking suma todas las apuestas en cada consulta** (unos 25 ms con 30 000 selecciones). Si la polla crece mucho, conviene cachearlo o guardar un resumen por usuario.
 - **Los administradores no participan en la polla** (BR-001): no se validan, no tienen monedas y no aparecen en el ranking ni en las estadísticas. Un administrador se crea solo desde el servidor: en desarrollo con `npm run server:admin:create`, y en producción con `node dist/cli/create-admin.js` dentro del contenedor (la imagen de producción no tiene `tsx` ni `src/`; ver el paso 7 del despliegue).

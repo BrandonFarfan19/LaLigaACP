@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { type ActionFunctionArgs, type FetcherWithComponents, type LoaderFunctionArgs, useFetcher, useLoaderData } from 'react-router';
+import { type ActionFunctionArgs, type FetcherWithComponents, Link, type LoaderFunctionArgs, useFetcher, useLoaderData } from 'react-router';
 import {
 	ActionMessage,
 	CheckField,
@@ -10,7 +10,9 @@ import {
 	type FilterField,
 	FilterProblems,
 	LoadNotice,
+	type Option,
 	Pager,
+	SelectField,
 	useOutcomeFocus,
 } from '../../components/admin/AdminUi';
 import { SearchSelect } from '../../components/admin/SearchSelect';
@@ -19,11 +21,24 @@ import TextField from '../../components/TextField';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useArrivalFocus, useKept } from '../../hooks/useKept';
 import { useSession } from '../../hooks/useSession';
-import { type ActionOutcome, deOf, type FilterValues, intOf, jsonBody, parseFilters, perform, refused } from '../../lib/admin-core';
-import { CATALOG_FILTERS, type CatalogResource, type CatalogRow, createCatalog, deleteCatalog, listCatalog, updateCatalog } from '../../lib/admin-catalog';
+import { type ActionOutcome, adminErrorText, deOf, type FilterValues, intOf, jsonBody, parseFilters, perform, refused } from '../../lib/admin-core';
+import {
+	CATALOG_FILTERS,
+	type CatalogResource,
+	type CatalogRow,
+	createCatalog,
+	deleteCatalog,
+	deleteEnrollmentStats,
+	getEnrollmentStats,
+	listCatalog,
+	setEnrollmentStats,
+	STATS_PROFILES,
+	statsProfileHint,
+	updateCatalog,
+} from '../../lib/admin-catalog';
 import { catalogSource, labelById } from '../../lib/admin-choices';
 import { loadAdmin, pageInRange, skipPageFix, usePageUrlFix } from '../../lib/admin-load';
-import type { AdminCompetition, AdminEnrollment, AdminPlayer, AdminSport, AdminTeam, ApiPage } from '../../types/admin';
+import type { AdminCompetition, AdminEnrollment, AdminEnrollmentStats, AdminPlayer, AdminSport, AdminTeam, ApiPage } from '../../types/admin';
 import shared from '../Apuestas.module.css';
 import styles from './Admin.module.css';
 
@@ -38,9 +53,14 @@ import styles from './Admin.module.css';
 interface FormField {
 	name: string;
 	label: string;
-	kind: 'text' | 'number' | 'check' | 'search';
+	kind: 'text' | 'number' | 'check' | 'search' | 'select';
 	/** `search`: the list its options come from (D-019). */
 	resource?: CatalogResource;
+	/** `select`: a short fixed list; its empty option (`empty`) sends `null`. */
+	options?: readonly Option[];
+	empty?: string;
+	/** `select`: a hint that follows the option chosen (C-05: the profile's attributes). */
+	hintOf?: (value: string) => string;
 	hint?: string;
 	/** Text: left out when empty (the backend fills it: a slug). */
 	optional?: boolean;
@@ -72,6 +92,8 @@ interface Section<R extends CatalogResource> {
 	values: (row: CatalogRow[R]) => Record<string, string | number | boolean | null>;
 	/** The text of a row's chosen ids, so its edit form reads without another call. */
 	chosen?: (row: CatalogRow[R]) => ChosenLabels;
+	/** C-05: each row edits the player's statistics too (only squads). */
+	stats?: true;
 }
 
 /** Filters that choose a record: searched in the API, never a capped list (D-019). */
@@ -93,11 +115,19 @@ const SECTIONS: { [R in CatalogResource]: Section<R> } = {
 		title: 'Deportes',
 		one: 'el deporte',
 		many: 'los deportes',
-		lead: 'Cada deporte dice si admite empate (BR-015). Esa regla solo cambia mientras ninguna apuesta dependa de ella.',
+		lead: 'Cada deporte dice si admite empate (BR-015), que solo cambia mientras ninguna apuesta dependa de ella, y qué estadísticas tienen sus jugadores, que solo cambian mientras ninguno las tenga cargadas.',
 		fields: [
 			{ name: 'nombre', label: 'Nombre', kind: 'text', hint: NAME_HINT },
 			{ name: 'slug', label: 'Slug (opcional)', kind: 'text', optional: true, hint: 'Vacío: sale del nombre. Minúsculas, números y guiones.' },
 			{ name: 'permiteEmpate', label: 'Admite empate', kind: 'check' },
+			{
+				name: 'perfilEstadistico',
+				label: 'Estadísticas de los jugadores',
+				kind: 'select',
+				options: STATS_PROFILES,
+				empty: 'Sin estadísticas',
+				hintOf: statsProfileHint,
+			},
 		],
 		filters: () => [
 			{ name: 'q', label: 'Buscar', type: 'text' },
@@ -107,10 +137,11 @@ const SECTIONS: { [R in CatalogResource]: Section<R> } = {
 			{ header: 'Nombre', cell: (d) => d.nombre },
 			{ header: 'Slug', cell: (d) => d.slug },
 			{ header: 'Empate', cell: (d) => (d.permiteEmpate ? 'Admite empate' : 'Sin empate') },
+			{ header: 'Estadísticas', cell: (d) => d.perfilEstadisticoNombre ?? 'Sin estadísticas' },
 		],
 		name: (d: AdminSport) => d.nombre,
 		deleteNote: 'Solo se borra un deporte sin competiciones. Queda en la auditoría.',
-		values: (d) => ({ nombre: d.nombre, slug: d.slug, permiteEmpate: d.permiteEmpate }),
+		values: (d) => ({ nombre: d.nombre, slug: d.slug, permiteEmpate: d.permiteEmpate, perfilEstadistico: d.perfilEstadistico }),
 	},
 	competiciones: {
 		resource: 'competiciones',
@@ -213,7 +244,7 @@ const SECTIONS: { [R in CatalogResource]: Section<R> } = {
 		title: 'Planteles',
 		one: 'la inscripción',
 		many: 'las inscripciones de los planteles',
-		lead: 'Inscribe a un jugador en un equipo: uno solo por competición y sin transferencias; después solo cambia el número de camiseta.',
+		lead: 'Inscribe a un jugador en un equipo: uno solo por competición y sin transferencias; después solo cambia el número de camiseta. Sus estadísticas (de 0 a 99, las del deporte) se cargan en cada inscripción.',
 		fields: [
 			{ name: 'jugadorId', label: 'Jugador', kind: 'search', resource: 'jugadores', createOnly: true },
 			{ name: 'equipoId', label: 'Equipo', kind: 'search', resource: 'equipos', createOnly: true },
@@ -229,10 +260,12 @@ const SECTIONS: { [R in CatalogResource]: Section<R> } = {
 			{ header: 'Jugador', cell: (p) => p.jugadorNombre },
 			{ header: 'Equipo', cell: (p) => `${p.equipoNombre} · ${p.competicionNombre} (${p.deporteNombre})` },
 			{ header: 'Camiseta', cell: (p) => p.numeroCamiseta },
+			{ header: 'Estadísticas', cell: (p) => (p.tieneEstadisticas ? 'Cargadas' : 'Sin estadísticas') },
 		],
 		name: (p: AdminEnrollment) => p.jugadorNombre,
-		deleteNote: 'Solo se da de baja una inscripción sin goles registrados.',
+		deleteNote: 'Solo se da de baja una inscripción sin goles registrados ni estadísticas.',
 		values: (p) => ({ numeroCamiseta: p.numeroCamiseta }),
+		stats: true,
 	},
 };
 
@@ -265,6 +298,10 @@ function bodyOf(fields: FormField[], form: FormData, editing: boolean): Record<s
 		const raw = form.get(field.name);
 		if (field.kind === 'check') {
 			body[field.name] = raw === 'on';
+			continue;
+		}
+		if (field.kind === 'select') {
+			body[field.name] = typeof raw === 'string' && raw !== '' ? raw : null;
 			continue;
 		}
 		const value = typeof raw === 'string' ? raw.trim() : '';
@@ -313,6 +350,14 @@ function makeAction<R extends CatalogResource>(section: Section<R>) {
 		if (!id) return refused(intent, '', 'Falta el registro.');
 		if (intent === 'update') return perform(intent, String(id), () => updateCatalog(section.resource, id, values), () => `Se guardaron los cambios ${deOf(label)}.`);
 		if (intent === 'delete') return perform(intent, String(id), () => deleteCatalog(section.resource, id), () => `Se borró ${label}.`);
+		// C-05: a player's statistics in the enrollment (the whole set at once, or none).
+		if (section.stats && intent === 'stats-save') {
+			const valores = (values.valores ?? {}) as Record<string, unknown>;
+			return perform(intent, statsTarget(id), () => setEnrollmentStats(id, valores), () => `Se guardaron las estadísticas de ${label}.`);
+		}
+		if (section.stats && intent === 'stats-delete') {
+			return perform(intent, statsTarget(id), () => deleteEnrollmentStats(id), () => `Se quitaron las estadísticas de ${label}.`);
+		}
 		return refused(intent, String(id), 'Acción desconocida.');
 	};
 }
@@ -324,6 +369,8 @@ function makeScreen<R extends CatalogResource>(section: Section<R>) {
 		const load = useLoaderData() as Awaited<ReturnType<ReturnType<typeof makeLoader<R>>>>;
 		const data = useKept(load.data);
 		const [editing, setEditing] = useState<number | null>(null);
+		// C-05: the row whose statistics are open (squads only); one panel at a time, like the edit form.
+		const [statsFor, setStatsFor] = useState<number | null>(null);
 		const countRef = useRef<HTMLParagraphElement>(null);
 		const noticeRef = useRef<HTMLDivElement>(null);
 		usePageUrlFix(section.path, load.filters, load.pageFixed);
@@ -331,7 +378,9 @@ function makeScreen<R extends CatalogResource>(section: Section<R>) {
 		useArrivalFocus(load.loadError ? noticeRef : countRef, countRef);
 		// Every write of the page goes through one fetcher: its message stays even if the row goes away.
 		const writer = useFetcher<ActionOutcome>({ key: `catalogo-${section.resource}` });
-		const rowOutcome = writer.data && writer.data.target !== 'nuevo' && (writer.data.ok || writer.data.intent === 'delete') ? writer.data : null;
+		// The statistics panel tells its own outcomes (C-05).
+		const rowOutcome =
+			writer.data && writer.data.target !== 'nuevo' && !writer.data.intent.startsWith('stats-') && (writer.data.ok || writer.data.intent === 'delete') ? writer.data : null;
 		const rowMessage = useRef<HTMLParagraphElement>(null);
 		const noForm = useRef<HTMLElement>(null);
 		useOutcomeFocus(rowOutcome, noForm, rowMessage);
@@ -352,7 +401,15 @@ function makeScreen<R extends CatalogResource>(section: Section<R>) {
 						name={section.name(row)}
 						writer={writer}
 						editing={editing === row.id}
-						onEdit={() => setEditing(editing === row.id ? null : row.id)}
+						onEdit={() => {
+							setStatsFor(null);
+							setEditing(editing === row.id ? null : row.id);
+						}}
+						statsOpen={statsFor === row.id}
+						onStats={() => {
+							setEditing(null);
+							setStatsFor(statsFor === row.id ? null : row.id);
+						}}
 					/>
 				),
 			},
@@ -399,6 +456,8 @@ function makeScreen<R extends CatalogResource>(section: Section<R>) {
 								extraRow={(row) =>
 									editing === row.id ? (
 										<RecordForm section={section} target={String(row.id)} row={row} writer={writer} onDone={() => setEditing(null)} />
+									) : section.stats && statsFor === row.id ? (
+										<StatsEditor id={row.id} name={section.name(row)} writer={writer} onDone={() => setStatsFor(null)} />
 									) : null
 								}
 							/>
@@ -477,8 +536,26 @@ function RecordForm<R extends CatalogResource>({
 	);
 }
 
+/** A short fixed list; its hint can follow the option chosen (`hintOf`). */
+function SelectControl({ field, value, error }: { field: FormField; value: string; error?: string }) {
+	const [chosen, setChosen] = useState(value);
+	return (
+		<SelectField
+			label={field.label}
+			name={field.name}
+			options={field.options ?? []}
+			empty={field.empty}
+			defaultValue={value}
+			onChange={(event) => setChosen(event.currentTarget.value)}
+			error={error}
+			hint={field.hintOf?.(chosen) ?? field.hint}
+		/>
+	);
+}
+
 function FieldControl({ field, value, chosen, error }: { field: FormField; value: unknown; chosen?: string; error?: string }): ReactNode {
 	if (field.kind === 'check') return <CheckField label={field.label} name={field.name} defaultChecked={value === true} error={error} />;
+	if (field.kind === 'select') return <SelectControl field={field} value={typeof value === 'string' ? value : ''} error={error} />;
 	if (field.kind === 'search') {
 		return (
 			<SearchSelect
@@ -506,6 +583,161 @@ function FieldControl({ field, value, chosen, error }: { field: FormField; value
 	);
 }
 
+/** The target of a squad's statistics outcomes (C-05), apart from the row's own edit and delete. */
+const statsTarget = (id: number) => `stats-${id}`;
+
+type StatsLoad = { state: 'loading' } | { state: 'failed'; message: string } | { state: 'ready'; stats: AdminEnrollmentStats };
+
+/**
+ * C-05 (D-034): a player's statistics in one enrollment. The list only says
+ * whether they exist, so this reads them when it opens: one field per
+ * attribute of the sport's profile, each 0 to 99, all saved together (the
+ * backend refuses a set with holes). Removing them takes its explicit step.
+ */
+function StatsEditor({ id, name, writer, onDone }: { id: number; name: string; writer: FetcherWithComponents<ActionOutcome>; onDone: () => void }) {
+	const [load, setLoad] = useState<StatsLoad>({ state: 'loading' });
+	const [attempt, setAttempt] = useState(0);
+	const formRef = useRef<HTMLFormElement>(null);
+	const messageRef = useRef<HTMLParagraphElement>(null);
+	const target = statsTarget(id);
+	// Only what happened while this panel is open: an older outcome of the same row stays unsaid.
+	const initial = useRef(writer.data);
+	const outcome = writer.data !== initial.current && writer.data?.target === target ? writer.data : null;
+	useOutcomeFocus(outcome, formRef, messageRef);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		setLoad({ state: 'loading' });
+		getEnrollmentStats(id, controller.signal).then(
+			(stats) => setLoad({ state: 'ready', stats }),
+			(error: unknown) => {
+				if (!controller.signal.aborted) setLoad({ state: 'failed', message: adminErrorText(error) });
+			},
+		);
+		return () => controller.abort();
+	}, [id, attempt]);
+
+	// What a save or a removal answered is the new state: shown without reading again.
+	const [seen, setSeen] = useState(outcome);
+	if (outcome !== seen) {
+		setSeen(outcome);
+		if (outcome?.ok && outcome.data) setLoad({ state: 'ready', stats: outcome.data as AdminEnrollmentStats });
+	}
+
+	const sending = writer.state !== 'idle' ? (writer.json as { target?: unknown; intent?: unknown } | undefined) : undefined;
+	const busy = sending?.target === target ? String(sending.intent) : null;
+	const errors = outcome && !outcome.ok ? outcome.fields : {};
+	const submit = (intent: 'stats-save' | 'stats-delete', valores?: Record<string, unknown>) => {
+		if (writer.state !== 'idle') return;
+		writer.submit({ intent, target, id, label: name, values: { valores } } as never, { method: 'post', encType: 'application/json' });
+	};
+
+	if (load.state === 'loading') {
+		return (
+			<p className={styles.muted} role="status">
+				Cargando las estadísticas de {name}…
+			</p>
+		);
+	}
+	if (load.state === 'failed') {
+		return (
+			<div className={`${shared.notice} pixel-box`} role="alert">
+				<p>No se pudieron leer las estadísticas: {load.message}</p>
+				<p className={styles.actions}>
+					<button type="button" className={shared.button} onClick={() => setAttempt((n) => n + 1)}>
+						Reintentar
+					</button>
+					<button type="button" className={styles.plain} onClick={onDone}>
+						Cerrar
+					</button>
+				</p>
+			</div>
+		);
+	}
+
+	const { perfil, valores } = load.stats;
+	if (!perfil) {
+		return (
+			<div className={styles.text}>
+				<p>
+					El deporte de esta inscripción no tiene perfil de estadísticas, así que sus jugadores no las llevan. Elígelo en{' '}
+					<Link to="/admin/deportes">Deportes</Link>.
+				</p>
+				<button type="button" className={styles.plain} onClick={onDone}>
+					Cerrar
+				</button>
+			</div>
+		);
+	}
+
+	const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		const form = new FormData(event.currentTarget);
+		const sent: Record<string, unknown> = {};
+		for (const attribute of perfil.atributos) {
+			const raw = String(form.get(`valores.${attribute.codigo}`) ?? '').trim();
+			// An empty field goes missing. A number written plainly goes as a number, decimals too, so the
+			// backend says "Debe ser un número entero" for 7.5 (C-05 fix); anything else goes as it is.
+			if (raw !== '') sent[attribute.codigo] = /^-?\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : raw;
+		}
+		submit('stats-save', sent);
+	};
+
+	return (
+		<>
+			<form
+				ref={formRef}
+				// A removed or replaced set starts a fresh form with what the API holds now.
+				key={JSON.stringify(valores)}
+				className={styles.form}
+				onSubmit={onSubmit}
+				noValidate
+				aria-label={`Estadísticas de ${name}`}
+			>
+				<p className={styles.muted}>
+					{perfil.nombre}: cada atributo es un número entero de 0 a 99, y se guardan todos juntos.
+					{valores ? '' : ' Todavía no tiene: su ficha dice «Sin estadísticas».'}
+				</p>
+				{perfil.atributos.map((attribute) => (
+					<TextField
+						key={attribute.codigo}
+						label={attribute.nombre}
+						name={`valores.${attribute.codigo}`}
+						type="number"
+						inputMode="numeric"
+						min={0}
+						max={99}
+						step={1}
+						defaultValue={valores?.[attribute.codigo] ?? ''}
+						error={errors[`valores.${attribute.codigo}`]}
+						autoComplete="off"
+					/>
+				))}
+				<div className={styles.actions}>
+					<button type="submit" className={shared.button} aria-disabled={busy === 'stats-save' || undefined}>
+						{busy === 'stats-save' ? 'Guardando…' : 'Guardar estadísticas'}
+					</button>
+					<button type="button" className={styles.plain} onClick={onDone}>
+						Cerrar sin guardar
+					</button>
+				</div>
+			</form>
+			{valores && (
+				<ConfirmStep
+					trigger="Quitar estadísticas"
+					title={`¿Quitar las estadísticas de ${name}?`}
+					confirmLabel="Sí, quitar"
+					busy={busy === 'stats-delete'}
+					onConfirm={() => submit('stats-delete')}
+				>
+					Su ficha pública pasa a decir «Sin estadísticas». Queda en la auditoría.
+				</ConfirmStep>
+			)}
+			<ActionMessage ref={messageRef} outcome={outcome} />
+		</>
+	);
+}
+
 function RowActions<R extends CatalogResource>({
 	section,
 	row,
@@ -513,6 +745,8 @@ function RowActions<R extends CatalogResource>({
 	writer,
 	editing,
 	onEdit,
+	statsOpen,
+	onStats,
 }: {
 	section: Section<R>;
 	row: CatalogRow[R];
@@ -520,6 +754,8 @@ function RowActions<R extends CatalogResource>({
 	writer: FetcherWithComponents<ActionOutcome>;
 	editing: boolean;
 	onEdit: () => void;
+	statsOpen: boolean;
+	onStats: () => void;
 }) {
 	const sending = writer.state !== 'idle' ? (writer.json as { target?: unknown } | undefined)?.target : undefined;
 	return (
@@ -527,6 +763,11 @@ function RowActions<R extends CatalogResource>({
 			<button type="button" className={styles.plain} aria-expanded={editing} onClick={onEdit}>
 				{editing ? 'Cerrar' : 'Editar'}
 			</button>
+			{section.stats && (
+				<button type="button" className={styles.plain} aria-expanded={statsOpen} onClick={onStats}>
+					{statsOpen ? 'Cerrar estadísticas' : 'Estadísticas'}
+				</button>
+			)}
 			<ConfirmStep
 				trigger="Borrar"
 				title={`¿Borrar ${section.one} ${name}?`}

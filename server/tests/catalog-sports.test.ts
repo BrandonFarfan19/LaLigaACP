@@ -29,7 +29,9 @@ describe('admin: deportes (BR-001, BR-011, BR-015, BR-048)', () => {
 		it('creates, reads, lists, edits and deletes', async () => {
 			const res = await api.post('/deportes', { nombre: '  Fútbol  ', permiteEmpate: true });
 			expect(res.status).toBe(201);
-			expect(res.body).toEqual({ data: { id: expect.any(Number), nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true } });
+			expect(res.body).toEqual({
+				data: { id: expect.any(Number), nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true, perfilEstadistico: null, perfilEstadisticoNombre: null },
+			});
 			const id = res.body.data.id as number;
 
 			expect((await api.get(`/deportes/${id}`)).body.data).toEqual(res.body.data);

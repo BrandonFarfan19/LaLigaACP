@@ -10,6 +10,7 @@ import { idParamsSchema } from '../schemas/common.schema.js';
 import * as matchSchemas from '../schemas/matches.schema.js';
 import type { AdminActionHooks } from '../services/admin-action.js';
 import * as competitions from '../services/competitions.service.js';
+import * as enrollmentStats from '../services/enrollment-stats.service.js';
 import * as enrollments from '../services/enrollments.service.js';
 import type { MediaDeps } from '../services/goals.service.js';
 import * as matches from '../services/matches.service.js';
@@ -27,6 +28,12 @@ import * as teams from '../services/teams.service.js';
  *   POST   /<recurso>        create → 201
  *   PATCH  /<recurso>/:id    edit (only the fields sent)
  *   DELETE /<recurso>/:id    delete, only if nothing uses it → { id }
+ *
+ * Plus, for an enrollment (C-05, D-034), the player's statistics in it:
+ *
+ *   GET    /planteles/:id/estadisticas                        { plantelId, perfil, valores }
+ *   PUT    /planteles/:id/estadisticas { valores: { codigo: 0-99 } }   every attribute of the profile at once
+ *   DELETE /planteles/:id/estadisticas                        removes the whole set
  *
  * Plus, for matches:
  *
@@ -151,23 +158,35 @@ export function createCatalogRouter(pool: Pool, options: CatalogRouterOptions): 
 			hooks,
 		),
 	);
-	router.use(
-		'/planteles',
-		crudRouter(
-			pool,
-			{
-				listQuery: schemas.listEnrollmentsQuery,
-				createBody: schemas.createEnrollmentBody,
-				updateBody: schemas.updateEnrollmentBody,
-				list: enrollments.listEnrollments,
-				get: enrollments.getEnrollment,
-				create: enrollments.createEnrollment,
-				update: enrollments.updateEnrollment,
-				remove: enrollments.deleteEnrollment,
-			},
-			hooks,
-		),
+	const enrollmentRouter = crudRouter(
+		pool,
+		{
+			listQuery: schemas.listEnrollmentsQuery,
+			createBody: schemas.createEnrollmentBody,
+			updateBody: schemas.updateEnrollmentBody,
+			list: enrollments.listEnrollments,
+			get: enrollments.getEnrollment,
+			create: enrollments.createEnrollment,
+			update: enrollments.updateEnrollment,
+			remove: enrollments.deleteEnrollment,
+		},
+		hooks,
 	);
+	// C-05 (D-034): the player's statistics in that enrollment, the whole set at once.
+	enrollmentRouter.get('/:id/estadisticas', rejectQueryParams, async (req, res) => {
+		const { id } = idParamsSchema.parse(req.params);
+		sendSuccess(res, await enrollmentStats.getEnrollmentStats(pool, id));
+	});
+	enrollmentRouter.put('/:id/estadisticas', rejectQueryParams, async (req, res) => {
+		const { id } = idParamsSchema.parse(req.params);
+		const body = schemas.enrollmentStatsBody.parse(req.body);
+		sendSuccess(res, await enrollmentStats.setEnrollmentStats(pool, { actorId: authUser(req).id, hooks }, id, body));
+	});
+	enrollmentRouter.delete('/:id/estadisticas', rejectQueryParams, async (req, res) => {
+		const { id } = idParamsSchema.parse(req.params);
+		sendSuccess(res, await enrollmentStats.deleteEnrollmentStats(pool, { actorId: authUser(req).id, hooks }, id));
+	});
+	router.use('/planteles', enrollmentRouter);
 
 	const matchRouter = crudRouter(
 		pool,

@@ -3,8 +3,8 @@ import type { Player, ResolvedSquadPlacement } from '../types';
 /**
  * Where each player stands on the pitch drawing. The schema has no position
  * and the API sends none (server/README.md, "Contrato para T-22"), so this is
- * a sample layout, like the radar ratings (D-022): players are placed in their
- * shirt-number order over a fixed shape — 1-2-3-2-1 on the pitch (9 spots) and
+ * a sample layout (D-033; the radar's statistics, instead, are real since
+ * C-05): players are placed in their shirt-number order over a fixed shape — 1-2-3-2-1 on the pitch (9 spots) and
  * two rows of three on the volleyball court (6, the side that is on court) —
  * and the same squad always lands the same way.
  *

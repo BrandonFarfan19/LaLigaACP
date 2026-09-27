@@ -1,4 +1,4 @@
-import type { Competition, MatchStatus, Player, ResolvedMatch, ResolvedStanding, Sport, Team } from '../types';
+import type { Competition, MatchStatus, Player, PlayerStats, ResolvedMatch, ResolvedStanding, Sport, StatAttribute, Team } from '../types';
 import { api, ApiError, CLIENT_ERROR } from './api';
 
 /**
@@ -134,6 +134,48 @@ function playerOf(value: unknown, teamId: string): Player {
 		photo: imageSrc(member.foto),
 		shirtNumber: count(member.numeroCamiseta),
 	};
+}
+
+/**
+ * The radar's axis labels: the first three letters of each name, in capitals
+ * ("Recepción" → "REC"), one more letter while two of them would read the
+ * same. A pixel font at 8px fits three letters around the radar at 320px.
+ */
+export function shortLabels(labels: string[]): string[] {
+	const letters = labels.map((label) => [...label.trim().toLocaleUpperCase('es')]);
+	for (let size = 3; ; size++) {
+		const shorts = letters.map((chars) => chars.slice(0, size).join(''));
+		const clash = shorts.some((short, i) => shorts.indexOf(short) !== i);
+		if (!clash || letters.every((chars) => chars.length <= size)) return shorts;
+	}
+}
+
+/** A sport's statistics profile (C-05): its attributes in order, or `null` when the sport takes none. */
+function profileOf(value: unknown): StatAttribute[] | null {
+	if (value === null) return null;
+	const attributes = asList(asObject(value).atributos).map((item) => {
+		const attribute = asObject(item);
+		return { key: text(attribute.codigo), label: text(attribute.nombre) };
+	});
+	if (attributes.length === 0) badResponse();
+	const shorts = shortLabels(attributes.map((attribute) => attribute.label));
+	return attributes.map((attribute, i) => ({ ...attribute, short: shorts[i]! }));
+}
+
+/** A whole number from 0 to 99 (C-05), or the body isn't the contract. */
+const rating = (value: unknown): number => (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 99 ? value : badResponse());
+
+/**
+ * One player's statistics, or `null` without them. Every attribute of the
+ * profile has to be there (the backend stores the whole set or nothing):
+ * a set with holes, or values for a sport without a profile, aren't the
+ * contract.
+ */
+function statsOf(value: unknown, playerId: string, profile: StatAttribute[] | null): PlayerStats | null {
+	if (value === null) return null;
+	const values = asObject(value);
+	if (!profile) return badResponse();
+	return { playerId, attributes: profile.map((attribute) => ({ ...attribute, value: rating(values[attribute.key]) })) };
 }
 
 /* ---- Reads -------------------------------------------------------------- */
@@ -279,6 +321,8 @@ export interface TeamWithSquad {
 	team: Team;
 	competition: Competition;
 	players: Player[];
+	/** C-05: only the players who have them, each with the whole set of the sport's profile. */
+	stats: PlayerStats[];
 }
 
 /** One team with its squad; `undefined` when the id doesn't exist or isn't one (400 or 404). */
@@ -286,10 +330,14 @@ export async function getTeamWithSquad(id: string, signal?: AbortSignal): Promis
 	try {
 		const detail = asObject(await api.get(`/public/equipos/${encodeURIComponent(id)}`, { signal }));
 		const team = teamOf(detail);
+		const profile = profileOf(asObject(detail.deporte).perfilEstadistico);
+		const members = asList(detail.plantel);
+		const players = members.map((member) => playerOf(member, team.id));
 		return {
 			team,
 			competition: competitionOf(detail.competicion, detail.deporte),
-			players: asList(detail.plantel).map((member) => playerOf(member, team.id)),
+			players,
+			stats: members.flatMap((member, i) => statsOf(asObject(member).estadisticas, players[i]!.id, profile) ?? []),
 		};
 	} catch (error) {
 		if (isMissing(error)) return undefined;

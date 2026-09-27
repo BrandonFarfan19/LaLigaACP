@@ -11,8 +11,19 @@ import { type TransactionConnection, type TransactionOptions, withTransaction } 
 
 /** `gol` and `multimedia` (a match's image or video) since T-13. */
 export type CatalogEntity = 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'partido' | 'gol' | 'multimedia';
-/** `registrar_resultado`, `confirmar_resultado` (T-12) and `cancelar` (T-16) only apply to `partido`. */
-export type CatalogVerb = 'crear' | 'editar' | 'borrar' | 'registrar_resultado' | 'confirmar_resultado' | 'cancelar';
+/**
+ * `registrar_resultado`, `confirmar_resultado` (T-12) and `cancelar` (T-16) only apply to `partido`;
+ * `registrar_estadisticas` and `borrar_estadisticas` (C-05) only to `plantel`.
+ */
+export type CatalogVerb =
+	| 'crear'
+	| 'editar'
+	| 'borrar'
+	| 'registrar_resultado'
+	| 'confirmar_resultado'
+	| 'cancelar'
+	| 'registrar_estadisticas'
+	| 'borrar_estadisticas';
 
 export interface AdminActionOutcome<T = unknown> {
 	/** e.g. `crear_deporte`, `editar_equipo`, `borrar_plantel`. */

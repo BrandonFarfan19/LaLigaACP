@@ -3,7 +3,23 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { apiRoutes } from '../test/betting-fixtures';
 import { fail, mockFetch, ok, type RecordedCall } from '../test/fetch-mock';
-import { aguilas, apiMatch, apiTeamDetail, competitionsRoute, copa, futbol, halcones, liga, leagueRoutes, matchesRoute, page, pumas, squadMember, standingRow } from '../test/league-fixtures';
+import {
+	aguilas,
+	apiMatch,
+	apiTeamDetail,
+	competitionsRoute,
+	copa,
+	futbol,
+	halcones,
+	liga,
+	leagueRoutes,
+	matchesRoute,
+	page,
+	pumas,
+	squadMember,
+	standingRow,
+	withProfile,
+} from '../test/league-fixtures';
 import { renderLeague, where } from '../test/render-league';
 
 /**
@@ -365,15 +381,15 @@ describe('standings (T-22, BR-050)', () => {
 	});
 });
 
-describe('squad (T-22, D-022)', () => {
-	it('shows the team read by its numeric id, its squad and the sample notice of the ratings', async () => {
+describe('squad (T-22, C-05)', () => {
+	it('shows the team read by its numeric id, its squad and the sample notice of the pitch', async () => {
 		mockFetch(apiRoutes(leagueRoutes()));
 		renderLeague('/plantilla/100');
 
 		expect(await screen.findByRole('heading', { name: 'Halcones', level: 1 })).toBeTruthy();
 		expect(screen.getByText('Liga Apertura · Fútbol')).toBeTruthy();
 		// The pitch warns that where each player stands is invented and that the
-		// shirt number is not (D-022). Pinned as the two facts and not as the
+		// shirt number is not (D-033). Pinned as the two facts and not as the
 		// sentence: C-04 already rewrote it once, and the literal text broke.
 		const pitchNotice = within(screen.getByRole('list', { name: 'Jugadores en la cancha' }).closest('figure')!).getByText(/muestra/i);
 		expect(pitchNotice.textContent).toMatch(/posici|ubicaci|cancha|puesto/i);
@@ -382,8 +398,78 @@ describe('squad (T-22, D-022)', () => {
 		const user = userEvent.setup();
 		await user.click(screen.getByRole('button', { name: /Ver estadísticas de Luis Paredes, dorsal 9/ }));
 		const card = await screen.findByRole('dialog');
-		expect(within(card).getByText(/Atributos de muestra/)).toBeTruthy();
 		expect(within(card).getByText('Luis Paredes')).toBeTruthy();
+		// C-05: the statistics are real now; the card no longer calls them a sample.
+		expect(within(card).queryByText(/muestra/i)).toBeNull();
+	});
+
+	it('the card shows the real statistics of the football profile, in order, with their average (C-05)', async () => {
+		mockFetch(apiRoutes(leagueRoutes()));
+		renderLeague('/plantilla/100');
+		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: /Ver estadísticas de Luis Paredes, dorsal 9/ }));
+		const card = await screen.findByRole('dialog');
+		const rows = within(within(card).getByRole('table', { hidden: true })).getAllByRole('row', { hidden: true });
+		expect(rows.map((row) => [row.querySelector('th')!.textContent, row.querySelector('td')!.textContent])).toEqual([
+			['Disparo', '88'],
+			['Pase', '75'],
+			['Fuerza', '60'],
+			['Defensa', '42'],
+			['Velocidad', '91'],
+			['Dribbling', '80'],
+		]);
+		// (88 + 75 + 60 + 42 + 91 + 80) / 6 = 72.67
+		expect(within(card).getByText(/Media/).textContent).toMatch(/Media\s*73/);
+		const axes = [...card.querySelectorAll('[aria-hidden="true"] span')].map((axis) => axis.textContent);
+		expect(axes).toEqual(['DIS', 'PAS', 'FUE', 'DEF', 'VEL', 'DRI']);
+		expect(within(card).queryByText('Sin estadísticas')).toBeNull();
+	});
+
+	it('a player without statistics still opens a card: "Sin estadísticas", with no radar, table or average (C-05)', async () => {
+		mockFetch(apiRoutes(leagueRoutes()));
+		renderLeague('/plantilla/100');
+		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+		const user = userEvent.setup();
+		const onPitch = screen.getByRole('button', { name: /Ver estadísticas de Sofía Díaz, dorsal 4/ });
+		expect((onPitch as HTMLButtonElement).disabled).toBe(false);
+		await user.click(onPitch);
+		const card = await screen.findByRole('dialog');
+		expect(within(card).getByText('Sofía Díaz')).toBeTruthy();
+		expect(within(card).getByText('Sin estadísticas')).toBeTruthy();
+		expect(card.querySelector('svg rect')).toBeNull();
+		expect(within(card).queryByRole('table', { hidden: true })).toBeNull();
+		expect(within(card).queryByText(/Media/)).toBeNull();
+		// The roster opens it too.
+		expect(within(screen.getByRole('table', { name: 'Plantilla' })).getByRole('button', { name: 'Sofía Díaz' })).toBeTruthy();
+	});
+
+	it('a volleyball player gets the five axes of the volleyball profile (C-05)', async () => {
+		const member = squadMember(600, 'Jugadora Uno', 1, null, { mate: 90, saque: 70, recepcion: 65, armado: 50, bloqueo: 40 });
+		mockFetch(apiRoutes(leagueRoutes({ 'GET /api/public/equipos/200': () => ok(apiTeamDetail(aguilas, copa, [member])) })));
+		renderLeague('/plantilla/200');
+		await screen.findByRole('heading', { name: 'Águilas', level: 1 });
+
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: /Ver estadísticas de Jugadora Uno, dorsal 1/ }));
+		const card = await screen.findByRole('dialog');
+		const axes = [...card.querySelectorAll('[aria-hidden="true"] span')].map((axis) => axis.textContent);
+		expect(axes).toEqual(['MAT', 'SAQ', 'REC', 'ARM', 'BLO']);
+		const labels = within(within(card).getByRole('table', { hidden: true })).getAllByRole('rowheader', { hidden: true }).map((th) => th.textContent);
+		expect(labels).toEqual(['Mate', 'Saque', 'Recepción', 'Armado', 'Bloqueo']);
+	});
+
+	it('a sport without a profile: every card says "Sin estadísticas" (C-05)', async () => {
+		const noProfile = { ...withProfile(futbol), perfilEstadistico: null };
+		mockFetch(apiRoutes(leagueRoutes({ 'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, [squadMember(500, 'Luis Paredes', 9)], noProfile)) })));
+		renderLeague('/plantilla/100');
+		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+		const user = userEvent.setup();
+		await user.click(screen.getByRole('button', { name: /Ver estadísticas de Luis Paredes/ }));
+		expect(within(await screen.findByRole('dialog')).getByText('Sin estadísticas')).toBeTruthy();
 	});
 
 	it('the pitch shows the first two words of each name, the table and the card the whole name', async () => {
@@ -481,20 +567,5 @@ describe('squad (T-22, D-022)', () => {
 
 		renderLeague('/plantilla/abc');
 		expect(await screen.findByRole('heading', { name: 'Página no encontrada' })).toBeTruthy();
-	});
-
-	it('the same player always gets the same sample ratings', async () => {
-		mockFetch(apiRoutes(leagueRoutes()));
-		const first = renderLeague('/plantilla/100');
-		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
-		const user = userEvent.setup();
-		await user.click(screen.getByRole('button', { name: /Ver estadísticas de Luis Paredes/ }));
-		const values = within(await screen.findByRole('dialog')).getAllByRole('cell').map((cell) => cell.textContent);
-		first.dispose();
-
-		renderLeague('/plantilla/100');
-		await screen.findByRole('heading', { name: 'Halcones', level: 1 });
-		await user.click(screen.getByRole('button', { name: /Ver estadísticas de Luis Paredes/ }));
-		expect(within(await screen.findByRole('dialog')).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(values);
 	});
 });

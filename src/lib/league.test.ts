@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { apiRoutes } from '../test/betting-fixtures';
 import { fail, json, mockFetch, ok, type RecordedCall } from '../test/fetch-mock';
-import { aguilas, apiMatch, apiTeamDetail, copa, halcones, liga, leagueRoutes, matchesRoute, page, pumas, squadMember, standingRow } from '../test/league-fixtures';
-import { defaultCompetition, getTeamWithSquad, imageSrc, listCompetitions, listFixture, listSports, listStandings, listTeams } from './league';
+import { aguilas, apiMatch, apiTeamDetail, copa, futbol, futbolProfile, futbolStats, halcones, liga, leagueRoutes, matchesRoute, page, pumas, squadMember, standingRow } from '../test/league-fixtures';
+import { defaultCompetition, getTeamWithSquad, imageSrc, listCompetitions, listFixture, listSports, listStandings, listTeams, shortLabels } from './league';
 
 /**
  * The league's data layer against the public API (T-22): every field mapped,
@@ -161,6 +161,64 @@ describe('league data layer (T-22)', () => {
 			{ id: '500', teamId: '100', name: 'Luis Paredes', photo: '/fotos/luis.webp', shirtNumber: 9 },
 			{ id: '501', teamId: '100', name: 'Sofía Díaz', photo: null, shirtNumber: 4 },
 		]);
+	});
+
+	it('the squad carries each player\'s real statistics in the profile\'s order, with its labels (C-05)', async () => {
+		mockFetch(apiRoutes(leagueRoutes()));
+
+		const found = await getTeamWithSquad('100');
+
+		// Only Luis has them; Sofía is not in the list, and her card says "Sin estadísticas".
+		expect(found?.stats).toEqual([
+			{
+				playerId: '500',
+				attributes: [
+					{ key: 'disparo', label: 'Disparo', short: 'DIS', value: 88 },
+					{ key: 'pase', label: 'Pase', short: 'PAS', value: 75 },
+					{ key: 'fuerza', label: 'Fuerza', short: 'FUE', value: 60 },
+					{ key: 'defensa', label: 'Defensa', short: 'DEF', value: 42 },
+					{ key: 'velocidad', label: 'Velocidad', short: 'VEL', value: 91 },
+					{ key: 'dribbling', label: 'Dribbling', short: 'DRI', value: 80 },
+				],
+			},
+		]);
+		// No Spanish key of the API reaches the screen.
+		expect(JSON.stringify(found)).not.toMatch(/estadisticas|perfilEstadistico|codigo|nombre|atributos/);
+	});
+
+	it('the radar labels are three capitals, one more while two would read the same', () => {
+		expect(shortLabels(['Mate', 'Saque', 'Recepción', 'Armado', 'Bloqueo'])).toEqual(['MAT', 'SAQ', 'REC', 'ARM', 'BLO']);
+		expect(shortLabels(['Defensa', 'Defensiva', 'Pase'])).toEqual(['DEFENSA', 'DEFENSI', 'PASE']);
+		expect(shortLabels(['Ágil', 'Pie'])).toEqual(['ÁGI', 'PIE']);
+	});
+
+	it.each([
+		['a value above 99', { ...futbolStats, pase: 100 }, 'futbol'],
+		['a negative value', { ...futbolStats, pase: -1 }, 'futbol'],
+		['a decimal', { ...futbolStats, pase: 50.5 }, 'futbol'],
+		['a value as text', { ...futbolStats, pase: '75' }, 'futbol'],
+		['a missing attribute', { disparo: 1, pase: 1, fuerza: 1, defensa: 1, velocidad: 1 }, 'futbol'],
+		['values for a sport without a profile', futbolStats, 'none'],
+		['statistics that are not an object', [88, 75], 'futbol'],
+	])('%s is not the contract: BAD_RESPONSE (C-05)', async (_label, estadisticas, profile) => {
+		const deporte = { ...futbol, perfilEstadistico: profile === 'none' ? null : futbolProfile };
+		mockFetch(
+			apiRoutes(
+				leagueRoutes({
+					'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, [squadMember(500, 'Luis Paredes', 9, null, estadisticas as Record<string, number>)], deporte)),
+				}),
+			),
+		);
+
+		await expect(getTeamWithSquad('100')).rejects.toMatchObject({ status: 0, code: 'BAD_RESPONSE' });
+	});
+
+	it('a team without the profile field, or a profile without attributes, is not the contract either', async () => {
+		const { perfilEstadistico: _gone, ...bare } = { ...futbol, perfilEstadistico: null };
+		for (const deporte of [bare, { ...futbol, perfilEstadistico: { ...futbolProfile, atributos: [] } }]) {
+			mockFetch(apiRoutes(leagueRoutes({ 'GET /api/public/equipos/100': () => ok({ ...apiTeamDetail(halcones, liga, [squadMember(501, 'Sofía Díaz', 4)]), deporte }) })));
+			await expect(getTeamWithSquad('100')).rejects.toMatchObject({ status: 0, code: 'BAD_RESPONSE' });
+		}
 	});
 
 	it('an id that does not exist (404) and one the API refuses (400) are both "no existe"', async () => {

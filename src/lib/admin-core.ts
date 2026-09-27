@@ -113,12 +113,14 @@ const HINTS: Record<string, string> = {
 	COMPETITION_IN_USE: 'Solo se borra (o se mueve de deporte) una competición sin equipos, partidos ni jugadores inscritos.',
 	TEAM_IN_USE: 'Solo se borra (o se mueve de competición) un equipo sin partidos, jugadores inscritos ni goles.',
 	PLAYER_IN_USE: 'Da de baja antes sus inscripciones en planteles.',
-	ENROLLMENT_IN_USE: 'La inscripción tiene goles registrados: bórralos antes.',
+	ENROLLMENT_IN_USE: 'Borra antes sus goles registrados y quita sus estadísticas.',
 	PLAYER_ALREADY_ENROLLED: 'Elige otro jugador, o da de baja antes esa inscripción.',
 	SHIRT_NUMBER_TAKEN: 'Elige otro número para este equipo.',
 	TRANSFER_NOT_ALLOWED: 'Dentro de una competición un jugador no cambia de equipo: solo se edita el número.',
 	COMPETITION_MISMATCH: 'Vuelve a elegir el equipo después de la competición.',
 	DRAW_RULE_LOCKED: 'Si necesitas otra regla, crea un deporte nuevo con ella.',
+	SPORT_WITHOUT_STATS: 'Elige antes el perfil de estadísticas del deporte (sección Deportes).',
+	STATS_PROFILE_LOCKED: 'Quita antes las estadísticas de esas inscripciones (sección Planteles).',
 	MATCH_DATE_IN_PAST: 'La hora es la de Lima: elige un momento posterior al de ahora.',
 	SAME_TEAM: 'Cambia uno de los dos.',
 	MATCH_LOCKED: 'Un partido finalizado o cancelado ya no se modifica.',
@@ -165,6 +167,7 @@ const FIELD_OF_CODE: Record<string, string> = {
 	PLAYER_ALREADY_ENROLLED: 'jugadorId',
 	SAME_TEAM: 'visitaId',
 	MATCH_DATE_IN_PAST: 'fechaHora',
+	STATS_PROFILE_LOCKED: 'perfilEstadistico',
 };
 
 /** The message an admin refusal shows: the backend's reason, and what to do. */

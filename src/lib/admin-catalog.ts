@@ -1,6 +1,7 @@
 import type {
 	AdminCompetition,
 	AdminEnrollment,
+	AdminEnrollmentStats,
 	AdminGoal,
 	AdminMatch,
 	AdminPlayer,
@@ -90,6 +91,34 @@ export const updateCatalog = <R extends CatalogResource>(resource: R, id: number
 	api.patch<CatalogRow[R]>(`${CATALOG_PATHS[resource]}/${id}`, body);
 
 export const deleteCatalog = (resource: CatalogResource, id: number) => api.delete<{ id: number }>(`${CATALOG_PATHS[resource]}/${id}`);
+
+/* ---- A player's statistics in an enrollment (C-05, D-034) --------------- */
+
+/**
+ * The statistics profiles a sport can take: a short fixed list (the catalog of
+ * `02-catalogos.sql`). An option says only the name, so it is never cut at
+ * 320 px (D-014); the form shows the chosen one's attributes as its hint.
+ */
+export const STATS_PROFILES = [
+	{ value: 'futbol', label: 'Fútbol', attributes: 'Disparo, Pase, Fuerza, Defensa, Velocidad y Dribbling' },
+	{ value: 'voley', label: 'Vóley', attributes: 'Mate, Saque, Recepción, Armado y Bloqueo' },
+] as const;
+
+/** The hint of the profile field: what the sport's players get with the one chosen. */
+export function statsProfileHint(value: string): string {
+	const profile = STATS_PROFILES.find((option) => option.value === value);
+	return profile
+		? `Sus jugadores tienen ${profile.attributes}, de 0 a 99, que se cargan en Planteles.`
+		: 'Sus jugadores no llevan estadísticas: su ficha dice «Sin estadísticas».';
+}
+
+export const getEnrollmentStats = (id: number, signal?: AbortSignal) => api.get<AdminEnrollmentStats>(`/admin/planteles/${id}/estadisticas`, { signal });
+
+/** Every attribute of the profile at once; the backend checks the set and each 0-99. */
+export const setEnrollmentStats = (id: number, valores: Record<string, unknown>) =>
+	api.put<AdminEnrollmentStats>(`/admin/planteles/${id}/estadisticas`, { valores });
+
+export const deleteEnrollmentStats = (id: number) => api.delete<AdminEnrollmentStats>(`/admin/planteles/${id}/estadisticas`);
 
 /* ---- Matches (T-07) ---------------------------------------------------- */
 

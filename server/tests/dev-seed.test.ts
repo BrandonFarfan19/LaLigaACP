@@ -167,6 +167,8 @@ describe('development sample data (D-013, D-016)', () => {
 			equipo: 8,
 			jugador: 24,
 			plantel: 24,
+			// C-05: two of three players per team, football (4 teams, 6 attributes) and volleyball (2 teams, 5).
+			plantel_estadistica: 8 * 6 + 4 * 5,
 			partido: 14,
 			partido_equipo: 28,
 			usuario: 12,
@@ -175,8 +177,8 @@ describe('development sample data (D-013, D-016)', () => {
 			ticket: 7,
 			seleccion: 11,
 		});
-		// Every created row, and only those: 3 + 3 + 8 + 24 + 24 + 14 + 28 + 12.
-		expect(await marks(pool)).toBe(116);
+		// Every created row, and only those: 3 + 3 + 8 + 24 + 24 + 14 + 28 + 12, plus the 12 enrollments with statistics.
+		expect(await marks(pool)).toBe(128);
 
 		// The validated sample bettor signs in and sees every state (BR-052), in BR-013 order.
 		const ana = DEMO_ACCOUNTS.find((a) => a.key === 'ana')!;
@@ -289,7 +291,7 @@ describe('development sample data (D-013, D-016)', () => {
 		await seedDevData(pool);
 		// The sample tickets come back as seeded; Ana's extra one is gone.
 		expect(await snapshot(pool)).toEqual({ ...first, movimiento_moneda: 22, ticket: 7, seleccion: 11, sesion: 0 });
-		expect(await marks(pool)).toBe(116);
+		expect(await marks(pool)).toBe(128);
 		expect((await checkCoinConsistency(pool)).ok).toBe(true);
 	});
 

@@ -12,11 +12,13 @@ import type { ListFixtureQuery, ListPublicCompetitionsQuery } from '../schemas/p
 import { pageOf, Where } from './catalog-query.js';
 import { imagePath } from './goals.service.js';
 import { type MatchMedia, readMatchMedia } from './match-media.service.js';
+import { profileOf, readStatsProfiles, type StatsProfile } from './stats-profiles.js';
 
 /**
  * Módulo Informativo, read-only and public (T-08: BR-013, BR-048 to BR-050).
  * Reads only deporte, competicion, equipo, jugador, plantel, partido,
- * partido_equipo, estado_partido, gol and multimedia_partido. Never users, sessions, coins, bets
+ * partido_equipo, estado_partido, gol, multimedia_partido and, since C-05,
+ * perfil_estadistico, estadistica and plantel_estadistica. Never users, sessions, coins, bets
  * or audit rows, and it imports nothing from Polla or Auditoría.
  */
 
@@ -25,6 +27,12 @@ export interface PublicSport {
 	nombre: string;
 	slug: string;
 	permiteEmpate: boolean;
+}
+
+/** C-05 (D-034): a sport with its players' statistics profile (`/public/deportes` and a team's detail). */
+export interface PublicSportWithProfile extends PublicSport {
+	/** Its attributes in display order, or `null`: the sport takes no statistics. */
+	perfilEstadistico: StatsProfile | null;
 }
 
 export interface PublicCompetitionRef {
@@ -103,11 +111,16 @@ export interface PublicSquadMember {
 	nombre: string;
 	foto: string | null;
 	numeroCamiseta: number;
+	/**
+	 * C-05: the player's statistics in this enrollment, `codigo` → 0 to 99,
+	 * every attribute of the sport's profile; `null` when none are loaded.
+	 */
+	estadisticas: Record<string, number> | null;
 }
 
 export interface PublicTeamDetail extends PublicTeam {
 	competicion: PublicCompetitionRef;
-	deporte: PublicSport;
+	deporte: PublicSportWithProfile;
 	/** Enrolled players, by shirt number. */
 	plantel: PublicSquadMember[];
 }
@@ -142,10 +155,13 @@ const teamColumns = (alias: string, prefix: string) =>
 
 // --- deportes y competiciones ---------------------------------------------
 
-/** Every sport, by name. A short list: not paginated. */
-export async function listPublicSports(pool: Pool): Promise<PublicSport[]> {
-	const [rows] = await pool.query<RowDataPacket[]>(`SELECT ${SPORT_COLUMNS} FROM deporte d ORDER BY d.nombre, d.id`);
-	return rows.map((row) => sportFrom(row));
+/** Every sport, by name, with its statistics profile (C-05). A short list: not paginated. */
+export async function listPublicSports(pool: Pool): Promise<PublicSportWithProfile[]> {
+	const [rows] = await pool.query<RowDataPacket[]>(
+		`SELECT ${SPORT_COLUMNS}, d.perfil_estadistico_id AS d_perfil_id FROM deporte d ORDER BY d.nombre, d.id`,
+	);
+	const profiles = await readStatsProfiles(pool);
+	return rows.map((row) => ({ ...sportFrom(row), perfilEstadistico: profileOf(profiles, row.d_perfil_id) }));
 }
 
 function competitionFrom(row: RowDataPacket): PublicCompetition {
@@ -340,28 +356,47 @@ export async function listCompetitionTeams(pool: Pool, competitionId: number): P
 
 export async function getPublicTeam(pool: Pool, id: number): Promise<PublicTeamDetail> {
 	const [[row]] = await pool.query<RowDataPacket[]>(
-		`SELECT ${teamColumns('e', 'e_')}, c.id AS c_id, c.nombre AS c_nombre, c.slug AS c_slug, ${SPORT_COLUMNS}
+		`SELECT ${teamColumns('e', 'e_')}, c.id AS c_id, c.nombre AS c_nombre, c.slug AS c_slug, ${SPORT_COLUMNS},
+			d.perfil_estadistico_id AS d_perfil_id
 		FROM equipo e JOIN competicion c ON c.id = e.competicion_id JOIN deporte d ON d.id = c.deporte_id
 		WHERE e.id = ?`,
 		[id],
 	);
 	if (!row) throw HttpError.notFound('No existe ese equipo.', ErrorCode.TEAM_NOT_FOUND);
 	const [squad] = await pool.query<RowDataPacket[]>(
-		`SELECT j.id, j.nombre, j.foto, pl.numero_camiseta
+		`SELECT pl.id AS plantel_id, j.id, j.nombre, j.foto, pl.numero_camiseta
 		FROM plantel pl JOIN jugador j ON j.id = pl.jugador_id
 		WHERE pl.equipo_id = ?
 		ORDER BY pl.numero_camiseta, pl.id`,
 		[id],
 	);
+	// C-05: every loaded value of the squad in one statement (never one per player).
+	const [stats] = await pool.query<RowDataPacket[]>(
+		`SELECT pe.plantel_id, e.codigo, pe.valor
+		FROM plantel pl
+		JOIN plantel_estadistica pe ON pe.plantel_id = pl.id
+		JOIN estadistica e ON e.id = pe.estadistica_id
+		WHERE pl.equipo_id = ?
+		ORDER BY pe.plantel_id, e.orden`,
+		[id],
+	);
+	const statsOf = new Map<number, Record<string, number>>();
+	for (const stat of stats) {
+		const enrollment = Number(stat.plantel_id);
+		const values = statsOf.get(enrollment) ?? {};
+		values[String(stat.codigo)] = Number(stat.valor);
+		statsOf.set(enrollment, values);
+	}
 	return {
 		...teamFrom(row, 'e_'),
 		competicion: { id: Number(row.c_id), nombre: String(row.c_nombre), slug: String(row.c_slug) },
-		deporte: sportFrom(row),
+		deporte: { ...sportFrom(row), perfilEstadistico: profileOf(await readStatsProfiles(pool), row.d_perfil_id) },
 		plantel: squad.map((s) => ({
 			jugadorId: Number(s.id),
 			nombre: String(s.nombre),
 			foto: text(s.foto),
 			numeroCamiseta: Number(s.numero_camiseta),
+			estadisticas: statsOf.get(Number(s.plantel_id)) ?? null,
 		})),
 	};
 }

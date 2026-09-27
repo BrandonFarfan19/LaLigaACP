@@ -54,6 +54,9 @@ export const ACCIONES_AUDITADAS = {
 	crear_plantel: alta('alta_plantel', 'plantel'),
 	editar_plantel: alta('modificacion_plantel', 'plantel'),
 	borrar_plantel: borrado('borrado_plantel', 'plantel'),
+	// A player's statistics in an enrollment (C-05, D-034): the enrollment stays, so neither deletes the row.
+	registrar_estadisticas_plantel: alta('registro_estadisticas_plantel', 'plantel'),
+	borrar_estadisticas_plantel: alta('borrado_estadisticas_plantel', 'plantel'),
 	// Goals and media (T-13). Setting or removing a goal's image or video is `editar_gol`.
 	crear_gol: alta('alta_gol', 'gol'),
 	editar_gol: alta('modificacion_gol', 'gol'),

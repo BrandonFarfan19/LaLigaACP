@@ -26,10 +26,13 @@ export interface Enrollment {
 	competicionNombre: string;
 	deporteNombre: string;
 	numeroCamiseta: number;
+	/** C-05: whether the player's statistics are loaded in this enrollment (computed, never stored or audited). */
+	tieneEstadisticas: boolean;
 }
 
 const COLUMNS = `p.id, p.jugador_id, j.nombre AS jugador_nombre, p.equipo_id, e.nombre AS equipo_nombre,
-	p.competicion_id, c.nombre AS competicion_nombre, d.nombre AS deporte_nombre, p.numero_camiseta`;
+	p.competicion_id, c.nombre AS competicion_nombre, d.nombre AS deporte_nombre, p.numero_camiseta,
+	EXISTS (SELECT 1 FROM plantel_estadistica pe WHERE pe.plantel_id = p.id) AS tiene_estadisticas`;
 const FROM = `FROM plantel p JOIN jugador j ON j.id = p.jugador_id JOIN equipo e ON e.id = p.equipo_id
 	JOIN competicion c ON c.id = p.competicion_id JOIN deporte d ON d.id = c.deporte_id`;
 
@@ -44,6 +47,7 @@ function toEnrollment(row: RowDataPacket): Enrollment {
 		competicionNombre: String(row.competicion_nombre),
 		deporteNombre: String(row.deporte_nombre),
 		numeroCamiseta: Number(row.numero_camiseta),
+		tieneEstadisticas: Boolean(Number(row.tiene_estadisticas)),
 	};
 }
 
@@ -165,18 +169,24 @@ export async function updateEnrollment(
 	return outcome.after!;
 }
 
-/** Only an enrollment without goals: 409 `ENROLLMENT_IN_USE` otherwise. */
+/**
+ * Only an enrollment without goals nor statistics (C-05: no cascade, remove
+ * them first): 409 `ENROLLMENT_IN_USE` otherwise.
+ */
 export async function deleteEnrollment(pool: Pool, ctx: AdminActionContext, id: number): Promise<void> {
 	await runAdminAction<Enrollment>(pool, ctx, 'borrar', 'plantel', async (conn) => {
 		const before = await find(conn, id, true);
-		const found = await dependents(conn, id, { goles: 'SELECT COUNT(*) FROM gol WHERE plantel_id = ?' });
-		if (found.goles) {
-			throw new HttpError(
-				409,
-				ErrorCode.ENROLLMENT_IN_USE,
-				`No se puede borrar la inscripción: tiene ${plural(Number(found.goles), 'gol registrado', 'goles registrados')}.`,
-				found,
-			);
+		// `estadisticas` counts the attributes loaded (the whole set, D-034).
+		const found = await dependents(conn, id, {
+			goles: 'SELECT COUNT(*) FROM gol WHERE plantel_id = ?',
+			estadisticas: 'SELECT COUNT(*) FROM plantel_estadistica WHERE plantel_id = ?',
+		});
+		if (Object.keys(found).length > 0) {
+			const reasons = [
+				...(found.goles ? [plural(found.goles, 'gol registrado', 'goles registrados')] : []),
+				...(found.estadisticas ? ['estadísticas cargadas (quítalas antes)'] : []),
+			];
+			throw new HttpError(409, ErrorCode.ENROLLMENT_IN_USE, `No se puede borrar la inscripción: tiene ${reasons.join(' y ')}.`, found);
 		}
 		await conn.query('DELETE FROM plantel WHERE id = ?', [id]);
 		return { id, before, after: null };

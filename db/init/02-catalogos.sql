@@ -16,6 +16,27 @@ INSERT INTO estado_pago (codigo, nombre) VALUES
   ('pendiente',  'Pendiente'),
   ('confirmado', 'Confirmado');
 
+-- C-05 (D-034): los perfiles de estadísticas y sus atributos, en orden.
+-- Ids explícitos (EsquemaBD: futbol = 1, voley = 2, atributos 1 a 11), los mismos
+-- que fija db/migraciones/C-05-estadisticas.sql: deporte y plantel_estadistica los
+-- referencian por id y el volcado de datos reales exige que coincidan.
+INSERT INTO perfil_estadistico (id, codigo, nombre) VALUES
+  (1, 'futbol', 'Fútbol'),
+  (2, 'voley',  'Vóley');
+
+INSERT INTO estadistica (id, perfil_estadistico_id, codigo, nombre, orden) VALUES
+  (1,  1, 'disparo',   'Disparo',   1),
+  (2,  1, 'pase',      'Pase',      2),
+  (3,  1, 'fuerza',    'Fuerza',    3),
+  (4,  1, 'defensa',   'Defensa',   4),
+  (5,  1, 'velocidad', 'Velocidad', 5),
+  (6,  1, 'dribbling', 'Dribbling', 6),
+  (7,  2, 'mate',      'Mate',      1),
+  (8,  2, 'saque',     'Saque',     2),
+  (9,  2, 'recepcion', 'Recepción', 3),
+  (10, 2, 'armado',    'Armado',    4),
+  (11, 2, 'bloqueo',   'Bloqueo',   5);
+
 INSERT INTO estado_partido (codigo, nombre) VALUES
   ('programado', 'Programado'),
   ('en_curso',   'En curso'),
@@ -74,4 +95,7 @@ INSERT INTO accion_auditoria (codigo, nombre, entidad) VALUES
   ('modificacion_gol',       'Modificación de gol',                  'gol'),
   ('borrado_gol',            'Borrado de gol',                       'gol'),
   ('alta_multimedia',        'Alta de multimedia del partido',       'multimedia_partido'),
-  ('borrado_multimedia',     'Borrado de multimedia del partido',    'multimedia_partido');
+  ('borrado_multimedia',     'Borrado de multimedia del partido',    'multimedia_partido'),
+  -- C-05: las estadísticas de un jugador en su inscripción (la fila afectada es el plantel).
+  ('registro_estadisticas_plantel', 'Registro de estadísticas de una inscripción', 'plantel'),
+  ('borrado_estadisticas_plantel',  'Borrado de estadísticas de una inscripción',  'plantel');

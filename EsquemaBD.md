@@ -7,7 +7,7 @@
 | Módulo | Contenido | Depende de |
 |---|---|---|
 | **Acceso** | Usuarios, roles, estado de validación y de pago, sesiones. | — |
-| **Informativo** | Deportes, competiciones, equipos, jugadores, partidos y goles. Es el backbone compartido: lo usa tanto la landing/fixture/posiciones como la polla. | Acceso (el admin carga resultados y goles) |
+| **Informativo** | Deportes (con su perfil de estadísticas), competiciones, equipos, jugadores y sus estadísticas, partidos y goles. Es el backbone compartido: lo usa tanto la landing/fixture/posiciones como la polla. | Acceso (el admin carga resultados y goles) |
 | **Polla** | Tickets, selecciones y las monedas que mueven. | Acceso, Informativo |
 | **Auditoría** | Registro de operaciones administrativas relevantes (NFR-006). | Acceso (el admin que actúa); referencia libre, sin FK, a la fila afectada de cualquier módulo |
 
@@ -53,6 +53,7 @@ Decisiones que `business-rules.md` no fija y que se tomaron aquí. Las que depen
 | D19 | **La asignación de +10 es única también en la base** (T-04, BR-008). El backend valida con un `UPDATE` condicionado a `pendiente` y pago `confirmado`, dentro de la misma transacción que el movimiento. Además, `movimiento_moneda` tiene una columna generada `sin_seleccion` con `UNIQUE(usuario_id, tipo_movimiento_id, sin_seleccion)`, así que un segundo movimiento `validacion` del mismo usuario falla en la base aunque alguien lo devolviera a `pendiente` a mano. Un `CHECK` o una columna generada no pueden leer el `codigo` del catálogo; por eso la barrera es "uno por usuario y tipo entre los que no tienen selección", que hoy solo es `validacion`. Si algún día hay otro tipo sin selección que pueda repetirse (un ajuste manual, por ejemplo), hay que revisar este índice. **Límites conocidos de D19** (observados en T-04, sin cambiar el esquema todavía): (1) un movimiento `validacion` con `seleccion_id` cargado a mano esquiva la barrera, porque ahí `sin_seleccion` es NULL; (2) dos movimientos del **mismo tipo** sin selección para el mismo usuario chocan con la UNIQUE aunque sean legítimos. Por eso los débitos (T-10) y las devoluciones (T-16) siempre llevan su `seleccion_id`, y `validacion` nunca. |
 | D20 | **Idempotencia del ticket con una clave del cliente** (T-10, BR-054). Al confirmar, el cliente manda un UUID nuevo en el header `Idempotency-Key`, y se guarda en `ticket.clave_idempotencia` con `UNIQUE(usuario_id, clave_idempotencia)`. Un doble clic, un reintento del navegador o un corte de conexión repiten la misma clave: si ya hay un ticket con esa clave y la misma `huella_solicitud` (SHA-256 de las selecciones), se devuelve ese ticket sin crear nada; con otras selecciones es 409 `IDEMPOTENCY_KEY_REUSED`. **La clave dura lo que dura el ticket**, es decir, para siempre: los tickets nunca se borran, y así un reintento tardío tampoco duplica. Se descartó deduplicar "por ventana de tiempo" o por contenido, porque dos tickets idénticos seguidos son legítimos (BR-017). Si la confirmación falla (selección inválida, saldo), no se guarda nada y la misma clave puede volver a usarse. |
 | D21 | **El estado "en curso" se calcula, no lo escribe un proceso** (T-13, decisión del usuario en BR-012). Un partido empieza solo a su `fecha_hora` y dura 60 minutos, pero nada cambia la fila en ese momento: `estado_partido_id` puede seguir en `programado`. El backend usa siempre el **estado efectivo** (`server/src/lib/match-state.ts`): `programado` con `fecha_hora <= ahora` es `en_curso`, en respuestas, filtros y reglas, con la misma condición en SQL. Se descartó un proceso programado que actualice la columna: dependería de que corra a tiempo y dejaría ventanas en las que un partido ya empezado se trate como programado. Las acciones que tocan el partido escriben el estado que implican (cargar el resultado escribe `en_curso`; confirmarlo, `finalizado`). |
+| D22 | **Estadísticas de los jugadores por deporte** (C-05, D-034 de `docs/decisiones.md`). Cada deporte apunta a un catálogo `perfil_estadistico` (`futbol`, `voley`) en vez de adivinar su juego de atributos por el nombre; fútbol y fútbol femenino comparten `futbol`. Los valores (enteros de 0 a 99) van en `plantel_estadistica`, por **inscripción** y no por persona, y se guardan todos los atributos del perfil juntos o ninguno. Sin cascada: un plantel con estadísticas no se borra, y un deporte no cambia de perfil mientras alguna inscripción suya las tenga. Las bases con datos se actualizan con `db/migraciones/C-05-estadisticas.sql`. |
 
 **Resueltas el 2026-09-15 (respuesta del usuario, ya reflejada en `business-rules.md`):**
 
@@ -132,6 +133,26 @@ Una sesión iniciada (NFR-005, D18).
 | nombre | VARCHAR | Fútbol, Vóley… (BR-001, BR-048). |
 | slug | VARCHAR, único | Para filtrar/enrutar por deporte. |
 | permite_empate | BOOLEAN | Condiciona si `resultado_general` ofrece "Empate" para partidos de este deporte (BR-015). **Backend (T-06):** solo cambia si ningún partido del deporte salió de `programado` y no hay selecciones sobre sus partidos. |
+| perfil_estadistico_id | FK → perfil_estadistico, opcional | C-05 (D22): qué atributos tienen sus jugadores. NULL = el deporte no admite estadísticas. **Backend:** se elige por `codigo` (`futbol`, `voley` o nada) y solo cambia mientras ninguna inscripción del deporte tenga estadísticas (409 `STATS_PROFILE_LOCKED`). |
+
+### perfil_estadistico — catálogo (C-05)
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| codigo | VARCHAR, único | `futbol`, `voley`. Fútbol y fútbol femenino comparten `futbol`. |
+| nombre | VARCHAR | Fútbol, Vóley. |
+
+### estadistica — catálogo (C-05)
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | PK | |
+| perfil_estadistico_id | FK → perfil_estadistico | |
+| codigo | VARCHAR | `futbol`: `disparo`, `pase`, `fuerza`, `defensa`, `velocidad`, `dribbling`. `voley`: `mate`, `saque`, `recepcion`, `armado`, `bloqueo`. |
+| nombre | VARCHAR | Disparo, Pase, Fuerza, Defensa, Velocidad, Dribbling; Mate, Saque, Recepción, Armado, Bloqueo. |
+| orden | TINYINT UNSIGNED | Desde 1: el orden en que se muestran (el radar los recorre así). `CHECK (orden >= 1)`. |
+
+- `UNIQUE(perfil_estadistico_id, codigo)` y `UNIQUE(perfil_estadistico_id, orden)`.
+- `02-catalogos.sql` y la migración `db/migraciones/C-05-estadisticas.sql` los insertan con **ids explícitos** (futbol = 1, voley = 2; atributos 1 a 11, por perfil y orden), así salen iguales en toda base, aunque un intento anterior de la migración se haya deshecho y gastado valores de AUTO_INCREMENT; la migración los comprueba antes del COMMIT. El volcado de datos reales (`db/export-datos-reales.mjs`) lo comprueba en el destino antes de cargar, porque `deporte` y `plantel_estadistica` los referencian por id.
 
 ### competicion — "Competición o torneo" de BR-011
 | Campo | Tipo | Notas |
@@ -177,7 +198,18 @@ Una sesión iniciada (NFR-005, D18).
 - `UNIQUE(id, equipo_id)`: para la FK compuesta de `gol`.
 - **Backend (T-06):** `competicion_id` sale siempre del equipo; el cliente no lo elige, y si lo manda debe coincidir. Una inscripción solo cambia su número de camiseta (D4: sin transferencias).
 
-**Borrado (T-06).** No hay borrado en cascada ni borrado lógico: el catálogo solo se corrige mientras nada lo usa. El backend rechaza borrar (409, con las cantidades) un deporte con competiciones; una competición con equipos, partidos o jugadores inscritos; un equipo con partidos, jugadores inscritos o goles; un jugador inscrito; o una inscripción con goles. Mover un equipo de competición o una competición de deporte sigue la misma idea: solo mientras nada los ata al lugar actual.
+### plantel_estadistica — las estadísticas del jugador en su inscripción (C-05)
+| Campo | Tipo | Notas |
+|---|---|---|
+| plantel_id | FK → plantel | Sin cascada. |
+| estadistica_id | FK → estadistica | |
+| valor | TINYINT UNSIGNED | De 0 a 99 (`CHECK`). |
+
+- `PRIMARY KEY (plantel_id, estadistica_id)`: un valor por atributo y por inscripción.
+- Van en el **plantel, no en el jugador** (D22): la misma persona puede estar en una competición de fútbol y en otra de vóley, con atributos distintos en cada una.
+- **Backend (C-05):** se guardan **todos los atributos del perfil juntos o ninguno** (`PUT /admin/planteles/:id/estadisticas`, `server/src/services/enrollment-stats.service.ts`), y cada uno tiene que ser del perfil del deporte de la competición del plantel. Es una regla entre tablas que el esquema no expresa (haría falta copiar el perfil en `plantel`): la aplica el backend, igual que otras. Un deporte sin perfil no admite estadísticas (409 `SPORT_WITHOUT_STATS`). Sin estadísticas cargadas, la ficha pública dice «Sin estadísticas».
+
+**Borrado (T-06).** No hay borrado en cascada ni borrado lógico: el catálogo solo se corrige mientras nada lo usa. El backend rechaza borrar (409, con las cantidades) un deporte con competiciones; una competición con equipos, partidos o jugadores inscritos; un equipo con partidos, jugadores inscritos o goles; un jugador inscrito; o una inscripción con goles o con estadísticas (C-05). Mover un equipo de competición o una competición de deporte sigue la misma idea: solo mientras nada los ata al lugar actual.
 
 ### estado_partido — catálogo
 | Campo | Tipo | Notas |
@@ -240,7 +272,7 @@ Una sesión iniciada (NFR-005, D18).
 
 - `FK(partido_equipo_id, equipo_id) → partido_equipo(id, equipo_id)` y `FK(plantel_id, equipo_id) → plantel(id, equipo_id)`: el jugador solo puede anotar para su propio equipo y en un partido donde ese equipo participa.
 - **Backend (T-13):** los goles se registran, editan y borran solo desde que el partido empieza y hasta que se confirma su resultado. El jugador tiene que estar inscrito en ese equipo en esa competición. Los goles atribuidos a un lado nunca superan los cargados en `partido_equipo.goles`. La imagen y el video se pueden agregar o quitar también después de confirmar: no cambian el resultado.
-- Reemplaza a las viejas `partido_jugador`, `estadistica_tipo` y `partido_jugador_estadistica`: ninguna BR pide un sistema genérico de estadísticas por disciplina, y las estadísticas del radar de jugador del frontend (`PlayerStats`) son datos aleatorios de `src/data/`, sin relación con estas tablas (ver `CLAUDE.md`).
+- Reemplaza a las viejas `partido_jugador`, `estadistica_tipo` y `partido_jugador_estadistica`: ninguna BR pide estadísticas por partido. Las del radar del jugador son otra cosa: una calificación por inscripción, en `plantel_estadistica` (C-05).
 
 ### multimedia_partido — imágenes y videos del partido (T-13, BR-001, BR-033)
 | Campo | Tipo | Notas |
@@ -359,7 +391,7 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | Las 5 de NFR-006: `validacion_usuario`, `modificacion_partido`, `registro_resultado`, `confirmacion_resultado`, `cancelacion_partido`. Desde T-17, además: `confirmacion_pago`, `reversion_pago`, `creacion_administrador` y `promocion_administrador` (el comando `admin:create`, D-005), `alta_partido`, `borrado_partido`, y `alta_*`, `modificacion_*` y `borrado_*` de `deporte`, `competicion`, `equipo`, `jugador`, `plantel` y `gol`, más `alta_multimedia` y `borrado_multimedia`. |
+| codigo | VARCHAR, único | Las 5 de NFR-006: `validacion_usuario`, `modificacion_partido`, `registro_resultado`, `confirmacion_resultado`, `cancelacion_partido`. Desde T-17, además: `confirmacion_pago`, `reversion_pago`, `creacion_administrador` y `promocion_administrador` (el comando `admin:create`, D-005), `alta_partido`, `borrado_partido`, y `alta_*`, `modificacion_*` y `borrado_*` de `deporte`, `competicion`, `equipo`, `jugador`, `plantel` y `gol`, más `alta_multimedia` y `borrado_multimedia`. Desde C-05, `registro_estadisticas_plantel` y `borrado_estadisticas_plantel` (entidad `plantel`: la inscripción sigue existiendo). |
 | nombre | VARCHAR | Etiqueta visible. |
 | entidad | VARCHAR | Qué tabla afecta esta acción (`usuario`, `partido`, `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `gol` o `multimedia_partido`), siempre la misma por código. |
 
@@ -420,8 +452,8 @@ El backend mapea cada acción de la aplicación a su código en un solo lugar (`
 
 | Campo | Tipo | Notas |
 |---|---|---|
-| tabla | VARCHAR(50) | `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `partido`, `partido_equipo` o `usuario`. |
-| fila_id | BIGINT UNSIGNED | El id de la fila creada. |
+| tabla | VARCHAR(50) | `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `plantel_estadistica`, `partido`, `partido_equipo` o `usuario`. |
+| fila_id | BIGINT UNSIGNED | El id de la fila creada. Para `plantel_estadistica` (C-05), el id del plantel: sus estadísticas son un solo juego. |
 
 - `PRIMARY KEY (tabla, fila_id)`. Sin FK: las filas marcadas son de tablas distintas.
 - La limpieza borra solo las filas anotadas aquí (y lo que hicieron las cuentas de ejemplo), y se niega si hay datos reales colgados de ellas. Al terminar, la tabla queda vacía.
@@ -437,6 +469,10 @@ erDiagram
   estado_pago ||--o{ usuario : clasifica
   usuario ||--o{ sesion : inicia
 
+  perfil_estadistico |o--o{ deporte : "define atributos de"
+  perfil_estadistico ||--|{ estadistica : tiene
+  plantel ||--o{ plantel_estadistica : califica
+  estadistica ||--o{ plantel_estadistica : mide
   deporte ||--o{ competicion : agrupa
   competicion ||--o{ equipo : tiene
   competicion ||--o{ partido : agrupa
