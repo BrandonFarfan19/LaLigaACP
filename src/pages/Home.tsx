@@ -30,7 +30,6 @@ function byMatchday(matches: ResolvedMatch[]): Matchday[] {
 /** What the page shows, without the matches the choice carried for the fixture. */
 const view = (choice: LeagueChoice, teams: Team[], fixture: FixtureRead) => ({
 	sports: choice.sports,
-	competitions: choice.competitions,
 	sportId: choice.sportId,
 	competition: choice.competition,
 	loadError: choice.loadError,
@@ -62,13 +61,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export default function Home() {
-	const { sports, competitions, sportId, competition, teams, rounds, fixtureTruncated, loadError } = useLoaderData<typeof loader>();
+	const { sports, sportId, competition, teams, rounds, fixtureTruncated, loadError } = useLoaderData<typeof loader>();
 	useDocumentTitle('La Liga ACP');
 
 	return (
 		<>
 			<Hero teams={teams} competition={competition?.name} />
-			<CompetitionPicker sports={sports} competitions={competitions} sportId={sportId} competitionId={competition?.id ?? ''} path="/" />
+			<CompetitionPicker sports={sports} sportId={sportId} path="/" />
 			<LeagueNotice
 				error={loadError}
 				empty={

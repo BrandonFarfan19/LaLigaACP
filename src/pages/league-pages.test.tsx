@@ -42,8 +42,8 @@ describe('landing (T-22, BR-013, BR-048, BR-049)', () => {
 		expect(cards[1]!.textContent).toMatch(/Programado/);
 		// One section per round, in round order.
 		expect(screen.getAllByRole('region', { name: /^Jornada / }).map((round) => round.getAttribute('aria-label'))).toEqual(['Jornada 1', 'Jornada 2']);
-		// One read, not two: the matches that chose the competition are the fixture (T-22 fix).
-		expect(gets(calls, '/api/public/partidos').map(params)).toEqual([{ page: '1', pageSize: '100' }]);
+		// One read, not two: the matches that chose the competition are the fixture (T-22 fix), among fútbol's own.
+		expect(gets(calls, '/api/public/partidos').map(params)).toEqual([{ deporteId: '1', page: '1', pageSize: '100' }]);
 	});
 
 	it('when that one read is not the whole fixture, it asks for the competition (T-22 fix)', async () => {
@@ -88,18 +88,31 @@ describe('landing (T-22, BR-013, BR-048, BR-049)', () => {
 		await waitFor(() => expect(screen.getAllByText('HAL').length).toBeGreaterThan(0));
 	});
 
-	it('the sport and the competition live in the URL, so the view can be shared', async () => {
+	it('opens on fútbol, marked, and offers only the sport: its competition is chosen without a section of its own', async () => {
+		const { calls } = mockFetch(apiRoutes(leagueRoutes()));
+		renderLeague('/');
+		await screen.findByRole('heading', { name: /Conoce a los/ });
+		const picker = screen.getByRole('navigation', { name: 'Elegir deporte' });
+
+		expect(within(picker).getByRole('link', { name: 'Fútbol' }).getAttribute('aria-current')).toBe('page');
+		expect(within(picker).queryByText('Competición')).toBeNull();
+		expect(within(picker).queryByRole('link', { name: /Liga Apertura|Copa Vóley|Todos/ })).toBeNull();
+		expect(gets(calls, '/api/public/competiciones').map(params)).toEqual([{ deporteId: '1', pageSize: '100' }]);
+		expect(screen.getByText(/Los 2 clubes que disputan la Liga Apertura\./)).toBeTruthy();
+	});
+
+	it('the sport lives in the URL, so the view can be shared', async () => {
 		const { calls } = mockFetch(apiRoutes(leagueRoutes()));
 		const { router } = renderLeague('/');
 		await screen.findByRole('heading', { name: /Conoce a los/ });
-		const picker = screen.getByRole('navigation', { name: 'Elegir deporte y competición' });
+		const picker = screen.getByRole('navigation', { name: 'Elegir deporte' });
 
-		await userEvent.setup().click(within(picker).getByRole('link', { name: /Copa Vóley/ }));
+		await userEvent.setup().click(within(picker).getByRole('link', { name: 'Vóley' }));
 
-		await waitFor(() => expect(where(router)).toBe('/?competicionId=11'));
+		await waitFor(() => expect(where(router)).toBe('/?deporteId=2'));
 		await waitFor(() => expect(gets(calls, '/api/public/competiciones/11/equipos')).toHaveLength(1));
-		// The competition chosen is the one marked, and its team is the one on screen.
-		await waitFor(() => expect(screen.getByRole('link', { name: /Copa Vóley/ }).getAttribute('aria-current')).toBe('page'));
+		// The sport chosen is the one marked, and its competition's team is the one on screen.
+		await waitFor(() => expect(screen.getByRole('link', { name: 'Vóley' }).getAttribute('aria-current')).toBe('page'));
 		expect(screen.getAllByText('AGU').length).toBeGreaterThan(0);
 	});
 
@@ -190,7 +203,7 @@ describe('landing (T-22, BR-013, BR-048, BR-049)', () => {
 
 		await screen.findByRole('heading', { name: /Conoce a los/ });
 		// Clausura, not Apertura, and not the volleyball match that comes sooner.
-		await waitFor(() => expect(screen.getByRole('link', { name: /Clausura/ }).getAttribute('aria-current')).toBe('page'));
+		await waitFor(() => expect(screen.getByText(/disputan la Clausura\./)).toBeTruthy());
 		expect(screen.queryByText(/todavía no tiene equipos ni partidos/)).toBeNull();
 		// The sport travels with the read that chooses, so nothing is read and thrown away.
 		expect(gets(calls, '/api/public/partidos').map(params)).toEqual([{ deporteId: '1', page: '1', pageSize: '100' }]);
@@ -199,7 +212,7 @@ describe('landing (T-22, BR-013, BR-048, BR-049)', () => {
 
 	it('with a sport that has no matches at all, it falls back to that sport first competition', async () => {
 		const apertura = { id: 20, nombre: 'Apertura', slug: 'apertura', deporte: futbol };
-		mockFetch(
+		const { calls } = mockFetch(
 			apiRoutes(
 				leagueRoutes({
 					'GET /api/public/competiciones': competitionsRoute([apertura, copa]),
@@ -210,7 +223,7 @@ describe('landing (T-22, BR-013, BR-048, BR-049)', () => {
 		);
 		renderLeague('/?deporteId=1');
 
-		await waitFor(() => expect(screen.getByRole('link', { name: /Apertura/ }).getAttribute('aria-current')).toBe('page'));
+		await waitFor(() => expect(gets(calls, '/api/public/competiciones/20/equipos')).toHaveLength(1));
 		expect(await screen.findByText(/todavía no tiene equipos ni partidos cargados/)).toBeTruthy();
 	});
 

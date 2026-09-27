@@ -48,7 +48,7 @@ function Heading({ short, long, className }: { short: string; long: string; clas
 const difference = (value: number) => (value > 0 ? `+${value}` : String(value));
 
 export default function Posiciones() {
-	const { sports, competitions, sportId, competition, rows, loadError } = useLoaderData<typeof loader>();
+	const { sports, sportId, competition, rows, loadError } = useLoaderData<typeof loader>();
 	useDocumentTitle(competition ? `Posiciones · ${competition.name}` : 'Posiciones · La Liga ACP');
 
 	return (
@@ -63,7 +63,7 @@ export default function Posiciones() {
 				</p>
 			</header>
 
-			<CompetitionPicker sports={sports} competitions={competitions} sportId={sportId} competitionId={competition?.id ?? ''} path="/posiciones" />
+			<CompetitionPicker sports={sports} sportId={sportId} path="/posiciones" />
 			<LeagueNotice
 				error={loadError}
 				empty={

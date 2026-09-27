@@ -34,6 +34,12 @@ export function leagueLoadError(error: unknown): string {
 
 const idOf = (value: string | null): string => (value && /^[1-9]\d{0,15}$/.test(value) ? value : '');
 
+/** The sport a page opens on when the URL names none: fútbol, found by name (accents and case aside). */
+export function defaultSport(sports: Sport[]): Sport | undefined {
+	const plain = (name: string) => name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+	return sports.find((sport) => /\bfutbol\b/.test(plain(sport.name)));
+}
+
 /**
  * Reads the choice from the page URL and completes it: the sport's
  * competitions, and the competition to show. Without one in the URL it is the
@@ -46,10 +52,20 @@ const idOf = (value: string | null): string => (value && /^[1-9]\d{0,15}$/.test(
  */
 export async function readLeagueChoice(url: URL, options: { signal?: AbortSignal; withMatches?: boolean } = {}): Promise<LeagueChoice> {
 	const { signal, withMatches = false } = options;
-	const sportId = idOf(url.searchParams.get('deporteId'));
+	let sportId = idOf(url.searchParams.get('deporteId'));
 	const wanted = idOf(url.searchParams.get('competicionId'));
 	try {
-		const [sports, competitions] = await Promise.all([listSports(signal), listCompetitions(sportId, signal)]);
+		let sports: Sport[];
+		let competitions: Competition[];
+		if (sportId || wanted) {
+			[sports, competitions] = await Promise.all([listSports(signal), listCompetitions(sportId, signal)]);
+		} else {
+			// Nothing chosen: the page opens on fútbol and its competition by the usual rule.
+			// Without a sport of that name it stays on every sport, as before.
+			sports = await listSports(signal);
+			sportId = defaultSport(sports)?.id ?? '';
+			competitions = await listCompetitions(sportId, signal);
+		}
 		let competition = wanted ? competitions.find((item) => item.id === wanted) : undefined;
 		// A competition of another sport, or one not in this page: read it by id before giving up.
 		if (wanted && !competition) competition = await getCompetition(wanted, signal);
