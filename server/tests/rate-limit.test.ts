@@ -1,6 +1,6 @@
 import type { Pool } from 'mysql2/promise';
 import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTestApp, env } from './helpers/app.js';
 
 /** Uses a limit of 1 request per window, so the second counted request is already a 429. */
@@ -93,6 +93,50 @@ describe('rate limit', () => {
 
 	it('the default session-read limit is roomier than the global one', () => {
 		expect(env.sessionReadRateLimit.max / env.sessionReadRateLimit.windowMs).toBeGreaterThan(env.rateLimit.max / env.rateLimit.windowMs);
+	});
+
+	/**
+	 * D-032: the skip for `/public` is by path **and** method, like
+	 * `isHealthCheck`. These two fix the two halves of it.
+	 */
+	it('does not count GET or HEAD under /public: it has its own limit', async () => {
+		const app = tinyLimitApp();
+
+		// The variants the public router takes (Router() is case insensitive).
+		for (const path of ['/public/deportes', '/PUBLIC/deportes']) {
+			expect((await request(app).get(path)).status, path).toBe(200);
+		}
+		expect((await request(app).head('/public/deportes')).status).toBe(200);
+
+		// The one allowed request is still available after those three.
+		const counted = await request(app).get('/no-existe');
+		expect(counted.status).toBe(404);
+		expect(counted.headers['ratelimit-remaining']).toBe('0');
+	});
+
+	it('still counts other methods under /public, a refused Origin included', async () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		try {
+			// The public API is read-only, so a write there is a 404 — but a
+			// counted one: it uses up the single request.
+			const plain = tinyLimitApp();
+			expect((await request(plain).post('/public/deportes')).status).toBe(404);
+			expect((await request(plain).get('/no-existe')).status).toBe(429);
+			await pool?.end();
+			pool = undefined;
+
+			// The case that motivated D-032: `csrfProtection` runs before the
+			// public router, and so before that router's own limiter. Skipping by
+			// path alone, this reached the Origin check — which writes a line to
+			// the server log (D-06) — having passed no limiter at all.
+			const foreign = tinyLimitApp();
+			const refused = await request(foreign).post('/public/deportes').set('Origin', 'https://ajeno.ejemplo');
+			expect(refused.status).toBe(403);
+			expect(refused.body.error.code).toBe('CSRF_FAILED');
+			expect((await request(foreign).get('/no-existe')).status).toBe(429);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 
 	it('counts a request before its body is parsed', async () => {

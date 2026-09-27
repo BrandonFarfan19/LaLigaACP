@@ -367,3 +367,28 @@ Formato de cada entrada:
 - **Motivo:** la opción 1 cambia un problema **hipotético** por uno **real y presente**: hoy, con los datos del usuario, FINZULIANAS se ve partida a 768 px, que es un ancho de tableta corriente. Un nombre de equipo de una sola palabra de 25 letras no existe en ningún deporte. Cambiar algo que se ve mal hoy por algo que no va a pasar nunca es un mal negocio, y D-029 y D-030 ya se equivocaron dos veces por razonar sobre casos imaginarios en vez de sobre los datos que hay.
 - **Nota para quien audite esta serie:** D-029, D-030 y D-031 son tres decisiones sobre el mismo punto, y las dos primeras estaban equivocadas. Se dejan las tres, con su error a la vista, en vez de reescribirlas: el valor del registro está en poder ver cómo se corrigió, no en que parezca que se acertó a la primera.
 - **Dónde quedó aplicada:** tercera corrección de C-03.
+
+## D-032 · 2026-09-25 · D-06 — El salto del limitador global a `/public` no mira el método
+
+- **Qué encontró el ejecutor:** al agregar el registro del fallo de Origen (D-06) verificó el orden real en `app.ts` y vio que `applySecurity` corre **antes** que `csrfProtection`, así que casi todo lo que llega a la comprobación de Origen ya pasó el límite global y el caudal de registros queda acotado solo. Con **una excepción**: el limitador global se salta `/public` por *path* (`isPublicApi`, `security.ts:61`) **sin mirar el método**, y el limitador propio de `/public` se monta dentro del router, o sea **después** de `csrf`. Entonces un `POST /public/loquesea` con un `Origin` ajeno llega a la comprobación sin haber pasado ningún limitador, y escribiría en el registro sin tope.
+- **Pregunta:** ¿se cierra ahora o se deja anotado?
+- **Opciones:**
+  1. Exigir que el salto sea además `GET` o `HEAD`. Una línea, sin cambio de comportamiento hoy.
+  2. Dejarlo anotado en `docs/pendientes.md`: hoy no existe ninguna ruta `POST` bajo `/public`, así que no es explotable para nada útil.
+- **Decisión:** opción 1.
+- **Motivo:** el propio proyecto **ya resolvió esto igual en la ruta de al lado**: `isHealthCheck` comprueba el método a propósito, y su comentario lo dice con todas las letras ("Only GET (and the HEAD Express answers with it); any other method there is a 404 and counts"). Dejar `isPublicApi` sin esa comprobación es una inconsistencia con un patrón ya establecido, no una decisión deliberada. Además "no es explotable **hoy**" depende de que nadie agregue nunca un `POST` bajo `/public`, que es justo la clase de suposición que envejece mal y que nadie recordaría al agregar la ruta. Cuesta una línea y no cambia ningún comportamiento actual.
+- **Mérito de quien lo encontró:** el ejecutor lo propuso en vez de aplicarlo por su cuenta, que era lo que se le había pedido. La tarea era agregar un registro; encontró de paso por dónde ese registro podía desbordarse.
+- **Dónde quedó aplicada:** `server/src/middleware/security.ts` (`isPublicApi`), dentro de D-06.
+
+## D-033 · 2026-09-25 · C-04 — El aviso de que la cancha es de muestra, más corto
+
+- **Qué pasó:** en el commit `4f98d00` (las fotos de los jugadores) el usuario **comentó** el párrafo `La ubicación en la cancha es de muestra; el dorsal es el inscrito en el plantel.` de `SquadBoard.tsx`. Eso dejó una comprobación del front fallando y puso el código en contra de D-022 y de `CLAUDE.md`, que piden que la cancha diga que su disposición es de muestra.
+- **Pregunta:** ¿se restaura tal cual, se reescribe, o se quita junto con la regla?
+- **Opciones:**
+  1. Restaurarlo igual.
+  2. Reescribirlo mucho más corto, conservando los dos hechos.
+  3. Quitarlo de verdad, cambiando también D-022, `CLAUDE.md` y la comprobación.
+- **Decisión:** opción 2, elegida por el usuario. El texto pasa a ser breve — del orden de `Posiciones de muestra; dorsal real` — manteniendo **los dos hechos**: que la ubicación en la cancha está inventada y que el número de camiseta sí es el inscrito.
+- **Motivo de conservar el aviso:** las posiciones **no existen en la base de datos**. No hay ninguna columna que diga si alguien es arquero o delantero: `src/lib/squad-layout.ts` reparte a los jugadores en un 1-2-3-2-1 por orden de lista. Con 102 personas reales cargadas y con foto, alguien puede verse puesto de defensa jugando de delantero y no tener forma de saber que es un dibujo. El segundo hecho importa por el motivo inverso: sin él, alguien podría suponer que el dorsal también es inventado, y sí es el real.
+- **Por qué era razonable acortarlo:** eran **dos párrafos apilados** bajo la cancha (`pitch-hint`), y el segundo era una frase entera; a 320 px eso ocupa varios renglones para decir algo secundario. Acortar no pierde nada; quitarlo, sí.
+- **Dónde quedó aplicada:** `src/components/SquadBoard.tsx` y su comprobación en `src/pages/league-pages.test.tsx`.

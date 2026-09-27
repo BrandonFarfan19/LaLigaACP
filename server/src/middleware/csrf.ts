@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express';
 import type { Env } from '../config/env.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
+import { textoParaLog } from '../lib/log-safe.js';
 import { readSessionCookie } from '../lib/session-cookie.js';
 import { csrfTokenFor, safeEqual } from '../lib/tokens.js';
 
@@ -29,6 +30,20 @@ export function csrfProtection(env: Env): RequestHandler {
 
 		const origin = req.headers.origin;
 		if (origin !== undefined && origin !== env.corsOrigin) {
+			// La respuesta no dice qué esperaba el servidor: sería contar la
+			// configuración a cualquiera. Pero sin dejarlo en ningún lado, quien
+			// despliega queda a ciegas — el síntoma es "no puedo iniciar sesión" y
+			// la causa suele ser un `https://` de más, una barra final o el puerto.
+			// Va al registro del servidor, donde `docker logs` muestra la
+			// diferencia exacta y nadie de afuera la ve.
+			// `env.corsOrigin` va sin sanear a propósito: no es entrada del cliente
+			// y no puede partir la línea. El analizador de URL de `parseCorsOrigin`
+			// borra CR, LF y tabulación antes de mirar el texto, así que `url.origin`
+			// no puede traerlos; lo fija una prueba en `tests/env.test.ts`.
+			console.warn(
+				`CSRF: origen no permitido en ${req.method} ${textoParaLog(req.path)}.` +
+					` Origin recibido: ${textoParaLog(origin)} | CORS_ORIGIN configurado: ${env.corsOrigin}`,
+			);
 			throw HttpError.forbidden('Origen no permitido.', ErrorCode.CSRF_FAILED);
 		}
 
@@ -36,6 +51,14 @@ export function csrfProtection(env: Env): RequestHandler {
 		if (sessionToken && !NO_TOKEN_PATHS.test(req.path)) {
 			const sent = req.get(CSRF_HEADER);
 			if (!sent || !safeEqual(sent, csrfTokenFor(sessionToken, env.session.secret))) {
+				// Del token no se registra ni el valor recibido ni el esperado: el
+				// esperado abre la sesión y el recibido puede ser el de otra. Basta
+				// con distinguir las dos causas, que se arreglan distinto: ausente
+				// suele ser un proxy que no reenvía la cabecera, e inválido, una
+				// sesión que cambió sin que el front releyera `/auth/me`.
+				console.warn(
+					`CSRF: token ${sent ? 'inválido' : 'ausente'} en ${req.method} ${textoParaLog(req.path)}.`,
+				);
 				throw HttpError.forbidden('Token CSRF ausente o inválido.', ErrorCode.CSRF_FAILED);
 			}
 		}

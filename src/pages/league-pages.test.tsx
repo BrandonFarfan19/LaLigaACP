@@ -359,7 +359,12 @@ describe('squad (T-22, D-022)', () => {
 
 		expect(await screen.findByRole('heading', { name: 'Halcones', level: 1 })).toBeTruthy();
 		expect(screen.getByText('Liga Apertura · Fútbol')).toBeTruthy();
-		expect(screen.getByText(/La ubicación en la cancha es de muestra/)).toBeTruthy();
+		// The pitch warns that where each player stands is invented and that the
+		// shirt number is not (D-022). Pinned as the two facts and not as the
+		// sentence: C-04 already rewrote it once, and the literal text broke.
+		const pitchNotice = within(screen.getByRole('list', { name: 'Jugadores en la cancha' }).closest('figure')!).getByText(/muestra/i);
+		expect(pitchNotice.textContent).toMatch(/posici|ubicaci|cancha|puesto/i);
+		expect(pitchNotice.textContent).toMatch(/dorsal/i);
 
 		const user = userEvent.setup();
 		await user.click(screen.getByRole('button', { name: /Ver estadísticas de Luis Paredes, dorsal 9/ }));

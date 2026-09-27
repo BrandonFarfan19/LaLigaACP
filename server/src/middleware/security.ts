@@ -55,11 +55,17 @@ export function sessionReadRateLimit(env: Env): RequestHandler {
 	});
 }
 
-/** `/public` and below (same matching as the router). It has its own limiter (`publicRateLimit`). */
+/**
+ * `/public` and below (same matching as the router). It has its own limiter
+ * (`publicRateLimit`), mounted inside that router. Only GET (and the HEAD
+ * Express answers with it), for the same reason as `isHealthCheck`: the public
+ * API is read-only, so any other method there is a 404 and counts, instead of
+ * skipping every limiter on its way to that 404.
+ */
 const PUBLIC_PATH = /^\/public(?:\/|$)/i;
 
 export function isPublicApi(req: Request): boolean {
-	return PUBLIC_PATH.test(req.path);
+	return (req.method === 'GET' || req.method === 'HEAD') && PUBLIC_PATH.test(req.path);
 }
 
 /**

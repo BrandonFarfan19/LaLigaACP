@@ -992,7 +992,7 @@ Formas comunes:
   - **Orden total:** puntos, diferencia, goles a favor, nombre (la collation: sin mayúsculas ni acentos), id. Por eso las posiciones son siempre 1..n, sin compartir.
   - Los goles son `UNSIGNED` en la base: se convierten a `SIGNED` antes de restar.
 - **Paginación**: el fixture y las competiciones van paginados (crecen con el tiempo). Deportes, equipos de una competición, tabla y plantel no, porque están acotados.
-- **Rate limit propio**: 120 pedidos por minuto por IP por defecto (`PUBLIC_RATE_LIMIT_*`), y el límite general no cuenta estas rutas. Una visita a la landing hace varios pedidos (fixture, tabla, equipo), todo es de lectura, barato y cacheable, y un visitante que navega no debe gastar el cupo de 100 cada 15 minutos pensado para cuentas y admin. Sigue acotado por IP.
+- **Rate limit propio**: 120 pedidos por minuto por IP por defecto (`PUBLIC_RATE_LIMIT_*`), y el límite general no cuenta estas rutas **cuando el método es GET o HEAD** (D-032: la API es de solo lectura, así que cualquier otro método ahí es un 404 y sí cuenta, igual que un no-GET sobre `/health`). Una visita a la landing hace varios pedidos (fixture, tabla, equipo), todo es de lectura, barato y cacheable, y un visitante que navega no debe gastar el cupo de 100 cada 15 minutos pensado para cuentas y admin. Sigue acotado por IP.
 - **Caché**:
   - Las respuestas exitosas de `/public` llevan `Cache-Control: public, max-age=30`: son iguales para todos y no tienen nada privado, y 30 s es corto porque los resultados cambian en día de partido.
   - Todo el resto de la API responde `no-store`, y cualquier error, incluso en `/public`, también (`error-handler.ts`). El `no-store` por defecto es el **primer** middleware de `app.ts`, antes de helmet, los rate limits y el CSRF, así que también cubre sus respuestas (un 429 del límite general nunca se cachea).
@@ -1268,7 +1268,7 @@ Nuevas, además de las que ya existían para el servicio `db` (`MYSQL_DATABASE`,
 | Variable | Para qué |
 |---|---|
 | `PORT` | Puerto del backend (mismo valor adentro y publicado al host). |
-| `CORS_ORIGIN` | Origen exacto permitido por CORS (el del front). |
+| `CORS_ORIGIN` | Origen permitido por CORS y CSRF (el del front). Se normaliza al origen (sin barra final, en minúsculas, sin puerto por defecto); una ruta o parámetros se rechazan, y en producción debe ser `https://`. |
 | `DB_HOST` / `DB_PORT` | A dónde conectarse para hablar con MySQL. En local (backend fuera de Docker) es `127.0.0.1` + el puerto publicado por `db` (`MYSQL_PORT`). El servicio `server` de `compose.yaml` los pisa con `db`/`3306` (la red interna) — nunca los toma de `.env` ahí. |
 | `SESSION_SECRET` | Firma los tokens CSRF. Obligatorio, mínimo 32 caracteres, distinto por entorno. Se rechazan los valores de ejemplo (el de `.env.example`, o uno que contenga `cambiar`, `changeme`, `secret`, `ejemplo`...) y los de muy poca variedad, para que una copia sin editar no arranque. Cambiarlo invalida los tokens CSRF en uso (el front los vuelve a pedir con `/auth/me`), no las sesiones. |
 | `MYSQL_DATABASE_TEST` | Base separada para Vitest (ver abajo). Nunca lleva datos reales. Tiene que ser distinta de `MYSQL_DATABASE` y solo letras, números y `_`; si no, el backend no arranca. |
