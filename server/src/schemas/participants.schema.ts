@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { newPasswordSchema } from './auth.schema.js';
 import { idParamsSchema, paginationFields } from './common.schema.js';
 
 /**
@@ -20,3 +21,10 @@ export type ListParticipantsQuery = z.infer<typeof listParticipantsQuerySchema>;
 
 /** `:id` of a participant. */
 export const userIdParamsSchema = idParamsSchema;
+
+/**
+ * Body of `PUT /admin/participantes/:id/contrasena` (C-08, D-037): the new
+ * password, typed by the admin, under the same rule as registration (C-01).
+ * Strict: any other key is a 400.
+ */
+export const resetPasswordBodySchema = z.strictObject({ contrasena: newPasswordSchema });

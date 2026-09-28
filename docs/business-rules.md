@@ -23,7 +23,7 @@ El administrador tendrá acceso a las funcionalidades administrativas del sistem
 
 Podrá:
 
-* Administrar usuarios: validar participantes, confirmar su pago y consultarlos. El administrador no puede cambiar roles desde el sistema.
+* Administrar usuarios: validar participantes, confirmar su pago, consultarlos y restablecer su contraseña (C-08, ver BR-004). El administrador no puede cambiar roles desde el sistema.
 * Validar usuarios inscritos en la polla.
 * Consultar el número de usuarios inscritos.
 * Consultar el número de usuarios validados.
@@ -114,6 +114,8 @@ Las contraseñas nunca deberán almacenarse en texto plano.
 Ante credenciales incorrectas, el sistema responderá siempre lo mismo, sin revelar si el correo está registrado.
 
 Precisión (D-024, C-01): **al iniciar sesión no se aplica el límite de 6 a 20 caracteres.** Ese límite es de alta: vale cuando se elige una contraseña (registro y creación de administrador), no cuando se usa. Así, una cuenta creada antes del cambio, con una contraseña más larga, sigue entrando. Un intento con una contraseña incorrecta —sea del largo que sea— recibe siempre la misma respuesta y tarda aproximadamente lo mismo.
+
+Precisión (C-08, D-037): **el administrador puede restablecer la contraseña de un participante.** Desde la tabla de participantes, el administrador escribe la contraseña nueva de un participante —pendiente o validado— y la confirma en un paso explícito. Sigue la misma regla que al registrarse (de 6 a 20 caracteres, y nada más, BR-003). Al cambiarla se cierran **todas** las sesiones abiertas de ese participante, en el mismo momento: quien conociera la contraseña anterior pierde el acceso y el participante vuelve a entrar con la nueva. La app no envía correos: el administrador se la comunica al participante por su cuenta, y la pantalla lo dice. El cambio queda en el registro de auditoría con quién lo hizo, a quién y cuántas sesiones se cerraron, **nunca con la contraseña ni con su forma cifrada**. La contraseña nueva tampoco aparece en ningún mensaje, dirección ni registro del sistema. No se aplica a una cuenta de administrador (BR-001: no es participante), y el panel sigue sin cambiar roles.
 
 ---
 
@@ -581,6 +583,10 @@ Precisiones (T-20):
 * El filtro por competición se usa junto con el de su deporte: al elegir un deporte aparecen sus competiciones. Un filtro que no es válido, o que nombra un deporte que ya no existe, se quita con un aviso. Un dato de la dirección que la pantalla no conoce se ignora sin aviso.
 * Una página que no existe (más allá de la última) se avisa y se muestra la última, y la dirección pasa a decir esa página. Si falla la carga después de cambiar los filtros o la página, se sigue viendo la lista anterior y el aviso dice que no corresponde a lo elegido. Lo mismo vale si falla la comprobación de la sesión por un problema pasajero (sin conexión, el servidor caído o demasiadas solicitudes seguidas) en esta pantalla y en la del ranking: se conserva lo que se veía, con el aviso y "Reintentar". Si la sesión terminó, se pide ingresar de nuevo.
 * Un usuario pendiente ve su historial vacío y el motivo. Un administrador no tiene esta sección.
+
+Precisión (C-07, D-036):
+
+* "Mis apuestas" muestra solo las apuestas propias, con todo su detalle. Las apuestas de los demás participantes se ven únicamente por BR-056, con menos datos y solo después del resultado.
 
 ---
 
@@ -1082,6 +1088,32 @@ Cuando corresponda devolver monedas debido a una cancelación:
 Estas operaciones deberán ejecutarse de manera consistente.
 
 Precisión (T-16): el cambio del partido a cancelado, la anulación de sus apuestas, las devoluciones y el nuevo saldo de cada usuario ocurren en una sola operación. Si algo falla, no se aplica nada. Cancelar dos veces, o cancelar y confirmar el resultado a la vez, nunca devuelve monedas dos veces: solo una de las dos acciones se aplica.
+
+---
+
+## BR-056 – Apuestas de todos, después del resultado
+
+Los participantes inscritos en la polla deberán poder consultar las apuestas de todos los participantes, una vez confirmado el resultado de cada partido (C-07, D-036).
+
+Deberá mostrar:
+
+* Participante.
+* Partido.
+* Apuesta (tipo y pronóstico).
+
+Deberá poder filtrarse por:
+
+* Deporte.
+* Nombre del participante.
+
+Precisiones (C-07):
+
+* La ven solo los participantes validados (BR-005 a BR-008). Un usuario pendiente ve el motivo, y un administrador no tiene esta sección: sigue usando la consulta de apuestas del panel (BR-001), que no cambia.
+* Una apuesta aparece recién cuando el resultado de su partido está confirmado: el partido finalizado con los goles de los dos equipos cargados, la misma regla que BR-049. Un marcador cargado pero sin confirmar sigue siendo privado, y las apuestas de un partido cancelado nunca aparecen.
+* Aparecen solo las apuestas de los participantes (nunca las de un administrador), sin las anuladas.
+* Del participante se muestra solo su nombre visible, como en el ranking: nunca su correo, su saldo, sus tickets ni otro dato de su cuenta. De la apuesta, solo el tipo y el pronóstico: su estado y sus puntos los ve cada uno en "Mis apuestas" (BR-026).
+* El filtro por participante busca un texto dentro del nombre, sin distinguir mayúsculas ni tildes.
+* Orden: el partido más reciente primero; dentro de un partido, por nombre del participante en orden alfabético español. La lista es paginada.
 
 ---
 

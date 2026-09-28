@@ -239,10 +239,14 @@ function participantDetail(outcome: ParticipantActionOutcome): DetalleAuditoria 
 				monedasAsignadas: MONEDAS_POR_VALIDACION,
 				movimientoId: outcome.movimientoId ?? null,
 			};
+		// C-08: how many sessions were closed, never the password or its hash. The key avoids the
+		// words the detail drops (`sesion`, `contrasena`...), or the count would be dropped with them.
+		case 'restablecer_contrasena':
+			return { accesosCerrados: outcome.sesionesCerradas ?? 0 };
 	}
 }
 
-/** The audit hook of the participant actions (confirm or revert a payment, validate). */
+/** The audit hook of the participant actions (confirm or revert a payment, validate, reset the password). */
 export const participantAuditHooks: ParticipantActionHooks = {
 	inTransaction: (conn, outcome) =>
 		recordAudit(conn, {

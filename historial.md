@@ -1882,3 +1882,80 @@ Con T-23, el plan de [docs/plan-polla.md](docs/plan-polla.md) queda **completo: 
     - **El aviso:** 2 renglones (64 px, lo mismo que dejó C-04) con 16 px de margen a cada lado en móvil y **sin desborde horizontal** en ningún ancho. Mirado en pantalla a 320: se lee entero y en pixel art.
     - Consola del navegador sin errores.
 - **Observación (no bloquea, no la introduce C-06):** a 320 y 390 px, la etiqueta con el nombre de un jugador de la fila delantera puede quedar tapada en parte por el sprite de la fila de atrás. Se ve en fútbol («Cesar Cañoli» bajo el 5) y en vóley («ALZAMORA OJEDA» bajo el 8), y un nombre largo se corta («Yul Hinostroza»). Los puestos son los mismos de antes (C-06 no toca `ROWS`); solo cambia quién los ocupa, así que ahora puede tocarle a cualquier nombre.
+
+## 2026-09-27 — C-07 · Apuestas de todos, visibles para los participantes después del resultado (cambio posterior al plan)
+
+- **De dónde salió:** el usuario pidió que la consulta de apuestas del panel la vean también los inscritos en la polla, con solo tres columnas (Participante, Partido, Apuesta), con filtro por deporte y por nombre, y cada apuesta visible solo después del resultado de su partido ([D-036](docs/decisiones.md)). Se agregó **BR-056** a [docs/business-rules.md](docs/business-rules.md) y se precisó BR-026: «Mis apuestas» muestra solo las propias. Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Backend (Módulo Polla):** `GET /apuestas/participantes` (`services/participant-bets.service.ts`), con `requireAuth, requireBettor`.
+  - **Query estricta:** `deporteId`, `participante` (texto dentro del nombre, recortado, hasta 100 caracteres, sin caracteres de control), `page` y `pageSize`.
+  - **Qué aparece:** solo partidos con el resultado oficial (finalizado por el estado efectivo, con los dos lados cargados, como BR-049), solo tickets de apostadores (`BETTOR_TICKET`, ahora compartido con `admin-bets.service.ts`) y sin selecciones anuladas.
+  - **Qué trae cada fila:** `participante { nombre }`, el partido (id, fecha, competición, deporte y los dos equipos) y la apuesta (tipo y pronóstico), mapeados con `selectionFrom`.
+  - **Orden y lectura:** fecha del partido descendente, luego nombre (`utf8mb4_es_0900_ai_ci`) y luego id de selección. En dos pasos dentro de `withReadSnapshot`, sin índice nuevo.
+- **Frontend:** página `/apuestas-de-todos` (`ApuestasDeTodos.tsx`, datos en `src/lib/participant-bets.ts`). Deporte con `ChoiceGroup`, participante con un campo de texto, filtros en la URL, `Pager` y el fallo pasajero con «Reintentar». El enlace está en el menú Polla, en el grupo dorado; la ruta figura en `SPA_ROUTES` y `vercel.json`.
+  - **Corrección tras la primera revisión de `tester_liga_2`:**
+    - El foco tras un «Reintentar» que carga ahora va al conteo y lo anuncia, como en `/mis-apuestas`. La lógica se extrajo a `src/hooks/useRetryFocus.ts`, que usan las dos páginas.
+    - Los avisos de filtros inválidos o repetidos de la URL se dicen en palabras: `FilterKind` admite `invalid` y `repeated`, y el panel conserva sus textos genéricos.
+- **Archivos:**
+  - **Backend:** `server/src/services/participant-bets.service.ts`, `server/src/services/admin-bets.service.ts`, `server/src/schemas/betting.schema.ts`, `server/src/routes/betting.route.ts`, `server/src/controllers/betting.controller.ts` y `server/tests/participant-bets.test.ts`.
+  - **Front:**
+    - Páginas: `src/pages/ApuestasDeTodos.tsx`, su `.module.css` y su `.test.tsx`, y `src/pages/MisApuestas.tsx`.
+    - Lógica: `src/hooks/useRetryFocus.ts` y `src/lib/{participant-bets,admin-core,route-guards}.ts`.
+    - Componentes y rutas: `src/components/SessionBar.tsx`, `src/App.tsx` y `src/types/betting.ts`.
+    - Pruebas: `src/components/navbar-colors.test.tsx`, `src/pages/Ranking.test.tsx` y `src/test/render-app.tsx`.
+    - Configuración: `vite.config.ts`, `vercel.json` y `deploy/nginx/spa-routes.conf` (generado).
+  - **Docs:** `docs/business-rules.md`, `docs/verificacion-final.md`, `docs/decisiones.md` (D-036), `CLAUDE.md`, `AGENTS.md`, `README.md` y `server/README.md`.
+- **Verificación, repartida entre los dos testers.**
+  - **Entorno:** el `.env` de la raíz fue cambiado por el usuario (DB_PORT=3306, otras claves, TRUST_PROXY=2) y no se tocó. Las pruebas del backend recibieron por el entorno del proceso DB_PORT=3307, las credenciales actuales de los contenedores (leídas en el momento, sin copiarlas a ningún archivo) y TRUST_PROXY vacío.
+  - **`tester_liga`: backend y reglas.**
+    - **Pruebas del servidor:** `npm run server:test` **1199/1199** (47 archivos) con TRUST_PROXY vacío. Con TRUST_PROXY=2 fallan solo 2 de `auth-rate-limits.test.ts` («defaults to off» y la del `X-Forwarded-For` falsificado). Fallan igual en `main` **sin C-07** (worktree de HEAD) con TRUST_PROXY=2 y pasan con TRUST_PROXY vacío: son del entorno, no de C-07.
+    - **Acceso:** un pendiente recibe 403 `USER_NOT_VALIDATED`, un admin 403 `ADMIN_CANNOT_BET`, y sin sesión 401. Una cuenta que vuelve a pendiente recibe 403, pero sus apuestas siguen visibles para los demás, porque son de un apostador.
+    - **Qué aparece:** no aparecen el marcador sin confirmar, el partido cancelado, el de un solo lado, las anuladas ni las de un admin. Tampoco las de una cuenta que pasa a admin después de apostar. Un resultado confirmado después hace aparecer sus apuestas.
+    - **Privacidad:** cada fila trae solo el nombre del participante, el partido y el pronóstico (prueba de claves permitidas). **Los filtros no revelan nada oculto:** filtrar por el nombre de quien apostó también en un partido sin jugar devuelve solo la apuesta del partido con resultado. El conteo cuenta solo filas visibles.
+    - **Orden:** fecha, nombre en orden español y selección; dos participantes con el mismo nombre quedan ordenados por su selección.
+    - **Validación del query, con una sonda propia (borrada):**
+      - 400 con un parámetro desconocido, un array, `page=0`, `page=1.0`, `deporteId=0` o `-1`, más de 100 caracteres o un carácter de control.
+      - `POST` da 404 y la respuesta es `no-store`.
+    - **Reglas:** BR-056, la precisión de BR-026 y `verificacion-final.md` (56 BR) están en paso con el código.
+    - **Repaso del diff de la corrección del front:** `useRetryFocus` reproduce la lógica que tenía `/mis-apuestas`. Tras la corrección, `npm test` **354/354** (29 archivos) y `npm run build` limpio. El backend no cambió desde la revisión.
+  - **`tester_liga_2`: frontend y navegador**, a 320, 390 y 1280 px, con el seed y cuentas `t2_`.
+    - Revisó las tres columnas, los filtros en la URL, la paginación, el fallo pasajero, el apilado en el teléfono sin desborde, el mensaje vacío, el aviso de un pendiente, el 403 del admin, el enlace dorado del menú Polla y el pixel art.
+    - La primera ronda falló por el foco tras «Reintentar» y por un aviso que mostraba `deporteId` en pantalla. En la reverificación aprobó: las 3 pruebas nuevas fallan con la versión anterior, y `/mis-apuestas` no cambió de comportamiento. Dejó la base de desarrollo limpia.
+
+## 2026-09-27 — C-08 · El admin restablece la contraseña de un participante (cambio posterior al plan)
+
+- **De dónde salió:** el usuario pidió una opción en Admin → Participantes para restablecer la contraseña de un participante, con la contraseña nueva escrita por el admin ([D-037](docs/decisiones.md)). Se agregaron las precisiones a BR-001 y BR-004 en [docs/business-rules.md](docs/business-rules.md) y se actualizó [docs/verificacion-final.md](docs/verificacion-final.md). Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Backend (Módulo Acceso):**
+  - **La ruta:** `PUT /admin/participantes/:id/contrasena` (`resetParticipantPassword` en `services/participant-validation.service.ts`). Va con sesión, rol admin y CSRF, y el cuerpo estricto `{ contrasena }` se valida con `newPasswordSchema` (6 a 20 code points, C-01).
+  - **Qué hace:** el hash argon2id se calcula antes de la transacción. Dentro van el hash nuevo, el borrado de **todas** las sesiones del participante y la auditoría (código `restablecimiento_contrasena`, entidad `usuario`, detalle solo `{ accesosCerrados }`).
+  - **Respuestas:** una cuenta admin responde 404 `NOT_A_PARTICIPANT`, y un id inexistente, 404 `USER_NOT_FOUND`.
+  - **Corrección tras la primera revisión (carrera del login):** `createSession` (`services/session.service.ts`) ahora recibe el hash verificado y corre en `withTransaction`. Bloquea la fila de `usuario` `FOR SHARE` por clave primaria antes de tocar `sesion` y vuelve a leer el hash. Si cambió, el login responde el mismo 401 `INVALID_CREDENTIALS` (`auth.service.ts`).
+- **Migración:** `db/migraciones/C-08-restablecer-contrasena.sql` agrega el código a `accion_auditoria`. Toma el id 34 (el de `db/init`) si está libre, y si no, el siguiente. Se niega si ya se aplicó o si falta C-05.
+  - **Al negarse:** imprime el motivo, borra su procedimiento y termina con `ERROR 1231 ... Variable 'sql_mode' can't be set to the value of '<motivo>'`. Desde la corrección, C-05 hace lo mismo, y el README explica el porqué.
+  - **Ya está aplicada en la base de desarrollo.** El respaldo previo lo hizo el ejecutor en su scratchpad y lo borró después; no existe otro.
+- **Frontend (panel, Participantes):** la acción «Restablecer contraseña» en cada fila abre un campo `password` con «Mostrar», sin `maxLength`, validado de 6 a 20 con `checkNewPassword`, y pide confirmación con `ConfirmStep`. Tras el éxito muestra un mensaje de que se cerraron las sesiones y el campo se vacía. Tras la primera revisión, el foco va al campo al abrir, y el campo es ancho a 320 px.
+- **Archivos:**
+  - **Backend:** `server/src/services/{participant-validation,session,auth,audit}.service.ts`, `server/src/controllers/participants.controller.ts`, `server/src/routes/participants.route.ts`, `server/src/schemas/participants.schema.ts` y `server/src/lib/audit.ts`.
+  - **Pruebas del backend:** `server/tests/{participant-password,migration-c08,migration-c05,audit}.test.ts` y `server/tests/helpers/sql-file.ts`.
+  - **Base de datos:** `db/init/02-catalogos.sql` y `db/migraciones/C-08-restablecer-contrasena.sql`, más el ajuste del final de `C-05-estadisticas.sql`.
+  - **Front:** `src/pages/admin/Participantes.tsx`, `src/pages/admin/Admin.module.css`, `src/lib/{admin-pool,auth-rules}.ts`, `src/types/admin.ts` y sus pruebas (`participant-password.test.tsx`, `auth-rules.test.ts`, `panel.test.tsx`).
+  - **Docs:** `docs/business-rules.md`, `docs/verificacion-final.md`, `docs/decisiones.md` (D-037), `EsquemaBD.md`, `CLAUDE.md`, `AGENTS.md`, `README.md` y `server/README.md`.
+- **Verificación, repartida entre los dos testers.**
+  - **Entorno:** el `.env` de la raíz no se tocó. Las pruebas del backend recibieron por el entorno del proceso DB_PORT=3307, las credenciales actuales de los contenedores (leídas en el momento, sin copiarlas a archivos) y TRUST_PROXY vacío.
+  - **`tester_liga`: backend, seguridad y migración.**
+    - **Pruebas:** `npm run server:test` **1223/1223** (49 archivos).
+    - **Defecto hallado y corregido:** en la primera ronda, un login con la contraseña vieja lanzado a la vez que el restablecimiento dejaba **una sesión viva con la contraseña vieja en 3 de 40 intentos**: login 200, `/auth/me` 200 después del restablecimiento, y la vieja ya daba 401. El login verificaba el hash sin bloqueo y creaba la sesión sin volver a comprobarlo.
+    - **La carrera, después de la corrección:** repetida con **300 rondas**, sin ninguna sesión viva con la contraseña vieja y sin ningún 500. En 241 el login entró y su sesión quedó cerrada por el restablecimiento; en 59, el login recibió 401.
+    - **El 401 no se distingue:** su cuerpo es idéntico al de una contraseña equivocada (`INVALID_CREDENTIALS`, «Correo o contraseña incorrectos.»). En tiempo solo agrega una transacción corta a los ~33 ms de mediana de un login fallido, y solo ocurre durante un restablecimiento en curso.
+    - **Las pruebas nuevas del ejecutor detectan la carrera:** sin la relectura del hash, fallan la determinista y la de 40 rondas; restaurado el archivo (sha1 igual), pasan.
+    - **Orden de bloqueo:** el login toma primero `usuario` (`FOR SHARE`) y después `sesion`, como el restablecimiento. El débito de un ticket, la validación y la cancelación toman `usuario` sin tocar `sesion`, así que no cierran ciclo con el login: a lo sumo lo hacen esperar. Un choque entre la purga de sesiones vencidas y el restablecimiento lo reintenta `withTransaction`. `concurrency-stress` en verde.
+    - **Sin fugas:** la contraseña y su hash no aparecen en respuestas, errores (los 400 con 5 o 21 caracteres no la repiten, y un JSON roto da `INVALID_JSON` sin eco), logs ni auditoría.
+    - **Dos restablecimientos a la vez:** ambos 200, sin 500. Queda una sola de las dos contraseñas y hay 2 registros de auditoría.
+    - **Migración, sobre una copia de la base de desarrollo sin el código nuevo:**
+      - Toma el id 34, solo cambia `accion_auditoria`, y el catálogo queda igual al de una base creada desde `db/init`. La segunda corrida se niega sin cambios y sin dejar el procedimiento.
+      - Con el 34 ocupado toma el 35; sin C-05 se niega; sobre una base nueva de `db/init` se niega.
+      - **El id variable no afecta al volcado de datos reales:** `accion_auditoria` no viaja en él y la app busca el código por nombre.
+      - El mensaje al negarse es claro: la columna `motivo` y el error repiten el texto, y el README explica su forma.
+    - **Respaldo de C-05 contra la base de desarrollo** (sin las filas del seed ni la cuenta `t2_` de la revisión en curso): deportes (salvo su perfil), competiciones, equipos, jugadores, planteles, partidos, auditoría y la cuenta de admin original están idénticos. Lo único nuevo son los catálogos de C-05 y el código de C-08. Ya no queda ningún procedimiento almacenado.
+  - **`tester_liga_2`: frontend y navegador**, a 320, 390 y 1280 px.
+    - Revisó la acción por fila con `ConfirmStep`, «Mostrar», la validación de 6 a 20 con emoji, el mensaje de éxito, el campo vacío y la ausencia de fugas en la URL, el almacenamiento, la consola y los logs. También los errores por código, el pixel art, y una prueba de punta a punta con una cuenta `t2_`: sesiones cerradas (401), la vieja no entra y la nueva sí.
+    - La primera ronda falló porque el foco caía al `body` al abrir y porque el campo medía 112 px a 320. En la reverificación aprobó: el foco va al campo, «Cancelar» vuelve al botón, se ven 20 caracteres, `npm test` **365/365** y el build limpio. Dejó la base de desarrollo limpia.

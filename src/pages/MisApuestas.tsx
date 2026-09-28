@@ -7,7 +7,6 @@ import {
 	useLocation,
 	useNavigation,
 	useNavigationType,
-	useRevalidator,
 } from 'react-router';
 import ChoiceGroup from '../components/ChoiceGroup';
 import StateTag from '../components/StateTag';
@@ -30,6 +29,7 @@ import {
 import { listSports } from '../lib/betting';
 import { BET_TYPE_LABEL, coinsText, forecastValue, resultLabel, SELECTION_STATE_LABEL, TICKET_STATE_LABEL } from '../lib/betting-labels';
 import { useRememberedNavigate } from '../hooks/useRequestedPath';
+import { useRetryFocus } from '../hooks/useRetryFocus';
 import { requireKnownUser } from '../lib/route-guards';
 import type { ApiCompetition, ApiPage, ApiSport, MyBet, MyBetsSummary, SelectionState, TicketState } from '../types/betting';
 import { formatKickoff } from '../utils/format-date';
@@ -150,7 +150,6 @@ function HistoryScreen({ pending }: { pending: boolean }) {
 	const { filters, problems, loadError } = data;
 	const navigation = useNavigation();
 	const location = useLocation();
-	const revalidator = useRevalidator();
 	const navigationType = useNavigationType();
 	const navigate = useRememberedNavigate();
 	// The last data that loaded, with the filters and the form's choices it was read with:
@@ -163,7 +162,8 @@ function HistoryScreen({ pending }: { pending: boolean }) {
 	if (data.page && data.summary && shown?.page !== data.page) setShown(snapshot());
 	// The form keeps its sports and competitions when this load read none.
 	const formData = !data.page && shown ? { ...data, sports: shown.sports, competitions: shown.competitions, allCompetitions: shown.allCompetitions } : data;
-	const busy = revalidator.state !== 'idle';
+	// A retry that loads takes the focus to the results (`focusResults`, below); one that failed again keeps it on its button.
+	const { retry, busy } = useRetryFocus(data, (next) => Boolean(next.page), () => focusResults());
 	const loading = busy || (navigation.state === 'loading' && navigation.location.pathname === location.pathname);
 	// A failed reload after changing the filters or the page: the list below is still the previous one.
 	const stale = Boolean(loadError && shown && historySearch(shown.filters) !== historySearch(filters));
@@ -202,19 +202,6 @@ function HistoryScreen({ pending }: { pending: boolean }) {
 		else setNews('');
 		// Once per arrival.
 	}, [location.key]);
-	// The loader data the retry started from: the retry is over when other data arrives.
-	const retriedFrom = useRef<HistoryPageData | null>(null);
-	useEffect(() => {
-		if (!retriedFrom.current || data === retriedFrom.current) return;
-		retriedFrom.current = null;
-		// A retry that failed again keeps the focus on its button.
-		if (data.page) focusResults();
-	}, [data]);
-	const retry = () => {
-		if (busy) return;
-		retriedFrom.current = data;
-		void revalidator.revalidate();
-	};
 
 	// `?page=999` shows the last page: the URL says that page too, without a new history entry.
 	useEffect(() => {

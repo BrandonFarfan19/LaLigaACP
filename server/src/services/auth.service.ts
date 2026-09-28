@@ -57,7 +57,10 @@ export async function login(
 		throw invalidCredentials();
 	}
 
-	const session = await createSession(pool, credentials.user.id, options.ttlMs, options.replacedToken);
+	// The password verified above may have been reset since (C-08): then no session opens, and the
+	// answer is the same 401 as any wrong password.
+	const session = await createSession(pool, credentials.user.id, credentials.passwordHash, options.ttlMs, options.replacedToken);
+	if (!session) throw invalidCredentials();
 	return { user: credentials.user, session };
 }
 

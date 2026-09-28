@@ -6,6 +6,7 @@ import type {
 	AuditRecord,
 	ParticipantAction,
 	ParticipantCounts,
+	PasswordResetResult,
 	PoolStats,
 } from '../types/admin';
 import { api } from './api';
@@ -42,6 +43,13 @@ const ACTION_PATHS: Record<ParticipantAction, string> = {
 /** BR-006: confirm the payment, revert it (only while pending) or validate (+10 coins, once). */
 export const participantAction = (id: number, action: ParticipantAction) =>
 	api.post<{ participante: AdminParticipant }>(`/admin/participantes/${id}/${ACTION_PATHS[action]}`);
+
+/**
+ * C-08 (D-037): the admin sets a participant's new password, which closes
+ * every session of theirs. The answer never carries the password back.
+ */
+export const resetParticipantPassword = (id: number, contrasena: string) =>
+	api.put<PasswordResetResult>(`/admin/participantes/${id}/contrasena`, { contrasena });
 
 /* ---- Bets placed (T-21, BR-001) ---------------------------------------- */
 

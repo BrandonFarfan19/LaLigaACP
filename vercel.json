@@ -41,6 +41,8 @@
     { "source": "/apuestas/tickets/:id/", "destination": "/index.html" },
     { "source": "/mis-apuestas", "destination": "/index.html" },
     { "source": "/mis-apuestas/", "destination": "/index.html" },
+    { "source": "/apuestas-de-todos", "destination": "/index.html" },
+    { "source": "/apuestas-de-todos/", "destination": "/index.html" },
     { "source": "/ranking", "destination": "/index.html" },
     { "source": "/ranking/", "destination": "/index.html" }
   ]

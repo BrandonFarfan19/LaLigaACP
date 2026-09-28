@@ -98,13 +98,21 @@ El front llama a la API **en su mismo origen**, con rutas relativas bajo `/api` 
 
 ### Mis apuestas y ranking (T-20)
 
-- **Navegación:** la barra de sesión de un apostador tiene el botón **Polla**, que abre Apostar, Mis apuestas y Ranking (se cierra con Escape, con un clic afuera o al cambiar de página). Así la fila entra a 320 px (D-007, D-014). El administrador tiene un enlace directo a Ranking. El destino al ingresar no cambia (D-008).
+- **Navegación:** la barra de sesión de un apostador tiene el botón **Polla**, que abre Apostar, Mis apuestas, Apuestas de todos (C-07) y Ranking (se cierra con Escape, con un clic afuera o al cambiar de página). Así la fila entra a 320 px (D-007, D-014). El administrador tiene un enlace directo a Ranking. El destino al ingresar no cambia (D-008).
 - **`/mis-apuestas`** (solo `apostador`; un administrador ve "Acceso restringido"): el resumen (tickets y selecciones por estado, puntos, aciertos, monedas usadas y devueltas) y la lista de la API agrupada por ticket, con fecha, partido, tipo, pronóstico, resultado real, estado (icono y texto), costo, puntos y el enlace al comprobante. Si una página corta un ticket, lo dice. Un pendiente ve su historial vacío y por qué.
   - Filtros en la URL, con los nombres de la API: `estado`, `estadoTicket`, `deporteId`, `competicionId` (solo junto con su deporte; las competiciones se piden a `/public/competiciones`), `desde`, `hasta` (días de confirmación en la hora de Lima) y `page`. Un valor inválido, un deporte que ya no existe o una competición de otro deporte se quitan con un aviso y no llegan a la API.
   - Paginación con enlaces que conservan los filtros. Estados vacío ("Todavía no tienes apuestas" con "Ir a apostar", o "No hay apuestas con esos filtros"), cargando (anunciado) y error: un fallo transitorio (sin conexión, 429 o 5xx) queda en la página con "Reintentar" y conserva lo que se veía.
 - **`/ranking`** (cualquier sesión, BR-002): una tabla de puntajes con posición, participante, puntos y aciertos. Las posiciones compartidas se marcan con `=` (y "compartido" para lectores de pantalla); los encabezados son cortos en el teléfono y completos desde 48rem. El top llega a 50 filas como máximo y avisa cuántos empatados quedaron fuera (`topSinMostrar`). La fila propia lleva la marca **TÚ** y un marco (no solo color); si no entra en la lista, va al final tras un separador, y arriba se resume "Tu puesto". Un pendiente y un administrador ven por qué no tienen fila. "Actualizar" lo vuelve a leer (BR-044); un fallo transitorio queda en la página con "Reintentar".
 - **Datos siempre frescos:** las dos páginas leen la API en su loader en cada visita, así que un ticket recién confirmado o un resultado recién confirmado se ven al entrar o al recargar.
 - En `/apuestas`, un deporte de la URL que ya no existe se quita con un aviso y no se manda a la API (observación final de T-19).
+
+### Apuestas de todos (C-07)
+
+- **`/apuestas-de-todos`** (BR-056, D-036), desde el menú **Polla**: lo que apostó cada participante, en una tabla con **Participante, Partido y Apuesta** que en el teléfono se apila en tarjetas. Del partido más reciente al más antiguo y, dentro de un partido, por nombre.
+- **Solo después del resultado:** una apuesta aparece cuando el resultado de su partido está confirmado. Un marcador cargado sin confirmar, un partido cancelado o una apuesta anulada no aparecen, ni las de un administrador.
+- **Quién la ve:** los participantes validados. Un pendiente ve el motivo; un administrador ve "Acceso restringido" y sigue usando **Apuestas** del panel, que no cambió.
+- **Filtros** en la URL: el deporte con botones (`deporteId`) y parte del nombre del participante (`participante`, sin distinguir mayúsculas ni tildes). Paginada de a 20, con el mismo aviso y "Reintentar" que las demás páginas si falla la carga.
+- **Qué no se ve:** del participante solo su nombre, y de la apuesta solo el tipo y el pronóstico. El estado y los puntos de cada apuesta los ve su dueño en `/mis-apuestas`.
 
 ### Portada, posiciones y plantillas con datos reales (T-22)
 
@@ -123,7 +131,7 @@ El front llama a la API **en su mismo origen**, con rutas relativas bajo `/api` 
 - **`/admin`** y sus secciones son solo para administradores: sin sesión llevan a ingresar (con la sección pedida en `?next=`); un apostador, validado o no, ve "Acceso restringido" sin la navegación del panel. Cada sección carga su código la primera vez que se abre (`lazy`): los visitantes y apostadores no descargan el panel.
 - **Secciones** (una lista de enlaces que se acomoda desde 320 px, sin tocar el navbar):
   - **Resumen**: conteos de participantes y estadísticas de la polla (solo apostadores).
-  - **Participantes**: la tabla de BR-007 con búsqueda, filtros de pago y validación, orden y páginas. Confirmar pago, revertir pago y validar tienen cada uno un paso de confirmación explícito; tras validar se ve el saldo con las 10 monedas. No hay ninguna acción de cambio de rol.
+  - **Participantes**: la tabla de BR-007 con búsqueda, filtros de pago y validación, orden y páginas. Confirmar pago, revertir pago y validar tienen cada uno un paso de confirmación explícito; tras validar se ve el saldo con las 10 monedas. **Restablecer contraseña** (C-08, D-037), en cada fila: el admin escribe la contraseña nueva (de 6 a 20 caracteres, con la opción de mostrarla) y la confirma en un paso explícito; se cierran todas las sesiones del participante y el admin se la comunica por su cuenta (la app no envía correos). No hay ninguna acción de cambio de rol.
   - **Partidos**: el listado en el orden de la API (BR-013) con filtros por deporte, competición, equipo, estado y fechas, y el alta. **Un partido** (`/admin/partidos/:id`) reúne sus datos (qué se puede editar según su estado y sus apuestas), el marcador con la vista previa y la confirmación definitiva, los goles con su autor, las imágenes y videos (del gol y del partido) y la cancelación.
   - **Apuestas**: la consulta de las apuestas de los participantes (`GET /admin/polla/apuestas`), solo lectura.
   - **Ranking**: el ranking completo con el id de cada participante.
@@ -642,7 +650,7 @@ docker compose exec server npm run seed:dev -- --yes-dev-data   # (y seed:dev:cl
 
 La API ya tiene registro, login y roles (`/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`), con sesión en cookie y protección CSRF. Todo registro crea un usuario común y pendiente.
 
-**La contraseña es de 6 a 20 caracteres, y nada más** (BR-003): no se exigen mayúsculas, números ni símbolos, y los espacios, los acentos y los emoji se pueden usar y cuentan como caracteres (algunos emoji compuestos, como una familia o una bandera, cuentan más de uno). Vale igual para el administrador que se crea desde el servidor. **Al ingresar no se aplica ese límite** (D-024): una cuenta creada antes del cambio, con una contraseña más larga, sigue entrando.
+**La contraseña es de 6 a 20 caracteres, y nada más** (BR-003): no se exigen mayúsculas, números ni símbolos, y los espacios, los acentos y los emoji se pueden usar y cuentan como caracteres (algunos emoji compuestos, como una familia o una bandera, cuentan más de uno). Vale igual para el administrador que se crea desde el servidor. **Al ingresar no se aplica ese límite** (D-024): una cuenta creada antes del cambio, con una contraseña más larga, sigue entrando. **Si un participante la olvida**, el admin le escribe una nueva desde el panel (Participantes → Restablecer contraseña, C-08): se cierran sus sesiones abiertas y el admin se la comunica.
 
 El panel no cambia roles: el primer administrador se crea (o una cuenta existente se promueve) desde el servidor. El comando pide la contraseña sin mostrarla:
 
@@ -685,14 +693,15 @@ Resetear borra los datos, así que un cambio de esquema para una base que ya los
 | Migración | Qué hace |
 | :-- | :-- |
 | `C-05-estadisticas.sql` | Estadísticas reales de los jugadores (D-034): crea `perfil_estadistico`, `estadistica` y `plantel_estadistica` (vacía), agrega `deporte.perfil_estadistico_id` y asigna el perfil a cada deporte por su nombre (fútbol en cualquier variante, incluido femenino → `futbol`; vóley, voleibol o volley → `voley`; otro nombre queda sin perfil, y se elige en el panel). Agrega también los dos códigos de auditoría nuevos. Ningún jugador recibe estadísticas. |
+| `C-08-restablecer-contrasena.sql` | El admin restablece la contraseña de un participante (D-037): agrega el código de auditoría `restablecimiento_contrasena`, con el id 34 de `db/init/` si está libre (si no, el siguiente). No cambia el esquema ni otra fila. Necesita C-05 aplicada antes; sin C-08, restablecer una contraseña responde 500 y no cambia nada. |
 
 Cómo se comporta cada una (así está escrita `C-05`):
 
-- **Se niega si ya se aplicó**, sin tocar nada: `ERROR 1644 (45000) ... C-05 ya está aplicada en esta base: no se cambió nada.`
+- **Se niega si ya se aplicó**, sin tocar nada. Imprime el motivo (columna `motivo`) y termina con un error que lo repite: `ERROR 1231 (42000) ...: Variable 'sql_mode' can't be set to the value of 'C-05 ya está aplicada en esta base: no se cambió nada.'`. La forma rara del error es a propósito: fuera de un procedimiento MySQL no tiene `SIGNAL`, y ese error muestra el texto entero. Un fallo de otro tipo llega igual, con el número del error de MySQL delante (`Error 1062: Duplicate entry ...`).
 - **Los datos van en una transacción** que comprueba los conteos antes del `COMMIT`. El DDL de MySQL confirma solo, así que las tablas nuevas pueden quedar creadas (vacías) si algo falla después; **reintentar funciona** y las reutiliza. Lo que la marca como aplicada entra en la misma transacción que los datos.
 - **No toca ninguna fila existente** fuera de lo que dice. En C-05 eso se midió sobre una copia de la base de desarrollo, con `CHECKSUM TABLE` antes y después de cada tabla y un hash de las columnas de siempre de `deporte`: cambian **`deporte`**, solo por su columna nueva `perfil_estadistico_id` (el perfil que le toca a cada deporte; `id`, `nombre`, `slug` y `permite_empate` quedan iguales), y **`accion_auditoria`**, por sus dos filas nuevas. Todo lo demás queda idéntico.
 - **Los catálogos nuevos entran con ids fijos** (futbol = 1, voley = 2, atributos 1 a 11, los mismos de `db/init/`), también después de un intento fallido que ya gastó valores de AUTO_INCREMENT, y se comprueban antes del `COMMIT`. El volcado de datos reales depende de eso.
-- Si falla, deja un procedimiento temporal (`c05_migrar`) que el siguiente intento borra solo; para quitarlo a mano: `DROP PROCEDURE IF EXISTS c05_migrar;`.
+- **No deja nada atrás, tampoco cuando se niega o falla** (corrección de C-08): el procedimiento temporal (`c05_migrar`, `c08_migrar`) guarda el motivo en vez de lanzarlo, el script lo borra y recién después falla. Antes, el cliente `mysql` se detenía en el error del `CALL` y el procedimiento quedaba en la base. Si quedó uno de una versión anterior del archivo, el siguiente intento lo borra solo; a mano: `DROP PROCEDURE IF EXISTS c05_migrar;` (o `c08_migrar`).
 
 **Siempre con respaldo antes**, y como root de MySQL (el usuario de la aplicación no puede crear tablas ni procedimientos).
 
@@ -723,7 +732,9 @@ docker compose -f compose.prod.yaml exec -T db \
 docker compose -f compose.prod.yaml up -d --build
 ```
 
-Lo que tiene que imprimir es la lista de deportes con su perfil (`futbol`, `voley` o `NULL`). Un deporte que quedó en `NULL` y debería tener estadísticas se corrige en el panel, sección Deportes. **Volver atrás** es restaurar el respaldo (lleva su propio `CREATE DATABASE`/`USE` y recrea cada tabla que tenía) y borrar después las tres tablas que el respaldo no conoce, en este orden por sus claves foráneas:
+**C-08** se aplica igual (respaldo primero, como root), cambiando el archivo: `< db/migraciones/C-08-restablecer-contrasena.sql`. Imprime la fila del código nuevo. Si ya estaba aplicada se niega con `C-08 ya está aplicada en esta base: no se cambió nada.` (en la forma de arriba), y sin C-05 se niega sin tocar nada. Volver atrás no hace falta: una fila de catálogo de más no cambia nada del código anterior.
+
+Lo que la de C-05 tiene que imprimir es la lista de deportes con su perfil (`futbol`, `voley` o `NULL`). Un deporte que quedó en `NULL` y debería tener estadísticas se corrige en el panel, sección Deportes. **Volver atrás** es restaurar el respaldo (lleva su propio `CREATE DATABASE`/`USE` y recrea cada tabla que tenía) y borrar después las tres tablas que el respaldo no conoce, en este orden por sus claves foráneas:
 
 ```sh
 docker compose -f compose.prod.yaml exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"' < respaldo-antes-de-C-05.sql

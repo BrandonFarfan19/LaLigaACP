@@ -98,4 +98,6 @@ INSERT INTO accion_auditoria (codigo, nombre, entidad) VALUES
   ('borrado_multimedia',     'Borrado de multimedia del partido',    'multimedia_partido'),
   -- C-05: las estadísticas de un jugador en su inscripción (la fila afectada es el plantel).
   ('registro_estadisticas_plantel', 'Registro de estadísticas de una inscripción', 'plantel'),
-  ('borrado_estadisticas_plantel',  'Borrado de estadísticas de una inscripción',  'plantel');
+  ('borrado_estadisticas_plantel',  'Borrado de estadísticas de una inscripción',  'plantel'),
+  -- C-08: el admin restablece la contraseña de un participante (el detalle nunca lleva la contraseña ni su hash).
+  ('restablecimiento_contrasena', 'Restablecimiento de contraseña',     'usuario');

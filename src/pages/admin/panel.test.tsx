@@ -155,7 +155,7 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 		expect(screen.getByText(/Recibirá 10 monedas y podrá apostar\. La validación no se deshace\./)).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: 'Sí, validar' }));
 		expect(await screen.findByText(/Rosa quedó validado y recibió sus monedas: su saldo es 10\./)).toBeTruthy();
-		await waitFor(() => expect(screen.getByText('Sin acciones: ya está validado.')).toBeTruthy());
+		await waitFor(() => expect(screen.getByText('Ya está validado: no le quedan pasos.')).toBeTruthy());
 		expect(screen.getByRole('table', { name: 'Participantes' }).textContent).toMatch(/10 monedas/);
 	});
 

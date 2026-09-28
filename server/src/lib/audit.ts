@@ -28,6 +28,8 @@ export const ACCIONES_AUDITADAS = {
 	validar: alta('validacion_usuario', 'usuario'),
 	confirmar_pago: alta('confirmacion_pago', 'usuario'),
 	revertir_pago: alta('reversion_pago', 'usuario'),
+	// C-08 (D-037): the admin sets a participant's new password. The detail never carries it.
+	restablecer_contrasena: alta('restablecimiento_contrasena', 'usuario'),
 	// The server command `admin:create` (D-005): the affected account is also the author.
 	crear_administrador: alta('creacion_administrador', 'usuario'),
 	promover_administrador: alta('promocion_administrador', 'usuario'),

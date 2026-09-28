@@ -1,6 +1,6 @@
 # Verificación final (T-23)
 
-Repaso regla por regla de [business-rules.md](business-rules.md) sobre el sistema construido: las 55 BR y los 6 NFR. Para cada una: **dónde se cumple** (ruta, archivo o pantalla), **cómo se comprueba** (prueba automática o revisión manual) y su **estado**.
+Repaso regla por regla de [business-rules.md](business-rules.md) sobre el sistema construido: las 56 BR y los 6 NFR. Para cada una: **dónde se cumple** (ruta, archivo o pantalla), **cómo se comprueba** (prueba automática o revisión manual) y su **estado**.
 
 Estados:
 
@@ -14,7 +14,7 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
-| **BR-001** Rol administrador | `/admin/*` (sesión + `requireRole('admin')`, `routes/admin.route.ts`); panel `/admin` con participantes, catálogo (desde C-05, con el perfil de estadísticas de cada deporte y las estadísticas de cada inscripción), partidos, resultado, goles, multimedia, apuestas, ranking, estadísticas y auditoría (`src/pages/admin/`). El admin **no participa**: `requireBettor` lo rechaza, las acciones de participante responden 404 `NOT_A_PARTICIPANT` y toda consulta de la polla filtra `rol = 'apostador'`. Los roles no se cambian desde la app (solo `npm run admin:create`). | `authorization.test.ts`, `participants-actions.test.ts`, `admin-bets.test.ts`, `ranking.test.ts`, `create-admin.test.ts`; front `panel.test.tsx`, `partidos.test.tsx` | Cumplida |
+| **BR-001** Rol administrador | `/admin/*` (sesión + `requireRole('admin')`, `routes/admin.route.ts`); panel `/admin` con participantes (desde C-08, también el restablecimiento de su contraseña), catálogo (desde C-05, con el perfil de estadísticas de cada deporte y las estadísticas de cada inscripción), partidos, resultado, goles, multimedia, apuestas, ranking, estadísticas y auditoría (`src/pages/admin/`). El admin **no participa**: `requireBettor` lo rechaza, las acciones de participante responden 404 `NOT_A_PARTICIPANT` y toda consulta de la polla filtra `rol = 'apostador'`. Los roles no se cambian desde la app (solo `npm run admin:create`). | `authorization.test.ts`, `participants-actions.test.ts`, `admin-bets.test.ts`, `ranking.test.ts`, `create-admin.test.ts`; front `panel.test.tsx`, `partidos.test.tsx` | Cumplida |
 | **BR-002** Rol usuario | `/apuestas/*`, `/monedas/*`, `/ranking` con `requireBettor`/`requireParticipant`; pantallas `/apuestas`, `/mis-apuestas`, `/ranking`, `/cuenta` | `authorization.test.ts`, `betting.test.ts`, `bet-history.test.ts`; front `Apuestas.test.tsx`, `MisApuestas.test.tsx`, `Ranking.test.tsx` | Cumplida |
 
 ## Registro, autenticación y validación
@@ -22,7 +22,7 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
 | **BR-003** Registro | `POST /auth/register` (`services/auth.service.ts`): correo único, nombre a mostrar (`displayName`, D-011), contraseña argon2id, id, estado y rol. Nace `apostador` + `pendiente` + pago `pendiente` + 0 monedas. **Contraseña de 6 a 20 caracteres y nada más** (C-01): `newPasswordSchema`, con los números solo en `lib/password.ts`, usada también por `admin:create` | `auth-register.test.ts` (5, 6, 20 y 21 caracteres, y sin exigencias de composición), `create-admin.test.ts`, `catalog-names.test.ts`; front `auth-rules.test.ts`, `auth-pages.test.tsx` | Cumplida (precisión: se entra con el correo, D17) |
-| **BR-004** Autenticación | `POST /auth/login`: argon2id, mismo 401 `INVALID_CREDENTIALS` para correo inexistente y contraseña incorrecta, con verificación de relleno. **El límite de 6 a 20 no se aplica al ingresar** (D-024): solo hay un tope técnico (`PASSWORD_VERIFY_MAX_LENGTH`, 128) que no cambia la respuesta ni el tiempo | `auth-session.test.ts` (cuenta con contraseña larga previa, intento demasiado largo y su tiempo), `auth-rate-limits.test.ts`; front `auth-rules.test.ts` | Cumplida (precisión D-024) |
+| **BR-004** Autenticación | `POST /auth/login`: argon2id, mismo 401 `INVALID_CREDENTIALS` para correo inexistente y contraseña incorrecta, con verificación de relleno. **El límite de 6 a 20 no se aplica al ingresar** (D-024): solo hay un tope técnico (`PASSWORD_VERIFY_MAX_LENGTH`, 128) que no cambia la respuesta ni el tiempo. **El admin restablece la contraseña de un participante** (C-08, D-037): `PUT /admin/participantes/:id/contrasena` (`resetParticipantPassword` en `services/participant-validation.service.ts`), con `newPasswordSchema` (6 a 20), argon2id y, en una transacción, el hash nuevo, el cierre de **todas** las sesiones del participante y la auditoría (`restablecimiento_contrasena`, sin la contraseña ni el hash); una cuenta admin es 404 `NOT_A_PARTICIPANT` | `auth-session.test.ts` (cuenta con contraseña larga previa, intento demasiado largo y su tiempo), `auth-rate-limits.test.ts`, `participant-password.test.ts`, `migration-c08.test.ts`; front `auth-rules.test.ts`, `participant-password.test.tsx` | Cumplida (precisiones D-024 y D-037) |
 | **BR-005** Estados del usuario | `estado_usuario` (`pendiente`/`validado`); un pendiente entra y navega, `requireBettor` le da 403 `USER_NOT_VALIDATED`; `/apuestas` le muestra los partidos y le explica por qué no puede apostar | `authorization.test.ts`, `betting.test.ts`; front `Apuestas.test.tsx` | Cumplida |
 | **BR-006** Validación para participar | `POST /admin/participantes/:id/pago/confirmar` y `/validar` (`services/participant-validation.service.ts`): primero el pago, después la validación; +10 monedas en la misma transacción | `participants-actions.test.ts`; front `panel.test.tsx` | Cumplida |
 | **BR-007** Administración de inscritos | `GET /admin/participantes` y `/conteos`: usuario, fecha de inscripción, estado de pago, estado de validación, saldo y puntos; filtros, búsqueda y orden. Solo apostadores | `participants-list.test.ts`; front `panel.test.tsx` | Cumplida |
@@ -125,6 +125,12 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | **BR-054** Idempotencia | `Idempotency-Key` (UUID) en `ticket.clave_idempotencia` con `UNIQUE(usuario_id, clave)` y `huella_solicitud` (D20) | `tickets.test.ts`; front `Apuestas.test.tsx` | Cumplida |
 | **BR-055** Devolución atómica | Anulación, devoluciones, saldos y estado del partido en una transacción; si algo falla, no se aplica nada | `cancellation.test.ts` | Cumplida |
 
+## Apuestas de todos (C-07)
+
+| Regla | Dónde se cumple | Cómo se comprueba | Estado |
+|---|---|---|---|
+| **BR-056** Apuestas de todos, después del resultado | `GET /apuestas/participantes` (`requireBettor`, `services/participant-bets.service.ts`): solo partidos con el resultado oficial (finalizado con los dos lados), solo tickets de apostadores, sin anuladas; cada fila con el nombre del participante, el partido y el pronóstico, nunca ids de usuario, correo, saldo, ticket, estado ni puntos; filtros por deporte y por nombre; pantalla `/apuestas-de-todos` | `participant-bets.test.ts` (acceso, partido sin confirmar, cancelado, un solo lado, admin, anuladas, filtros, orden, páginas, campos privados, volumen); front `ApuestasDeTodos.test.tsx` | Cumplida |
+
 ## Requisitos no funcionales
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
@@ -134,13 +140,17 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | **NFR-003** Pixel art | `src/styles/global.css` (tokens, `pixel-box`, `pixel-bevel`, `pixel-shadow`); sin `border-radius`, sin desenfoques, sin `backdrop-filter`, gradientes en bandas, `steps()` en todo movimiento y todo apagado con `prefers-reduced-motion` | Auditoría automática del CSS (T-23, sobre los archivos) + revisión visual en el navegador | Cumplida |
 | **NFR-004** Indicador de monedas | `SessionBar` + `CoinIcon` (sprite 8×8 con `box-shadow`), siempre visible para el apostador | front `SessionBar.test.tsx` | Cumplida |
 | **NFR-005** Seguridad | argon2id, sesiones en servidor con cookie `HttpOnly`/`SameSite=Strict`, CSRF en toda escritura, `requireAuth`/`requireRole`/`requireBettor`/`requireParticipant`, zod en body, params y query, límites por IP, subida de imágenes validada por contenido, `helmet`, CORS cerrado y errores sin datos internos | `authorization.test.ts`, `csrf.test.ts`, `auth-rate-limits.test.ts`, `rate-limit.test.ts`, `query-params.test.ts`, `body-errors.test.ts`, `media-lib.test.ts`, `env.test.ts`, `read-secret.test.ts` | Cumplida |
-| **NFR-006** Auditoría | `services/audit.service.ts` + `lib/audit.ts`: una fila por escritura del admin (desde C-05, también las estadísticas de una inscripción), en su misma transacción, con administrador, acción, fecha, registro afectado y detalle acotado; consulta en `GET /admin/auditoria` | `audit.test.ts`, `enrollment-stats.test.ts`; front `panel.test.tsx` | Cumplida |
+| **NFR-006** Auditoría | `services/audit.service.ts` + `lib/audit.ts`: una fila por escritura del admin (desde C-05, también las estadísticas de una inscripción; desde C-08, el restablecimiento de la contraseña de un participante, con cuántas sesiones se cerraron y nunca la contraseña ni su hash), en su misma transacción, con administrador, acción, fecha, registro afectado y detalle acotado; consulta en `GET /admin/auditoria` | `audit.test.ts`, `enrollment-stats.test.ts`, `participant-password.test.ts`; front `panel.test.tsx` | Cumplida |
 
 ## Resumen
 
-- **61 reglas revisadas** (55 BR + 6 NFR): todas **cumplidas**, cinco de ellas con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-042 y BR-046).
+- **62 reglas revisadas** (56 BR + 6 NFR): todas **cumplidas**, cinco de ellas con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-042 y BR-046).
 
 > Revisado el 2026-09-18 tras el cambio **C-01** (contraseña de 6 a 20 caracteres, D-024): solo cambian BR-003 y BR-004; el resto de la tabla sigue igual.
 >
 > Revisado el 2026-09-27 tras el cambio **C-05** (estadísticas reales de los jugadores, D-034): ninguna BR las define; se movió dónde se cumplen BR-001 (el catálogo del panel) y NFR-006 (dos acciones auditadas más, también en `business-rules.md`). El resto sigue igual.
+>
+> Revisado el 2026-09-27 tras el cambio **C-07** (apuestas de todos, D-036): se agrega **BR-056** y se precisa BR-026 (solo las propias; las de los demás, por BR-056). El resto sigue igual.
+>
+> Revisado el 2026-09-27 tras el cambio **C-08** (el admin restablece la contraseña de un participante, D-037): se precisa BR-004 (también en BR-001 de `business-rules.md`) y se movió dónde se cumplen BR-001 y NFR-006 (una acción auditada más). El resto sigue igual.
 - Ninguna regla quedó pendiente. Lo que sigue abierto son mejoras y deudas técnicas, no incumplimientos: están en [pendientes.md](pendientes.md).

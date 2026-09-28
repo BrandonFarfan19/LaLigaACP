@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkLogin, checkRegistration, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './auth-rules';
+import { checkLogin, checkNewPassword, checkRegistration, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './auth-rules';
 
 /**
  * The password rule of the registration screen (BR-003, C-01): 6 to 20
@@ -19,6 +19,14 @@ describe('choosing a password (BR-003, C-01)', () => {
 		expect(passwordError('a'.repeat(6))).toBeUndefined();
 		expect(passwordError('a'.repeat(20))).toBeUndefined();
 		expect(passwordError('a'.repeat(21))).toMatch(/muy larga: no puede superar los 20 caracteres/);
+	});
+
+	it('is the same rule when an admin sets a participant password (C-08)', () => {
+		for (const password of ['a'.repeat(5), 'a'.repeat(6), 'a'.repeat(20), 'a'.repeat(21), '🦅'.repeat(6), '👨‍👩‍👧'.repeat(4), `${'👨‍👩‍👧'.repeat(4)}a`]) {
+			expect(checkNewPassword(password), password).toBe(passwordError(password));
+		}
+		expect(checkNewPassword('👨‍👩‍👧'.repeat(4))).toBeUndefined();
+		expect(checkNewPassword(`${'👨‍👩‍👧'.repeat(4)}a`)).toMatch(/muy larga/);
 	});
 
 	it('asks nothing about what it is made of', () => {

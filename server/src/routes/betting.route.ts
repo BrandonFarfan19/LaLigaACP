@@ -13,6 +13,7 @@ import { rejectQueryParams } from '../middleware/no-query.js';
  *   GET  /apuestas/tickets/:id    the receipt of one of the user's own tickets (BR-025)
  *   GET  /apuestas/mis-apuestas?estado=&estadoTicket=&ticketId=&partidoId=&deporteId=&competicionId=&desde=&hasta=   (BR-026)
  *   GET  /apuestas/mis-apuestas/resumen
+ *   GET  /apuestas/participantes?deporteId=&participante=&page=&pageSize=   every participant's bets, once the result is official (C-07, BR-056)
  *
  * Betting routes are for a validated `apostador` only (`requireBettor`): a
  * `pendiente` user gets 403 `USER_NOT_VALIDATED`, an admin 403
@@ -23,8 +24,9 @@ import { rejectQueryParams } from '../middleware/no-query.js';
  * any ticket that isn't the caller's (an admin has none), so ticket ids of
  * other users can't be probed. The history is for any `apostador`
  * (`requireParticipant`): a `pendiente` user just has none yet, and an admin
- * gets 403 `NOT_A_PARTICIPANT`, as in `/monedas`. POSTs go through CSRF like
- * every other one.
+ * gets 403 `NOT_A_PARTICIPANT`, as in `/monedas`. Everyone's bets (C-07) are
+ * for a validated `apostador` only (`requireBettor`, D-036: the ones really
+ * enrolled in the pool). POSTs go through CSRF like every other one.
  */
 export function createBettingRouter(pool: Pool, requireAuth: RequestHandler): Router {
 	const router = Router();
@@ -37,6 +39,7 @@ export function createBettingRouter(pool: Pool, requireAuth: RequestHandler): Ro
 	router.get('/tickets/:id', rejectQueryParams, controller.ticket);
 	router.get('/mis-apuestas', requireParticipant, controller.myBets);
 	router.get('/mis-apuestas/resumen', requireParticipant, rejectQueryParams, controller.myBetsSummary);
+	router.get('/participantes', requireBettor, controller.participantBets);
 
 	return router;
 }

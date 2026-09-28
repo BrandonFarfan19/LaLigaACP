@@ -3,7 +3,7 @@ import type { Pool } from 'mysql2/promise';
 import { sendSuccess } from '../lib/response.js';
 import { authUser } from '../middleware/auth.js';
 import { emptyQuerySchema } from '../schemas/common.schema.js';
-import { listParticipantsQuerySchema, userIdParamsSchema } from '../schemas/participants.schema.js';
+import { listParticipantsQuerySchema, resetPasswordBodySchema, userIdParamsSchema } from '../schemas/participants.schema.js';
 import * as participantActions from '../services/participant-validation.service.js';
 import { countParticipants, listParticipants } from '../services/participants.service.js';
 
@@ -28,11 +28,27 @@ export function createParticipantsController(pool: Pool, hooks: participantActio
 			sendSuccess(res, { participante: outcome.participant });
 		};
 
+	/**
+	 * C-08: the new password is parsed before anything runs, and it never goes
+	 * back out: the answer is the participant and how many sessions were closed.
+	 */
+	const resetPassword: RequestHandler = async (req, res) => {
+		const { id } = userIdParamsSchema.parse(req.params);
+		const { contrasena } = resetPasswordBodySchema.parse(req.body);
+		const outcome = await participantActions.resetParticipantPassword(
+			pool,
+			{ actorId: authUser(req).id, userId: id, password: contrasena },
+			hooks,
+		);
+		sendSuccess(res, { participante: outcome.participant, sesionesCerradas: outcome.sesionesCerradas ?? 0 });
+	};
+
 	return {
 		list,
 		counts,
 		confirmPayment: action(participantActions.confirmPayment),
 		revertPayment: action(participantActions.revertPayment),
 		validate: action(participantActions.validateParticipant),
+		resetPassword,
 	};
 }

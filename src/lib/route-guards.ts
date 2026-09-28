@@ -11,7 +11,7 @@ import { loginPathFor, safeNextPath } from './next-path';
  */
 
 /** Pages that need a session. Leaving the session on one of them sends to sign in. */
-const PROTECTED_PREFIXES = ['/cuenta', '/admin', '/apuestas', '/mis-apuestas', '/ranking'];
+const PROTECTED_PREFIXES = ['/cuenta', '/admin', '/apuestas', '/mis-apuestas', '/apuestas-de-todos', '/ranking'];
 
 export function isProtectedPath(pathname: string): boolean {
 	return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

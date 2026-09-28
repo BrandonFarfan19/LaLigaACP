@@ -2,6 +2,7 @@ import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql
 import { withTransaction } from '../db/transaction.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
+import { hashPassword } from '../lib/password.js';
 import { findAccountRole, findParticipant, type Participant } from './participants.service.js';
 import { grantValidationCoins } from './coins.service.js';
 
@@ -23,7 +24,7 @@ import { grantValidationCoins } from './coins.service.js';
  * or rolls back together with the action.
  */
 
-export type ParticipantAction = 'confirmar_pago' | 'revertir_pago' | 'validar';
+export type ParticipantAction = 'confirmar_pago' | 'revertir_pago' | 'validar' | 'restablecer_contrasena';
 
 export interface ParticipantActionInput {
 	/** The admin doing it (`req.auth.user.id`). */
@@ -38,6 +39,8 @@ export interface ParticipantActionOutcome {
 	participant: Participant;
 	/** Only for `validar`: the `movimiento_moneda` row created. */
 	movimientoId?: number;
+	/** Only for `restablecer_contrasena`: how many of the participant's sessions were closed. */
+	sesionesCerradas?: number;
 }
 
 export interface ParticipantActionHooks {
@@ -197,5 +200,52 @@ export async function validateParticipant(
 		}
 
 		return finish(conn, hooks, { action: 'validar', actorId: input.actorId, movimientoId }, input.userId);
+	}, CHECK_AND_SET);
+}
+
+/**
+ * C-08 (D-037): the admin sets a new password for a participant, typed by the
+ * admin. Any `apostador`, `pendiente` or `validado`; an admin account is 404
+ * `NOT_A_PARTICIPANT` like every action of this screen. The caller has
+ * already checked the password with `newPasswordSchema` (C-01).
+ *
+ * The hash is computed before the transaction (argon2 is CPU work, and a
+ * deadlock retry must only touch the database). Then, in one transaction:
+ * the new `password_hash`, **every** session of the participant deleted (a
+ * stolen cookie, or someone who knew the old password, loses access at once)
+ * and the audit record. If the audit fails, nothing changes. The password and
+ * its hash never leave this function: the outcome carries only the count of
+ * closed sessions.
+ *
+ * Locks: the UPDATE takes X on the `usuario` row, then the DELETE takes the
+ * participant's `sesion` rows. A concurrent login can close a cycle with it
+ * (it deletes expired sessions, then inserts one whose FK takes S on
+ * `usuario`): that deadlock is retried by `withTransaction`.
+ */
+export async function resetParticipantPassword(
+	pool: Pool,
+	input: ParticipantActionInput & { password: string },
+	hooks: ParticipantActionHooks = {},
+): Promise<ParticipantActionOutcome> {
+	const passwordHash = await hashPassword(input.password);
+	return withTransaction(pool, async (conn) => {
+		const ids = await catalogIds(conn);
+		const [result] = await conn.query<ResultSetHeader>('UPDATE usuario SET password_hash = ? WHERE id = ? AND rol_id = ?', [
+			passwordHash,
+			input.userId,
+			ids.rolApostador,
+		]);
+		if (result.affectedRows !== 1) {
+			await mustFind(conn, input.userId);
+			// `mustFind` found a participant a moment after the UPDATE matched none: only a hand edit gets here.
+			throw errors.notAParticipant();
+		}
+		const [deleted] = await conn.query<ResultSetHeader>('DELETE FROM sesion WHERE usuario_id = ?', [input.userId]);
+		return finish(
+			conn,
+			hooks,
+			{ action: 'restablecer_contrasena', actorId: input.actorId, sesionesCerradas: deleted.affectedRows },
+			input.userId,
+		);
 	}, CHECK_AND_SET);
 }

@@ -372,6 +372,36 @@
 	gap: var(--space-2);
 }
 
+/*
+ * A participant's new password (C-08): the table's own row under the participant's, the whole
+ * width. On phones that row is already a framed card, so the form adds no frame of its own:
+ * every pixel goes to the field (at 320 px it is 256 wide).
+ */
+.resetForm {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: var(--space-2);
+	min-width: 0;
+	max-width: 40rem;
+}
+
+/*
+ * The password as typed, while "Mostrar" is on. It breaks into lines, so 20 wide glyphs (W, M,
+ * @: 288 px at 16 px) can be checked whole even at 320 px, where no single-line field fits them.
+ */
+.revealed {
+	margin: 0;
+	padding: var(--space-2) var(--space-3);
+	font-family: var(--font-body);
+	font-size: var(--text-md);
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--color-text);
+	background: var(--color-bg);
+	box-shadow: inset 0 0 0 var(--px) var(--color-border);
+}
+
 .editRow td {
 	display: block;
 }

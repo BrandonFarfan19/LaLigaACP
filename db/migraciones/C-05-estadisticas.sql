@@ -28,8 +28,16 @@
 --     devuelve los valores de AUTO_INCREMENT que gastó, y sin ids fijos el
 --     reintento dejaría futbol en 3 y los atributos en 12 a 22. Antes del COMMIT
 --     se comprueban los ids código por código.
--- El procedimiento temporal c05_migrar se borra al final (y al empezar, por si
--- quedó de un intento cortado).
+-- El procedimiento temporal c05_migrar se borra siempre, también cuando la
+-- migración se niega o falla (corrección de C-08): el procedimiento no lanza el
+-- error, lo guarda en @c05_error y termina; el script borra el procedimiento y
+-- recién entonces falla con ese motivo. El cliente mysql se detiene en el primer
+-- error, así que un error lanzado dentro del CALL dejaba el procedimiento en la
+-- base. El motivo sale impreso (columna «motivo») y en el error final, que se ve
+-- así: ERROR 1231 (42000): Variable 'sql_mode' can't be set to the value of
+-- '<motivo>'. Fuera de un procedimiento MySQL no tiene SIGNAL, y ese es un error
+-- que repite el texto entero. Al empezar también se borra, por si quedó de una
+-- versión anterior de este archivo.
 
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -39,10 +47,14 @@ DELIMITER $$
 
 CREATE PROCEDURE c05_migrar()
 BEGIN
+  -- Nada se lanza desde aquí: el motivo queda en @c05_error (ver arriba).
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
+    GET DIAGNOSTICS CONDITION 1 @c05_errno = MYSQL_ERRNO, @c05_error = MESSAGE_TEXT;
     ROLLBACK;
-    RESIGNAL;
+    IF @c05_errno <> 1644 THEN
+      SET @c05_error = CONCAT('Error ', @c05_errno, ': ', @c05_error);
+    END IF;
   END;
 
   -- 0. Ya aplicada: nada que hacer, y nada se toca.
@@ -164,8 +176,13 @@ END$$
 
 DELIMITER ;
 
+SET @c05_error = NULL;
 CALL c05_migrar();
 DROP PROCEDURE IF EXISTS c05_migrar;
+
+-- Si se negó o falló: el motivo, y el error que detiene el script (nada más corre).
+SELECT @c05_error AS motivo FROM DUAL WHERE @c05_error IS NOT NULL;
+SET SESSION sql_mode = IF(@c05_error IS NULL, @@SESSION.sql_mode, @c05_error);
 
 -- Lo que quedó: cada deporte con su perfil (NULL = sin estadísticas; se elige en el panel, Deportes).
 SELECT d.id, d.nombre, p.codigo AS perfil FROM deporte d LEFT JOIN perfil_estadistico p ON p.id = d.perfil_estadistico_id ORDER BY d.id;

@@ -278,11 +278,11 @@ describe('audit log (T-17: NFR-006)', () => {
 
 			// Every code of the catalog was used by this walk, except the participant ones (next test).
 			const used = new Set((await auditRows()).map((r) => r.codigo));
-			const expected = Object.values(ACCIONES_AUDITADAS).map((a) => a.codigo).filter((c) => !['validacion_usuario', 'confirmacion_pago', 'reversion_pago', 'creacion_administrador', 'promocion_administrador'].includes(c));
+			const expected = Object.values(ACCIONES_AUDITADAS).map((a) => a.codigo).filter((c) => !['validacion_usuario', 'confirmacion_pago', 'reversion_pago', 'restablecimiento_contrasena', 'creacion_administrador', 'promocion_administrador'].includes(c));
 			expect([...used].sort()).toEqual([...new Set(expected)].sort());
 		});
 
-		it('participants: confirm and revert a payment, validate (NFR-006: "Validación de usuario")', async () => {
+		it('participants: confirm and revert a payment, validate (NFR-006: "Validación de usuario"), reset the password (C-08)', async () => {
 			const who = await signedInUser(app, pool);
 			const id = () => who.user.id;
 			expect(await audited(api.post(`/participantes/${who.user.id}/pago/confirmar`, {}), 'confirmacion_pago', id)).toEqual({
@@ -294,6 +294,10 @@ describe('audit log (T-17: NFR-006)', () => {
 			await audited(api.post(`/participantes/${who.user.id}/pago/confirmar`, {}), 'confirmacion_pago', id);
 			const validated = await audited(api.post(`/participantes/${who.user.id}/validar`, {}), 'validacion_usuario', id);
 			expect(validated).toMatchObject({ estadoValidacion: { antes: 'pendiente', despues: 'validado' }, monedasAsignadas: 10 });
+			// C-08: how many sessions were closed (the participant had one), never the password.
+			expect(await audited(api.put(`/participantes/${who.user.id}/contrasena`, { contrasena: 'nueva-clave' }), 'restablecimiento_contrasena', id)).toEqual({
+				accesosCerrados: 1,
+			});
 		});
 	});
 

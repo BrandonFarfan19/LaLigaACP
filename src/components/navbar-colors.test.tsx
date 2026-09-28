@@ -70,7 +70,7 @@ describe('what is gold in the navbar (C-02)', () => {
 		await userEvent.setup().click(account.getByRole('button', { name: /Polla/ }));
 
 		const sectionClass = classOf(sections.getByRole('link', { name: 'Inicio' }));
-		for (const name of ['Apostar', 'Mis apuestas', 'Ranking']) {
+		for (const name of ['Apostar', 'Mis apuestas', 'Apuestas de todos', 'Ranking']) {
 			expect(classOf(account.getByRole('link', { name })), name).not.toBe(sectionClass);
 		}
 	});

@@ -53,20 +53,27 @@ export function checkNombre(raw: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * A password being chosen: at registration and when an admin sets a
+ * participant's new one (C-08). The same two messages the backend sends, word
+ * for word, and the same counting: characters, not UTF-16 units, so an emoji
+ * counts once.
+ */
+export function checkNewPassword(password: string): string | undefined {
+	const characters = [...password].length;
+	if (characters < PASSWORD_MIN_LENGTH) return `La contraseña es muy corta: debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`;
+	if (characters > PASSWORD_MAX_LENGTH) return `La contraseña es muy larga: no puede superar los ${PASSWORD_MAX_LENGTH} caracteres.`;
+	return undefined;
+}
+
 export function checkRegistration(input: { nombre: string; email: string; password: string }): FieldErrors<'nombre' | 'email' | 'password'> {
 	const errors: FieldErrors<'nombre' | 'email' | 'password'> = {};
 	const nombre = checkNombre(input.nombre);
 	if (nombre) errors.nombre = nombre;
 	const email = checkEmail(input.email);
 	if (email) errors.email = email;
-	// The same two messages the backend sends, word for word, and the same
-	// counting: characters, not UTF-16 units, so an emoji counts once.
-	const characters = [...input.password].length;
-	if (characters < PASSWORD_MIN_LENGTH) {
-		errors.password = `La contraseña es muy corta: debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`;
-	} else if (characters > PASSWORD_MAX_LENGTH) {
-		errors.password = `La contraseña es muy larga: no puede superar los ${PASSWORD_MAX_LENGTH} caracteres.`;
-	}
+	const password = checkNewPassword(input.password);
+	if (password) errors.password = password;
 	return errors;
 }
 

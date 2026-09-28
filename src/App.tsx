@@ -2,6 +2,7 @@ import { createBrowserRouter, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import Base from './layouts/Base';
 import Apuestas, { action as apuestasAction, loader as apuestasLoader, shouldRevalidate as apuestasShouldRevalidate } from './pages/Apuestas';
+import ApuestasDeTodos, { loader as apuestasDeTodosLoader, shouldRevalidate as apuestasDeTodosShouldRevalidate } from './pages/ApuestasDeTodos';
 import Cuenta, { loader as cuentaLoader } from './pages/Cuenta';
 import Home, { loader as homeLoader } from './pages/Home';
 import MisApuestas, { loader as misApuestasLoader, shouldRevalidate as misApuestasShouldRevalidate } from './pages/MisApuestas';
@@ -67,6 +68,14 @@ export const routes: RouteObject[] = [
 				ErrorBoundary: RouteError,
 			},
 			{ path: '/ranking', loader: rankingLoader, Component: Ranking, ErrorBoundary: RouteError },
+			// C-07 (BR-056): every participant's bets once the result is official, for validated participants.
+			{
+				path: '/apuestas-de-todos',
+				loader: apuestasDeTodosLoader,
+				shouldRevalidate: apuestasDeTodosShouldRevalidate,
+				Component: ApuestasDeTodos,
+				ErrorBoundary: RouteError,
+			},
 			{ path: '*', Component: NotFound },
 		],
 	},

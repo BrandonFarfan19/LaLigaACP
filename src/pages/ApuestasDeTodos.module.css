@@ -1,0 +1,48 @@
+/* "Apuestas de todos" (C-07). The table is the panel's DataTable: cards on a phone, a grid from 48rem. */
+.page {
+	max-width: 56rem;
+}
+
+.count,
+.small {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
+/* The count takes the focus after a filter or a page link. */
+.count:focus-visible {
+	outline: var(--px) solid var(--color-accent);
+	outline-offset: var(--px);
+}
+
+.wide {
+	grid-column: 1 / -1;
+}
+
+.match {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+/* Crest, names, crest: the names wrap instead of pushing the row sideways (D-014). */
+.teams {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	overflow-wrap: anywhere;
+}
+
+/* Read by screen readers only: "loading", and the count after a retry that loaded. */
+.status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}

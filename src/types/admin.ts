@@ -24,6 +24,12 @@ export interface ParticipantCounts {
 
 export type ParticipantAction = 'confirmar_pago' | 'revertir_pago' | 'validar';
 
+/** `PUT /admin/participantes/:id/contrasena` (C-08, D-037): never the password, only how many sessions were closed. */
+export interface PasswordResetResult {
+	participante: AdminParticipant;
+	sesionesCerradas: number;
+}
+
 export interface AdminSport {
 	id: number;
 	nombre: string;

@@ -11,7 +11,16 @@ import { dayEnd, dayStart, isDay, positiveInt } from './betting';
 /** Rows per page of every admin list. */
 export const ADMIN_PAGE_SIZE = 20;
 
-export type FilterKind = { kind: 'id' } | { kind: 'enum'; values: readonly string[] } | { kind: 'text' } | { kind: 'day' };
+/**
+ * How to read one filter of the page URL. A page for participants (C-07) says
+ * its problems in words instead of the parameter's name: `invalid` when the
+ * value isn't valid, `repeated` when the parameter comes more than once. The
+ * panel's lists keep the generic texts.
+ */
+export type FilterKind = ({ kind: 'id' } | { kind: 'enum'; values: readonly string[] } | { kind: 'text' } | { kind: 'day' }) & {
+	invalid?: string;
+	repeated?: string;
+};
 export type FilterSpec = Record<string, FilterKind>;
 export type FilterValues = Record<string, string | number | undefined> & { page: number };
 
@@ -26,27 +35,28 @@ const MAX_TEXT = 100;
 export function parseFilters(params: URLSearchParams, spec: FilterSpec): { filters: FilterValues; problems: string[] } {
 	const filters: FilterValues = { page: 1 };
 	const problems: string[] = [];
-	const read = (name: string) => {
+	const read = (name: string, repeated?: string) => {
 		const values = params.getAll(name);
-		if (values.length > 1) problems.push(`El filtro ${name} aparece más de una vez: se ignoró.`);
+		if (values.length > 1) problems.push(repeated ?? `El filtro ${name} aparece más de una vez: se ignoró.`);
 		return values.length === 1 ? values[0]!.trim() : '';
 	};
 	for (const [name, rule] of Object.entries(spec)) {
-		const value = read(name);
+		const value = read(name, rule.repeated);
 		if (!value) continue;
+		const invalid = rule.invalid ?? `El filtro ${name} no es válido: se ignoró.`;
 		if (rule.kind === 'id') {
 			const id = positiveInt(value, Number.MAX_SAFE_INTEGER);
 			if (id) filters[name] = id;
-			else problems.push(`El filtro ${name} no es válido: se ignoró.`);
+			else problems.push(invalid);
 		} else if (rule.kind === 'enum') {
 			if (rule.values.includes(value)) filters[name] = value;
-			else problems.push(`El filtro ${name} no es válido: se ignoró.`);
+			else problems.push(invalid);
 		} else if (rule.kind === 'text') {
 			filters[name] = value.slice(0, MAX_TEXT);
 		} else if (isDay(value)) {
 			filters[name] = value;
 		} else {
-			problems.push(`La fecha "${name}" no es válida: se ignoró.`);
+			problems.push(rule.invalid ?? `La fecha "${name}" no es válida: se ignoró.`);
 		}
 	}
 	if (typeof filters.desde === 'string' && typeof filters.hasta === 'string' && filters.desde > filters.hasta) {

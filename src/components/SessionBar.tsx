@@ -109,6 +109,8 @@ export default function SessionBar({ session, currentPath, onLogout, loggingOut,
 const POOL_LINKS = [
 	{ to: '/apuestas', label: 'Apostar' },
 	{ to: '/mis-apuestas', label: 'Mis apuestas' },
+	// C-07 (BR-056): everyone's bets after the result.
+	{ to: '/apuestas-de-todos', label: 'Apuestas de todos' },
 	{ to: '/ranking', label: 'Ranking' },
 ] as const;
 

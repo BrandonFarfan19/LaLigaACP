@@ -36,6 +36,7 @@ const SPA_ROUTES = [
 	'/apuestas',
 	'/apuestas/tickets/:id',
 	'/mis-apuestas',
+	'/apuestas-de-todos',
 	'/ranking',
 ];
 

@@ -15,6 +15,8 @@ export function createParticipantsRouter(pool: Pool, hooks?: ParticipantActionHo
 	router.post('/:id/pago/confirmar', rejectQueryParams, controller.confirmPayment);
 	router.post('/:id/pago/revertir', rejectQueryParams, controller.revertPayment);
 	router.post('/:id/validar', rejectQueryParams, controller.validate);
+	// C-08 (D-037): the admin sets a participant's new password; it closes every session of theirs.
+	router.put('/:id/contrasena', rejectQueryParams, controller.resetPassword);
 
 	return router;
 }

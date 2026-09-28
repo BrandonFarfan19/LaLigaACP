@@ -207,3 +207,31 @@ export interface RankingData {
 	posicionesTop: number;
 	maxFilasTop: number;
 }
+
+/** C-07 (BR-056): a team as `GET /apuestas/participantes` sends it. */
+export interface ParticipantBetTeam {
+	id: number;
+	nombre: string;
+	nombreCorto: string;
+	escudo: string;
+	colorAcento: string;
+}
+
+/**
+ * `GET /apuestas/participantes` (C-07, BR-056): one bet of any participant, on
+ * a match with the official result. Only the name, the match and the forecast:
+ * the backend sends nothing else (no ids of users, states or points).
+ */
+export interface ParticipantBet {
+	participante: { nombre: string };
+	partido: {
+		id: number;
+		/** Kick-off, UTC. */
+		fechaHora: string;
+		competicion: { id: number; nombre: string };
+		deporte: { id: number; nombre: string };
+		local: ParticipantBetTeam;
+		visita: ParticipantBetTeam;
+	};
+	apuesta: { tipo: BetType; pronostico: GeneralResult | null; golesLocal: number | null; golesVisitante: number | null };
+}

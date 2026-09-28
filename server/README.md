@@ -223,7 +223,7 @@ Lo mismo vale para los otros dos comandos: en producción son `node dist/cli/coi
 
 ## Participantes (T-04)
 
-Todo bajo `/admin/participantes`, que ya exige sesión y rol `admin`. Los `POST` llevan `X-CSRF-Token`.
+Todo bajo `/admin/participantes`, que ya exige sesión y rol `admin`. Los `POST` y el `PUT` llevan `X-CSRF-Token`.
 
 | Ruta | Qué hace |
 |---|---|
@@ -232,6 +232,7 @@ Todo bajo `/admin/participantes`, que ya exige sesión y rol `admin`. Los `POST`
 | `POST /admin/participantes/:id/pago/confirmar` | Pago `pendiente` → `confirmado` |
 | `POST /admin/participantes/:id/pago/revertir` | Pago `confirmado` → `pendiente`, solo si el usuario sigue `pendiente` |
 | `POST /admin/participantes/:id/validar` | `pendiente` → `validado` + 10 monedas + movimiento `validacion` |
+| `PUT /admin/participantes/:id/contrasena` | C-08 (D-037): `{ contrasena }` escrita por el admin. Cambia la contraseña y cierra **todas** las sesiones del participante. Responde `{ participante, sesionesCerradas }` |
 
 Cada fila (`items[]`, y `participante` en las respuestas de las acciones) tiene la misma forma que el usuario de `/auth/me`, más `puntos`.
 
@@ -258,7 +259,15 @@ Cada fila (`items[]`, y `participante` en las respuestas de las acciones) tiene 
   2. En la base, `movimiento_moneda` no admite un segundo movimiento sin selección del mismo tipo para el mismo usuario (EsquemaBD D19). Si alguien devolviera un usuario a `pendiente` a mano, el segundo +10 falla y se deshace toda la transacción, estado incluido.
 - **Concurrencia:** dos validaciones simultáneas del mismo usuario compiten por la misma fila. InnoDB hace esperar a la segunda, que después ya no encuentra un `pendiente` y responde 409. Hay una prueba con 8 peticiones en paralelo, en 3 rondas. Estas transacciones usan `READ COMMITTED` para que el motivo del 409 refleje lo que la otra acaba de confirmar; con `REPEATABLE READ` se leía una foto vieja y el motivo salía mal.
 - **Efecto inmediato:** la sesión relee al usuario en cada petición, así que su `/auth/me` muestra `validado` y 10 monedas en la petición siguiente, y `requireBettor` deja de rechazarlo.
-- **Auditoría (T-17):** las tres acciones están en `services/participant-validation.service.ts` y aceptan `hooks.inTransaction(conn, outcome)`, que corre dentro de la transacción antes del commit. Si el hook falla, se deshace todo.
+- **Restablecer la contraseña (C-08, D-037):** `resetParticipantPassword`, en el mismo servicio.
+  - **Cuerpo estricto** `{ contrasena }` (`resetPasswordBodySchema`): la misma regla que el registro, `newPasswordSchema` (6 a 20 caracteres contados en puntos de código, C-01). Otra clave, un número o un campo faltante dan 400 `VALIDATION_ERROR` con el error en `contrasena`; el mensaje nunca repite lo escrito. Un query da 400.
+  - **A quién:** cualquier apostador, `pendiente` o `validado`. Una cuenta admin (también la propia) da 404 `NOT_A_PARTICIPANT`, y un id que no existe, 404 `USER_NOT_FOUND`. Un apostador que lo intenta recibe 403, sin sesión 401 y sin `X-CSRF-Token` 403.
+  - **Qué hace:** calcula el hash argon2id con `lib/password.ts` (los mismos parámetros) **antes** de la transacción, porque es trabajo de CPU y un reintento por deadlock solo debe tocar la base. Después, en una transacción `READ COMMITTED`: `UPDATE usuario SET password_hash` (solo si es apostador), `DELETE FROM sesion WHERE usuario_id = ?` y la auditoría. Si la auditoría falla, no cambia nada: ni la contraseña ni las sesiones.
+  - **Sesiones:** se borran todas las del participante, así que una cookie vieja da 401 en la petición siguiente; las de los demás usuarios no se tocan. El participante entra con la contraseña nueva, y con la vieja recibe el 401 de siempre.
+  - **Bloqueos y la carrera con un login (corrección de C-08):** el `UPDATE` toma X sobre la fila de `usuario` y después el `DELETE` las filas de `sesion`. El login leía el hash sin bloqueo, lo verificaba e insertaba la sesión sin volver a mirarlo: si el restablecimiento confirmaba en medio, su `DELETE` ya había pasado y la sesión nueva quedaba viva con la contraseña vieja (3 de 40 intentos en la revisión). Ahora `createSession` recibe el hash verificado y, en su transacción (`withTransaction`, con reintento por deadlock), bloquea primero la fila de `usuario` `FOR SHARE` por clave primaria, vuelve a leer `password_hash` y no abre nada si cambió; el login responde el mismo 401 `INVALID_CREDENTIALS`. Con los dos tomando `usuario` antes que `sesion`, o el restablecimiento confirma antes (y el login ve el hash nuevo) o el login confirma antes (y el restablecimiento borra su sesión). El login no se volvió más lento de forma medible (mediana de 46 a 48 ms, antes y después, 80 logins seguidos). Lo prueban una comprobación determinista y 40 rondas concurrentes (`participant-password.test.ts`).
+  - **La contraseña nunca sale:** ni en la respuesta, ni en un error, ni en la auditoría (que guarda solo `{ accesosCerrados }`: la clave evita la palabra `sesion`, que el detalle quita), ni en el registro del servidor. La app no envía correos: el admin se la comunica al participante.
+  - **Bases con datos:** el código de auditoría nuevo llega con `db/migraciones/C-08-restablecer-contrasena.sql` (README de la raíz, "Migraciones de una base con datos"); sin ella, la acción responde 500 y no cambia nada.
+- **Auditoría (T-17):** las tres acciones de pago y validación y el restablecimiento de la contraseña están en `services/participant-validation.service.ts` y aceptan `hooks.inTransaction(conn, outcome)`, que corre dentro de la transacción antes del commit. Si el hook falla, se deshace todo.
 
 ## Monedas (T-05)
 
@@ -898,6 +907,7 @@ Módulo Auditoría (`services/audit.service.ts`, `lib/audit.ts`, `routes/audit.r
 | Acciones de la aplicación | Códigos | Entidad |
 |---|---|---|
 | `validar`, `confirmar_pago`, `revertir_pago` (T-04) | `validacion_usuario`, `confirmacion_pago`, `reversion_pago` | `usuario` |
+| `restablecer_contrasena` (C-08; el admin cambia la contraseña de un participante) | `restablecimiento_contrasena` | `usuario` |
 | `crear_partido`, `editar_partido`, `borrar_partido` (T-07) | `alta_partido`, `modificacion_partido`, `borrado_partido` | `partido` |
 | `registrar_resultado_partido`, `confirmar_resultado_partido` (T-12) | `registro_resultado`, `confirmacion_resultado` | `partido` |
 | `cancelar_partido` (T-16) | `cancelacion_partido` | `partido` |
@@ -914,7 +924,7 @@ Las cinco de NFR-006 están incluidas. Una prueba verifica que `02-catalogos.sql
 - Modificaciones: `{ cambios: { campo: { antes, despues, recortado? } } }`, solo los campos que cambiaron.
 - Altas: `{ nuevo: fila }`; borrados: `{ anterior: fila }`.
 - Registro de resultado: `{ marcador, anterior }`; confirmación: `{ marcador }`; cancelación: `{ estadoAnterior, selecciones, monedasDevueltas, seleccionesSinDevolucion, usuarios, tickets, ticketsAnulados }`.
-- Participantes: el estado de pago o de validación antes y después, y en la validación, las monedas asignadas y el id del movimiento. Nada personal: el participante es `entidad_id`.
+- Participantes: el estado de pago o de validación antes y después, y en la validación, las monedas asignadas y el id del movimiento. En el restablecimiento de la contraseña (C-08), solo `{ accesosCerrados }`, cuántas sesiones se cerraron: nunca la contraseña ni su hash. Nada personal: el participante es `entidad_id`.
 - **Solo campos guardados** (`soloGuardados`, segunda corrección de T-17): las filas del detalle llevan lo que la tabla guarda, nunca valores calculados ni traídos por JOIN.
   - Partido: `id`, `competicionId`, `estado`, `jornada`, `fechaHora`, `sede` y `local`/`visita` con `equipoId` y `goles`. Sin `cierreApuestas` (es `fechaHora − 24 h`), `deporteId` ni nombres de equipos: postergar un partido deja solo `fechaHora` en `cambios`. `estado` es el efectivo (BR-012); en las filas que se registran (alta, edición, borrado) no se distingue del guardado.
   - Gol: `id`, `partidoId`, `equipoId`, `plantelId`, `minuto`, `imagen` (la ruta de la API, nunca el nombre interno `archivo`) y `video` (el enlace guardado). Sin `lado`, sin el nombre del jugador y sin `embedUrl` ni `plataforma`.
@@ -1182,6 +1192,19 @@ Todo se calcula al leer; el ticket no guarda ninguno de estos valores (D13, D14)
   - Comprobante: dueño, ajeno, admin, pendiente e inexistente. Acceso: 401, 403 y CSRF.
   - Al final, `checkCoinConsistency` (lo mismo que `npm run coins:check`) no encuentra descuadres.
 - `tests/concurrency-stress.test.ts` ahora confirma tickets reales por HTTP: la misma clave tres veces en paralelo por ronda (un solo ticket), más un ticket rechazado y una evaluación, contra las acciones del admin.
+
+## Apuestas de todos (C-07)
+
+Módulo Polla (`services/participant-bets.service.ts`, BR-056, D-036). `GET /apuestas/participantes?deporteId=&participante=&page=&pageSize=`: las apuestas de todos los participantes, para los participantes, **una vez confirmado el resultado** de su partido. Solo lectura.
+
+- **Acceso:** `requireAuth, requireBettor`, como las demás rutas de apostador: sin sesión 401, un `pendiente` 403 `USER_NOT_VALIDATED`, un admin 403 `ADMIN_CANNOT_BET` (el admin sigue con `GET /admin/polla/apuestas`, que no cambia). Respuestas `no-store`.
+- **Query estricta** (`listParticipantBetsQuery`): `deporteId`, `participante` y la paginación de siempre (`pageNumber`). `participante` es un texto que se busca dentro del nombre visible (los ids de otros usuarios no se exponen): se recorta, admite hasta 100 caracteres como los demás textos de búsqueda (`q`), vacío no filtra, un carácter de control es 400, y `%` y `_` son literales (`likePattern`). La comparación sigue la colación de `usuario.nombre` (sin mayúsculas ni tildes). Un parámetro desconocido o repetido es 400.
+- **Qué entra:** solo selecciones de partidos con el **resultado oficial**: estado efectivo `finalizado` (`effectiveStateCondition`) con los goles de los dos lados cargados, la regla de BR-049 y de `resultadoReal`. Un marcador cargado sin confirmar (T-12) y un partido cancelado (T-16, aunque tenga goles) nunca aparecen. Solo tickets de `apostador` (`BETTOR_TICKET`, compartido con la consulta del admin) y nunca una selección `anulada`.
+- **Qué sale, y nada más:** `participante { nombre }`, `partido` (id, fecha, competición y deporte con id y nombre, local y visita con id, nombre, nombre corto, escudo y color) y `apuesta` (`tipo`, `pronostico`, `golesLocal`, `golesVisitante`). Nunca el id del usuario, su correo o saldo, el ticket, la clave de idempotencia, la huella, el estado de la selección ni sus puntos: son del dueño (BR-026). El mapeo es el del comprobante (`selectionFrom`), recortado.
+- **Orden:** `p.fecha_hora DESC`, después el nombre en orden español (`NOMBRE_ORDEN`, `utf8mb4_es_0900_ai_ci`) y el id de la selección, que desempata sin exponerse.
+- **Dos pasos en una instantánea de solo lectura** (`withReadSnapshot`), como el historial: el total y la página de ids desde `seleccion`, su partido, sus dos lados, el ticket y el usuario; después solo esas filas con sus equipos y nombres. Sin N+1.
+- **Índices: no hace falta uno nuevo.** Los filtros usan `idx_seleccion_partido_estado` (las selecciones de cada partido) y claves primarias, y el filtro por deporte la de `competicion`. El orden mezcla `partido.fecha_hora` con `usuario.nombre`, de dos tablas, así que ningún índice lo sirve: se ordenan las filas que pasan los filtros. La prueba de volumen (`tests/participant-bets.test.ts`, 300 participantes, 24 000 selecciones en 40 partidos finalizados) midió unos **170 ms** por HTTP para la primera página sin filtros, 85 ms por deporte y 57 ms por nombre. Si la polla crece mucho, lo primero es partir por partido (los finalizados, por `idx_partido_fecha_hora`) antes que un índice.
+- **Pruebas** (`tests/participant-bets.test.ts`): acceso por rol y estado; partido sin confirmar, cancelado, con un solo lado, de un admin y selecciones anuladas; un resultado confirmado después que hace aparecer sus apuestas; orden (con tildes en orden español); filtros; paginación; la forma exacta de una fila; y una lista de claves permitidas que falla si aparece cualquier otra (id de usuario, correo, saldo, ticket, estado, puntos...).
 
 ## Mis apuestas (T-11)
 

@@ -4,6 +4,7 @@ import mysql, { type Connection, type RowDataPacket } from 'mysql2/promise';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadEnv } from '../src/config/env.js';
 import { DB_INIT_DIR } from './helpers/db.js';
+import { statements } from './helpers/sql-file.js';
 import { resolveTestDatabase } from './helpers/test-database.js';
 
 /**
@@ -44,29 +45,6 @@ const SPORTS: Array<[string, string | null]> = [
 	['Fútbol y vóley', null],
 ];
 
-/** The file's statements in order, split the way the `mysql` client does. */
-function statements(sql: string): string[] {
-	const out: string[] = [];
-	let delimiter = ';';
-	let current = '';
-	for (const line of sql.replace(/\r\n/g, '\n').split('\n')) {
-		const change = /^DELIMITER\s+(\S+)\s*$/i.exec(line.trim());
-		if (change) {
-			delimiter = change[1]!;
-			continue;
-		}
-		if (current === '' && line.trim().startsWith('--')) continue;
-		current += `${line}\n`;
-		if (line.trimEnd().endsWith(delimiter)) {
-			const text = current.trimEnd().slice(0, -delimiter.length).trim();
-			if (text) out.push(text);
-			current = '';
-		}
-	}
-	if (current.trim()) out.push(current.trim());
-	return out;
-}
-
 describe('migration C-05 on a database with data (D-034)', () => {
 	let root: Connection;
 	let conn: Connection;
@@ -89,14 +67,14 @@ describe('migration C-05 on a database with data (D-034)', () => {
 		await root?.end();
 	});
 
-	/** The schema of db/init/ as it was before C-05, with the sports already there. */
+	/** The schema of db/init/ as it was before C-05 (so before C-08 too), with the sports already there. */
 	beforeEach(async () => {
 		await root.query(`DROP DATABASE \`${database}\`; CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
 		await root.changeUser({ database });
 		for (const sql of INIT) await root.query(sql);
 		await root.query(`ALTER TABLE deporte DROP FOREIGN KEY fk_deporte_perfil_estadistico, DROP COLUMN perfil_estadistico_id;
 			DROP TABLE plantel_estadistica, estadistica, perfil_estadistico;
-			DELETE FROM accion_auditoria WHERE codigo IN ('registro_estadisticas_plantel', 'borrado_estadisticas_plantel');`);
+			DELETE FROM accion_auditoria WHERE codigo IN ('registro_estadisticas_plantel', 'borrado_estadisticas_plantel', 'restablecimiento_contrasena');`);
 		for (const [i, [nombre]] of SPORTS.entries()) {
 			await root.query('INSERT INTO deporte (nombre, slug, permite_empate) VALUES (?, ?, ?)', [nombre, `d${i}`, i % 2 === 0]);
 		}
@@ -156,6 +134,8 @@ describe('migration C-05 on a database with data (D-034)', () => {
 		const before = await catalogs();
 
 		expect((await migrate())?.message).toMatch(/C-05 ya está aplicada/);
+		// Refused, and it still drops its procedure (C-08 fix).
+		expect((await conn.query<RowDataPacket[]>("SHOW PROCEDURE STATUS WHERE Db = DATABASE() AND Name = 'c05_migrar'"))[0]).toEqual([]);
 		expect(await catalogs()).toEqual(before);
 		expect(await rows('SELECT COUNT(*) AS n FROM accion_auditoria WHERE codigo = \'registro_estadisticas_plantel\'')).toEqual([{ n: 1 }]);
 	});
@@ -165,7 +145,9 @@ describe('migration C-05 on a database with data (D-034)', () => {
 		await conn.query("INSERT INTO accion_auditoria (codigo, nombre, entidad) VALUES ('borrado_estadisticas_plantel', 'x', 'plantel')");
 
 		const failed = await migrate();
-		expect(failed?.errno).toBe(1062);
+		// The reason travels in the final error, with the driver's errno inside it; the procedure is gone (C-08 fix).
+		expect(failed?.message).toMatch(/Error 1062: Duplicate entry/);
+		expect((await conn.query<RowDataPacket[]>("SHOW PROCEDURE STATUS WHERE Db = DATABASE() AND Name = 'c05_migrar'"))[0]).toEqual([]);
 		// Rolled back: empty catalogs, no profile, no mark. The DDL stays (it commits by itself).
 		expect(await catalogs()).toEqual({ perfiles: [], atributos: [] });
 		expect(await rows('SELECT COUNT(*) AS n FROM deporte WHERE perfil_estadistico_id IS NOT NULL')).toEqual([{ n: 0 }]);
@@ -182,6 +164,7 @@ describe('migration C-05 on a database with data (D-034)', () => {
 		await conn.query("INSERT INTO perfil_estadistico (codigo, nombre) VALUES ('otro', 'Otro')");
 
 		expect((await migrate())?.message).toMatch(/ya tienen filas/);
+		expect((await conn.query<RowDataPacket[]>("SHOW PROCEDURE STATUS WHERE Db = DATABASE() AND Name = 'c05_migrar'"))[0]).toEqual([]);
 		expect(await rows("SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'deporte' AND column_name = 'perfil_estadistico_id'")).toEqual([{ n: 0 }]);
 	});
 });

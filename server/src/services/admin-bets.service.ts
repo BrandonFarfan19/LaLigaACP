@@ -23,8 +23,8 @@ export interface AdminBet extends MyBet {
 	usuario: { id: number; nombre: string };
 }
 
-/** Tickets of `apostador` accounts only (the role by `codigo`, never a fixed id). */
-const BETTOR_TICKET = "t.usuario_id IN (SELECT pu.id FROM usuario pu WHERE pu.rol_id = (SELECT id FROM rol WHERE codigo = 'apostador'))";
+/** Tickets of `apostador` accounts only (the role by `codigo`, never a fixed id). Shared with C-07's list. */
+export const BETTOR_TICKET = "t.usuario_id IN (SELECT pu.id FROM usuario pu WHERE pu.rol_id = (SELECT id FROM rol WHERE codigo = 'apostador'))";
 
 /**
  * Newest ticket first, like the history. Two steps, as there: the page of

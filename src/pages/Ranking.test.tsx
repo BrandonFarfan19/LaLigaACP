@@ -233,7 +233,7 @@ describe('Ranking (T-20)', () => {
 });
 
 describe('the pool menu in the session bar (T-20)', () => {
-	it('a participant opens "Polla" to reach bets, their bets and the ranking; Escape closes it', async () => {
+	it('a participant opens "Polla" to reach bets, their bets, everyone\'s bets (C-07) and the ranking; Escape closes it', async () => {
 		mockFetch(
 			apiRoutes({
 				'GET /api/auth/me': () => ok({ user: apostador, csrfToken: 't' }),
@@ -251,6 +251,7 @@ describe('the pool menu in the session bar (T-20)', () => {
 		expect(within(list).getAllByRole('link').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
 			['Apostar', '/apuestas'],
 			['Mis apuestas', '/mis-apuestas'],
+			['Apuestas de todos', '/apuestas-de-todos'],
 			['Ranking', '/ranking'],
 		]);
 		await user.keyboard('{Escape}');
@@ -275,6 +276,8 @@ describe('the pool menu in the session bar (T-20)', () => {
 		await user.click(again);
 		await user.click(again);
 		expect(again.getAttribute('aria-expanded')).toBe('true');
+		// Past its four links (C-07 added "Apuestas de todos").
+		await user.tab();
 		await user.tab();
 		await user.tab();
 		await user.tab();

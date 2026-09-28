@@ -4,13 +4,21 @@ import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { sendSuccess } from '../lib/response.js';
 import { authUser } from '../middleware/auth.js';
-import { confirmTicketBody, listBettingMatchesQuery, listMyBetsQuery, parseIdempotencyKey, ticketPreviewBody } from '../schemas/betting.schema.js';
+import {
+	confirmTicketBody,
+	listBettingMatchesQuery,
+	listMyBetsQuery,
+	listParticipantBetsQuery,
+	parseIdempotencyKey,
+	ticketPreviewBody,
+} from '../schemas/betting.schema.js';
 import { idParamsSchema } from '../schemas/common.schema.js';
 import { getMyBetsSummary, listMyBets } from '../services/bet-history.service.js';
 import { listBettingMatches, previewTicket } from '../services/betting.service.js';
+import { listParticipantBets } from '../services/participant-bets.service.js';
 import { confirmTicket, getTicket } from '../services/tickets.service.js';
 
-/** `/apuestas` (T-09 to T-11): match list, ticket preview, confirmation, receipt and history. */
+/** `/apuestas` (T-09 to T-11, C-07): match list, ticket preview, confirmation, receipt, history and everyone's bets. */
 export function createBettingController(pool: Pool) {
 	const matches: RequestHandler = async (req, res) => {
 		sendSuccess(res, await listBettingMatches(pool, listBettingMatchesQuery.parse(req.query)));
@@ -51,5 +59,10 @@ export function createBettingController(pool: Pool) {
 		sendSuccess(res, await getMyBetsSummary(pool, authUser(req).id));
 	};
 
-	return { matches, preview, confirm, ticket, myBets, myBetsSummary };
+	/** C-07 (BR-056): every participant's bets on matches with the official result. */
+	const participantBets: RequestHandler = async (req, res) => {
+		sendSuccess(res, await listParticipantBets(pool, listParticipantBetsQuery.parse(req.query)));
+	};
+
+	return { matches, preview, confirm, ticket, myBets, myBetsSummary, participantBets };
 }

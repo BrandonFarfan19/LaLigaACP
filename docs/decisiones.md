@@ -417,3 +417,28 @@ Formato de cada entrada:
   - **Qué se sortea:** tanto quiénes entran como en qué puesto va cada uno. La cantidad de puestos no cambia: 9 en fútbol y 6 en vóley.
   - **El aviso de la cancha se mantiene y se ajusta:** dice que los jugadores y las posiciones del dibujo son al azar, y que el dorsal sí es real (D-033).
 - **Dónde quedó aplicada:** C-06.
+
+## D-036 · 2026-09-27 · C-07 — Los participantes ven las apuestas de todos, después del resultado
+
+- **Qué pidió el usuario:** que la consulta de apuestas del panel (`/admin/apuestas`) también la vean los inscritos en la polla, con solo tres columnas: **Participante, Partido y Apuesta**. Debe poder filtrarse por **deporte** y por **nombre del participante**, y una apuesta solo aparece **después de que se suba el resultado de su partido**.
+- **Lo que decidió el coordinador:**
+  - **Quién la ve:** solo el apostador **validado** (`requireBettor`), que es quien está inscrito de verdad en la polla (pagó y fue validado, BR-005 a BR-008). Un pendiente recibe 403 `USER_NOT_VALIDATED`, y un admin recibe 403 y sigue usando su consulta del panel. Otra opción: cualquier sesión, como el ranking. Se descartó porque el usuario dijo «inscritos a la polla».
+  - **Qué es «subido el resultado»:** el resultado **confirmado**, o sea el partido `finalizado` con los dos lados cargados. Es la misma regla que BR-049 y que `resultadoReal`. Un marcador cargado pero sin confirmar sigue siendo privado (T-12). Un partido cancelado nunca aparece.
+  - **Qué selecciones:** las de tickets de apostadores (nunca de un admin, BR-001), excepto las `anuladas`.
+  - **Qué datos salen:** del participante, **solo su nombre visible**, igual que el ranking: nunca su id, email, saldo, ticket, clave de idempotencia ni huella. El filtro por participante es un texto que busca dentro del nombre, porque los ids no se exponen.
+  - **Orden:** el partido más reciente primero y, dentro del partido, por nombre del participante en orden español. Lista paginada.
+  - **Lo que no cambia:** la consulta del panel sigue igual, con todas sus columnas. «Mis apuestas» (BR-026) sigue mostrando solo las propias, con todo el detalle.
+  - **Reglas de negocio:** se agrega BR-056 a `docs/business-rules.md` y se precisa BR-026.
+- **Dónde quedó aplicada:** C-07.
+
+## D-037 · 2026-09-27 · C-08 — El admin restablece la contraseña de un participante
+
+- **Qué pidió el usuario:** que en Admin → Participantes haya una opción para restablecer la contraseña de un participante, y que **la contraseña nueva la escriba el admin**. Otra opción era que el sistema generara una temporal y se la mostrara al admin una sola vez; el usuario la descartó.
+- **Lo que decidió el coordinador:**
+  - **La regla de la contraseña:** es la misma que al registrarse (C-01): de 6 a 20 caracteres, contados en code points, validada con `newPasswordSchema`, sin reglas de complejidad.
+  - **Sesiones:** se cierran **todas** las sesiones abiertas del participante, en la misma transacción que el cambio. Así, quien tuviera la contraseña vieja pierde el acceso enseguida, y el participante vuelve a entrar con la nueva.
+  - **Auditoría:** un código nuevo en `accion_auditoria` registra quién la cambió, a quién y cuántas sesiones se cerraron. **Nunca** la contraseña ni su hash.
+  - **A quién aplica:** solo a cuentas `apostador`, en cualquier estado (pendiente o validado). Sobre una cuenta admin responde 404 `NOT_A_PARTICIPANT`, igual que las demás acciones de esa pantalla. El panel sigue sin cambiar roles.
+  - **Cómo recibe el participante la contraseña:** fuera de la app. El admin se la comunica por su cuenta, y la pantalla lo dice. La app no envía correos.
+  - **Reglas de negocio:** se agrega la precisión en `docs/business-rules.md`, en la sección de acceso y contraseñas.
+- **Dónde quedó aplicada:** C-08.

@@ -123,3 +123,24 @@ export const listAdminBetsQuery = z
 	.refine(datesInOrder, DATES_OUT_OF_ORDER);
 
 export type ListAdminBetsQuery = z.infer<typeof listAdminBetsQuery>;
+
+/**
+ * C-07: `GET /apuestas/participantes` (BR-056). `participante` is a text found
+ * inside the display name (ids of other users are never exposed): trimmed, at
+ * most 100 characters like every search of the project (`q`), empty is no
+ * filter, and control characters are a 400. (Half an emoji can't arrive: the
+ * query parser turns invalid UTF-8 into U+FFFD.)
+ */
+export const listParticipantBetsQuery = z.strictObject({
+	...paginationFields,
+	deporteId: idFromText('deporteId').optional(),
+	participante: z
+		.string({ error: 'Debe ser un texto.' })
+		.trim()
+		.max(100, 'No puede superar los 100 caracteres.')
+		.refine((value) => !/\p{Cc}/u.test(value), 'No puede tener caracteres de control.')
+		.optional()
+		.transform((value) => (value ? value : undefined)),
+});
+
+export type ListParticipantBetsQuery = z.infer<typeof listParticipantBetsQuery>;

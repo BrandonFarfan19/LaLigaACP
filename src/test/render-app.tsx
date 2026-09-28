@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import Base from '../layouts/Base';
 import { adminRoute } from '../pages/admin/routes';
 import Apuestas, { action as apuestasAction, loader as apuestasLoader, shouldRevalidate as apuestasShouldRevalidate } from '../pages/Apuestas';
+import ApuestasDeTodos, { loader as apuestasDeTodosLoader, shouldRevalidate as apuestasDeTodosShouldRevalidate } from '../pages/ApuestasDeTodos';
 import Cuenta, { loader as cuentaLoader } from '../pages/Cuenta';
 import Ingresar, { action as ingresarAction, loader as ingresarLoader } from '../pages/Ingresar';
 import MisApuestas, { loader as misApuestasLoader, shouldRevalidate as misApuestasShouldRevalidate } from '../pages/MisApuestas';
@@ -46,6 +47,13 @@ export function renderApp(initialEntry: string) {
 						ErrorBoundary: RouteError,
 					},
 					{ path: '/ranking', loader: rankingLoader, Component: Ranking, ErrorBoundary: RouteError },
+					{
+						path: '/apuestas-de-todos',
+						loader: apuestasDeTodosLoader,
+						shouldRevalidate: apuestasDeTodosShouldRevalidate,
+						Component: ApuestasDeTodos,
+						ErrorBoundary: RouteError,
+					},
 				],
 			},
 		],
