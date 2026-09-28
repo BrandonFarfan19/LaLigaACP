@@ -1862,3 +1862,23 @@ Con T-23, el plan de [docs/plan-polla.md](docs/plan-polla.md) queda **completo: 
 - **Observaciones (no bloquean):**
   - Una corrida que se niega deja el procedimiento temporal `c05_migrar`; el siguiente intento lo borra, como documenta el README.
   - En el PUT, una clave `__proto__` dentro de `valores` se ignora (200) en vez de dar 400; no tiene efecto.
+
+## 2026-09-27 — C-06 · Jugadores al azar en la cancha (cambio posterior al plan)
+
+- **De dónde salió:** el usuario pidió que los jugadores del dibujo de la cancha (fútbol y vóley, `/plantilla/:id`) sean aleatorios entre los de la plantilla, en vez de los de dorsal más bajo ([D-035](docs/decisiones.md)). Resuelve O3 de [docs/pendientes.md](docs/pendientes.md) por la vía de «cambiar el criterio». Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **El cambio:**
+  - `squadPlacements` (`src/lib/squad-layout.ts`) baraja la plantilla y los puestos de la formación (Fisher-Yates sobre una copia). Sortea **quién entra y en qué puesto**, con 9 puestos en fútbol y 6 en vóley, y entran todos si hay menos jugadores. El azar se recibe como parámetro (`Math.random` por defecto).
+  - `SquadBoard` elige una **semilla al montarse** (`useState`) y sortea con `seededRandom` (mulberry32) dentro de un `useMemo`. Así el dibujo no cambia con un nuevo pintado, con una relectura de la plantilla ni al abrir o cerrar una ficha. Entrar, recargar o pasar a otro equipo sortea de nuevo (la sección lleva `key` por equipo).
+  - La tabla Plantilla y las fichas siguen listando a todos.
+  - El aviso pasa a **`Jugadores y puestos al azar; dorsal real`** (D-033). Se actualizaron el comentario de cabecera de `squad-layout.ts`, `CLAUDE.md`, `AGENTS.md` y el README, y O3 queda marcado como resuelto.
+- **Archivos:** `src/lib/squad-layout.ts`, `src/components/SquadBoard.tsx`, `src/lib/squad-layout.test.ts`, `src/pages/league-pages.test.tsx`, `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/pendientes.md`, `docs/decisiones.md` (D-035).
+- **Verificación (`tester_liga`).**
+  - **Pruebas:** `npm test` **340/340** (28 archivos) y `npm run build` sin avisos.
+  - **La prueba de estabilidad sí detecta el defecto que debe impedir.** La corrí contra dos mutaciones de `SquadBoard`: sortear en cada render sin memoizar, y una semilla nueva en cada render aunque el cálculo esté en `useMemo`. Con ambas cae «holds while the page is on screen» y pasan las otras dos. Restaurado el archivo (sha1 igual), vuelve a verde.
+  - **En el navegador, con los datos reales y solo leyéndolos:** Vite con su proxy al backend de Docker en 3001, sin tocar el `.env` ni los contenedores. Como la ventana no cambiaba de tamaño, usé un arnés de iframes del mismo origen, con el equipo 52 (fútbol, LOS DIBUJITOS FC CON IA, 10 inscritos) y el 61 (vóley, NEXUS PRIME, 10) a **320** (303 px útiles), **390** y **1280** px:
+    - **Cantidad y sin repetidos:** 9 jugadores en fútbol y 6 en vóley, sin nombres ni puestos repetidos. La tabla sigue con los 10.
+    - **Estable mientras la página está en pantalla:** **105 ciclos** de abrir y cerrar fichas, desde la cancha y desde la tabla y en los seis iframes, sin cambios en el dibujo. Tampoco cambia al pasar el iframe de 390 a 320 px.
+    - **Sortea de nuevo en cada visita:** 5 lecturas del equipo 52 (la visita y 4 recargas) dan **5 sorteos distintos**, y el que queda fuera varía (10, 4, 9, 9, 6). Navegando dentro de la app, el equipo 54 dibuja los suyos, y volver a entrar al 52 da otro sorteo.
+    - **El aviso:** 2 renglones (64 px, lo mismo que dejó C-04) con 16 px de margen a cada lado en móvil y **sin desborde horizontal** en ningún ancho. Mirado en pantalla a 320: se lee entero y en pixel art.
+    - Consola del navegador sin errores.
+- **Observación (no bloquea, no la introduce C-06):** a 320 y 390 px, la etiqueta con el nombre de un jugador de la fila delantera puede quedar tapada en parte por el sprite de la fila de atrás. Se ve en fútbol («Cesar Cañoli» bajo el 5) y en vóley («ALZAMORA OJEDA» bajo el 8), y un nombre largo se corta («Yul Hinostroza»). Los puestos son los mismos de antes (C-06 no toca `ROWS`); solo cambia quién los ocupa, así que ahora puede tocarle a cualquier nombre.

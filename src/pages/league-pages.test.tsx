@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { apiRoutes } from '../test/betting-fixtures';
 import { fail, mockFetch, ok, type RecordedCall } from '../test/fetch-mock';
 import {
@@ -388,11 +388,12 @@ describe('squad (T-22, C-05)', () => {
 
 		expect(await screen.findByRole('heading', { name: 'Halcones', level: 1 })).toBeTruthy();
 		expect(screen.getByText('Liga Apertura · Fútbol')).toBeTruthy();
-		// The pitch warns that where each player stands is invented and that the
-		// shirt number is not (D-033). Pinned as the two facts and not as the
-		// sentence: C-04 already rewrote it once, and the literal text broke.
-		const pitchNotice = within(screen.getByRole('list', { name: 'Jugadores en la cancha' }).closest('figure')!).getByText(/muestra/i);
-		expect(pitchNotice.textContent).toMatch(/posici|ubicaci|cancha|puesto/i);
+		// The pitch warns that who is drawn and where is random (C-06) and that the
+		// shirt number is not (D-033). Pinned as the facts and not as the sentence:
+		// C-04 and C-06 already rewrote it, and a literal text breaks.
+		const pitchNotice = within(screen.getByRole('list', { name: 'Jugadores en la cancha' }).closest('figure')!).getByText(/azar/i);
+		expect(pitchNotice.textContent).toMatch(/jugador/i);
+		expect(pitchNotice.textContent).toMatch(/posici|ubicaci|puesto/i);
 		expect(pitchNotice.textContent).toMatch(/dorsal/i);
 
 		const user = userEvent.setup();
@@ -489,6 +490,71 @@ describe('squad (T-22, C-05)', () => {
 		expect(onPitch('Orlando').textContent).toMatch(/Orlando$/);
 		// The table keeps the whole name.
 		expect(within(screen.getByRole('table')).getByText('Taboada Yarleque Miguel Luis')).toBeTruthy();
+	});
+
+	describe('the players on the drawing are drawn at random, once per visit (C-06, D-035)', () => {
+		const members = Array.from({ length: 14 }, (_, index) => squadMember(700 + index, `Jugador ${index + 1}`, index + 1));
+		const routes = () => leagueRoutes({ 'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, members)) });
+		/** Who stands where on the drawing, read from the page. */
+		const drawing = () =>
+			within(screen.getByRole('list', { name: 'Jugadores en la cancha' }))
+				.getAllByRole('listitem')
+				.map((spot) => `${spot.querySelector('button')!.getAttribute('aria-label')}@${spot.style.getPropertyValue('--x')},${spot.style.getPropertyValue('--y')}`);
+
+		it('holds while the page is on screen: a new render, a new read of the squad or a card draws nothing new', async () => {
+			const { calls } = mockFetch(apiRoutes(routes()));
+			const { router } = renderLeague('/plantilla/100');
+			await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+			const before = drawing();
+			expect(before).toHaveLength(9);
+
+			// The loader reads the squad again (what "Reintentar" does) and the page paints again with a new array.
+			const reads = calls.filter((call) => call.url.includes('/public/equipos/100')).length;
+			await act(() => router.revalidate());
+			await waitFor(() => expect(calls.filter((call) => call.url.includes('/public/equipos/100')).length).toBe(reads + 1));
+			expect(drawing()).toEqual(before);
+
+			const user = userEvent.setup();
+			const first = within(screen.getByRole('list', { name: 'Jugadores en la cancha' })).getAllByRole('button')[0]!;
+			await user.click(first);
+			const card = await screen.findByRole('dialog');
+			expect(drawing()).toEqual(before);
+			// jsdom doesn't run `<form method="dialog">`: close it the way that form does.
+			act(() => (card as HTMLDialogElement).close());
+			expect((card as HTMLDialogElement).open).toBe(false);
+			expect(drawing()).toEqual(before);
+			// The roster still lists all fourteen.
+			expect(within(screen.getByRole('table', { name: 'Plantilla' })).getAllByRole('button')).toHaveLength(14);
+		});
+
+		it('a new visit draws again', async () => {
+			const chance = vi.spyOn(Math, 'random');
+			try {
+				chance.mockReturnValue(0.1);
+				mockFetch(apiRoutes(routes()));
+				const firstVisit = renderLeague('/plantilla/100');
+				await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+				const first = drawing();
+				firstVisit.dispose();
+
+				chance.mockReturnValue(0.9);
+				renderLeague('/plantilla/100');
+				await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+				expect(drawing()).not.toEqual(first);
+			} finally {
+				chance.mockRestore();
+			}
+		});
+
+		it('only players of the squad, none twice, and everyone when there are fewer than spots', async () => {
+			const few = members.slice(0, 4);
+			mockFetch(apiRoutes(leagueRoutes({ 'GET /api/public/equipos/100': () => ok(apiTeamDetail(halcones, liga, few)) })));
+			renderLeague('/plantilla/100');
+			await screen.findByRole('heading', { name: 'Halcones', level: 1 });
+
+			const names = drawing().map((spot) => /Ver estadísticas de (.+), dorsal/.exec(spot)![1]);
+			expect([...names].sort()).toEqual(['Jugador 1', 'Jugador 2', 'Jugador 3', 'Jugador 4']);
+		});
 	});
 
 	it('a volleyball team stands on the volleyball court, grouped on one side of the net', async () => {

@@ -1,11 +1,11 @@
-import { useLayoutEffect, useRef, type CSSProperties } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useNavigationType } from 'react-router';
 import pitch from '../assets/backgrounds/cancha-vertical.png?pixel=pitch';
 import voleyCourt from '../assets/backgrounds/cancha-voley-vertical.png?pixel=pitch';
 import { isInAppHistoryTraversal } from '../hooks/useScrollManagement';
 import PixelImage from './PixelImage';
 import PlayerStatsDialog from './PlayerStatsDialog';
-import { squadPlacements, type Court } from '../lib/squad-layout';
+import { type Court, type Random, seededRandom, squadPlacements } from '../lib/squad-layout';
 import type { Player, PlayerStats } from '../types';
 import styles from './SquadBoard.module.css';
 
@@ -22,6 +22,8 @@ interface Props {
 	stats: PlayerStats[];
 	/** The drawing and formation of the team's sport (`courtFor`). */
 	court?: Court;
+	/** Where the draw's seed comes from (C-06): `Math.random` unless a test fixes it. */
+	random?: Random;
 }
 
 const COURT_ART = { futbol: pitch, voley: voleyCourt };
@@ -31,10 +33,14 @@ const dialogId = (player: Player) => `stats-${player.id}`;
 /** The label under a player on the pitch: the first two words of the name. The table and the card keep it whole. */
 const pitchName = (name: string) => name.trim().split(/\s+/).slice(0, 2).join(' ');
 
-export default function SquadBoard({ teamName, players, stats, court = 'futbol' }: Props) {
+export default function SquadBoard({ teamName, players, stats, court = 'futbol', random = Math.random }: Props) {
 	const statsByPlayer = new Map(stats.map((row) => [row.playerId, row]));
-	// Where each one stands is a sample layout (D-033): the schema has no position.
-	const placements = squadPlacements(players, court);
+	// Who stands on the drawing, and where, is drawn at random (C-06, D-035): the schema has
+	// no position. One seed per mount, so the draw holds while the page is on screen (a
+	// card opening, a new render or a reload of the same data land the same way) and a
+	// new visit or another team (the page is keyed by team) draws again.
+	const [seed] = useState(() => random());
+	const placements = useMemo(() => squadPlacements(players, court, seededRandom(seed)), [players, court, seed]);
 	const dialogs = useRef(new Map<string, HTMLDialogElement>());
 
 	const open = (player: Player) => dialogs.current.get(dialogId(player))?.showModal();
@@ -110,10 +116,10 @@ export default function SquadBoard({ teamName, players, stats, court = 'futbol' 
 						</ul>
 					</div>
 					<p className={styles['pitch-hint']}>Toca un jugador para ver su ficha</p>
-					{/* Two facts, kept short (C-04): the layout is dealt by list order, so
-					    nobody stands where they really play; the shirt number is the real
+					{/* Two facts, kept short (C-04, C-06): who is drawn and where is random,
+					    so nobody stands where they really play; the shirt number is the real
 					    one, which nobody would assume if only the first half were said. */}
-					<p className={styles['pitch-hint']}>Posiciones de muestra; el dorsal sí es real</p>
+					<p className={styles['pitch-hint']}>Jugadores y puestos al azar; dorsal real</p>
 				</figure>
 
 				<table className={`${styles.roster} pixel-box`}>

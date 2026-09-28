@@ -408,3 +408,12 @@ Formato de cada entrada:
   - **Sin cascada:** un plantel con estadísticas no se borra hasta quitárselas. Un deporte no cambia de perfil mientras alguno de sus planteles tenga estadísticas. Es el mismo criterio del resto del catálogo.
   - **No interferir con los datos actuales:** el cambio solo agrega tablas y catálogos, más una columna de `deporte` que admite vacío. Las bases que ya tienen datos (desarrollo y producción) se actualizan con un script de migración aparte, que asigna el perfil a los deportes existentes según su nombre. Ningún jugador recibe estadísticas inventadas.
 - **Dónde quedó aplicada:** C-05.
+
+## D-035 · 2026-09-27 · C-06 — Qué jugadores se dibujan en la cancha
+
+- **Qué pidió el usuario:** que los jugadores del dibujo, en la cancha de fútbol y en la de vóley, sean **aleatorios** entre los de la plantilla, en vez de los de dorsal más bajo. Con eso se resuelve O3 de `docs/pendientes.md` por la vía de «cambiar el criterio».
+- **Lo que decidió el coordinador:**
+  - **Cuándo se sortea:** en cada visita a `/plantilla/:id` (entrar a la página o recargarla). Mientras la página está en pantalla el dibujo no cambia: ni al abrir o cerrar la ficha de un jugador, ni al volver a pintar la página, ni con «Reintentar». Otras opciones: sortear en cada pintado, que haría saltar a los jugadores bajo el dedo del usuario; o un sorteo fijo por día o por equipo, que se descartó porque el usuario pidió aleatorio.
+  - **Qué se sortea:** tanto quiénes entran como en qué puesto va cada uno. La cantidad de puestos no cambia: 9 en fútbol y 6 en vóley.
+  - **El aviso de la cancha se mantiene y se ajusta:** dice que los jugadores y las posiciones del dibujo son al azar, y que el dorsal sí es real (D-033).
+- **Dónde quedó aplicada:** C-06.

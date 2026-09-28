@@ -2,16 +2,49 @@ import type { Player, ResolvedSquadPlacement } from '../types';
 
 /**
  * Where each player stands on the pitch drawing. The schema has no position
- * and the API sends none (server/README.md, "Contrato para T-22"), so this is
- * a sample layout (D-033; the radar's statistics, instead, are real since
- * C-05): players are placed in their shirt-number order over a fixed shape — 1-2-3-2-1 on the pitch (9 spots) and
- * two rows of three on the volleyball court (6, the side that is on court) —
- * and the same squad always lands the same way.
+ * and the API sends none (server/README.md, "Contrato para T-22"), so the
+ * drawing is a random one (C-06, D-035; the radar's statistics, instead, are
+ * real since C-05): a draw picks **who** goes on the fixed shape — 1-2-3-2-1
+ * on the pitch (9 spots), two rows of three on the volleyball court (6, the
+ * side that is on court) — and **which spot** each one takes. A squad with
+ * fewer players than spots puts all of them in, on spots drawn too.
  *
- * A squad with more players than spots fills the drawing and no more: everyone
- * else is in the roster table beside it, with their own card. Only the drawing
- * uses this; nothing here claims to be a real line-up.
+ * The chance comes in as a parameter (`Math.random` by default), so tests are
+ * deterministic. `SquadBoard` draws once per visit: it picks a seed when it
+ * mounts and feeds `seededRandom(seed)`, so every render lands the same way
+ * until the page is entered or reloaded again.
+ *
+ * Everyone left out of the drawing is in the roster table beside it, with
+ * their own card. Only the drawing uses this; nothing here claims to be a
+ * real line-up, and the pitch says so (D-033).
  */
+
+/** A number in [0, 1), like `Math.random`. */
+export type Random = () => number;
+
+/**
+ * mulberry32: a tiny generator that gives the same sequence for the same
+ * seed, so one draw can be repeated on every render.
+ */
+export function seededRandom(seed: number): Random {
+	let a = Math.floor(seed * 2 ** 32) | 0;
+	return () => {
+		a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+/** Fisher-Yates over a copy: every order equally likely. */
+function shuffled<T>(items: readonly T[], random: Random): T[] {
+	const out = [...items];
+	for (let i = out.length - 1; i > 0; i--) {
+		const j = Math.min(i, Math.floor(random() * (i + 1)));
+		[out[i], out[j]] = [out[j]!, out[i]!];
+	}
+	return out;
+}
 
 /** Which drawing the squad stands on. */
 export type Court = 'futbol' | 'voley';
@@ -47,10 +80,11 @@ const SPOTS = Object.fromEntries(
 	Object.entries(ROWS).map(([court, rows]) => [court, rows.flatMap((row) => row.columns.map((x) => ({ x, y: row.y })))]),
 ) as Record<Court, { x: number; y: number }[]>;
 
-export function squadPlacements(players: Player[], court: Court = 'futbol'): ResolvedSquadPlacement[] {
-	const spots = SPOTS[court];
-	const ordered = [...players].sort((a, b) => a.shirtNumber - b.shirtNumber || a.name.localeCompare(b.name, 'es'));
-	return ordered.slice(0, spots.length).map((player, index) => ({
+/** Who goes on the drawing and where, drawn with `random` (see the module comment). */
+export function squadPlacements(players: Player[], court: Court = 'futbol', random: Random = Math.random): ResolvedSquadPlacement[] {
+	const chosen = shuffled(players, random).slice(0, SPOTS[court].length);
+	const spots = shuffled(SPOTS[court], random);
+	return chosen.map((player, index) => ({
 		id: `spot-${player.id}`,
 		playerId: player.id,
 		shirtNumber: player.shirtNumber,
