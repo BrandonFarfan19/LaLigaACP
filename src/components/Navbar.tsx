@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import logo from '../assets/logo-la-liga-acp-copa-dorada.png?pixel=logo';
+import logo from '../assets/liga-acp-2026-pixel-art.png?pixel=logo';
 import PixelImage from './PixelImage';
 import styles from './Navbar.module.css';
 

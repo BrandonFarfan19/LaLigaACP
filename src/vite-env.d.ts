@@ -34,3 +34,8 @@ declare module '*?pixel=portrait' {
 	const image: import('./types').PixelImageSet;
 	export default image;
 }
+
+declare module '*?pixel=company' {
+	const image: import('./types').PixelImageSet;
+	export default image;
+}

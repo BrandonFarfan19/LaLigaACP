@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useRevalidator } from 'react-router';
+import Footer from '../components/Footer';
 import Navbar from '../components/Navbar';
 import SessionBar from '../components/SessionBar';
 import { useRequestedPath } from '../hooks/useRequestedPath';
@@ -133,6 +134,7 @@ export default function Base() {
 			<main className={styles.main}>
 				<Outlet />
 			</main>
+			<Footer />
 		</>
 	);
 }

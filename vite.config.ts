@@ -99,6 +99,8 @@ export default defineConfig({
 			pitch: ['240', '240@2'],
 			// PlayerStatsDialog portrait, drawn at exactly 2× by CSS
 			portrait: ['96'],
+			// Footer company logos 96 wide, 2x density
+			company: ['96', '96@2'],
 		}),
 		react(),
 		spaRewrites(SPA_ROUTES),

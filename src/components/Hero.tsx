@@ -1,4 +1,4 @@
-import leagueLogo from '../assets/logo-la-liga-acp-copa-dorada.png?pixel=logo';
+import leagueLogo from '../assets/liga-acp-2026-pixel-art.png?pixel=logo';
 import Carousel from './Carousel';
 import PixelImage from './PixelImage';
 import type { CarouselSlide, Team } from '../types';
