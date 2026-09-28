@@ -136,6 +136,8 @@ export interface TicketSelection {
 	estado: SelectionState;
 	costo: number;
 	puntosObtenidos: number | null;
+	/** BR-057 (C-09): the coins its prize actually paid; 0 without one. */
+	monedasGanadas: number;
 }
 
 /** `GET /apuestas/tickets/:id` and the confirmation's answer (BR-025). */
@@ -147,6 +149,8 @@ export interface TicketReceipt {
 	cantidadSelecciones: number;
 	monedasUtilizadas: number;
 	monedasDevueltas: number;
+	/** BR-057 (C-09): the coins its right selections actually won. */
+	monedasGanadas: number;
 	puntosObtenidos: number;
 	selecciones: TicketSelection[];
 }
@@ -166,6 +170,8 @@ export interface TicketTotals {
 	monedasUtilizadas: number;
 	/** D-003: the coins really refunded. */
 	monedasDevueltas: number;
+	/** BR-057 (C-09): the coins really won, from the prize movements. */
+	monedasGanadas: number;
 	puntosObtenidos: number;
 }
 
@@ -180,6 +186,8 @@ export interface MyBetsSummary {
 	selecciones: { total: number } & Record<SelectionState, number>;
 	monedasUtilizadas: number;
 	monedasDevueltas: number;
+	/** BR-057 (C-09). */
+	monedasGanadas: number;
 	puntos: number;
 	/** Selections in state `acertada`, of any type (BR-042). */
 	aciertos: number;

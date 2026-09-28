@@ -172,8 +172,8 @@ describe('development sample data (D-013, D-016)', () => {
 			partido: 14,
 			partido_equipo: 28,
 			usuario: 12,
-			// 10 validations, 11 debits and 1 refund (T-20 and T-21 tickets).
-			movimiento_moneda: 22,
+			// 10 validations, 11 debits, 1 refund and 5 prizes (C-09).
+			movimiento_moneda: 27,
 			ticket: 7,
 			seleccion: 11,
 		});
@@ -184,7 +184,7 @@ describe('development sample data (D-013, D-016)', () => {
 		const ana = DEMO_ACCOUNTS.find((a) => a.key === 'ana')!;
 		const session = await login(app, ana.email, ana.password);
 		const me = await request(app).get('/auth/me').set('Cookie', session.cookie);
-		expect(me.body.data.user).toMatchObject({ rol: 'apostador', estadoValidacion: 'validado', estadoPago: 'confirmado', saldoMonedas: 6 });
+		expect(me.body.data.user).toMatchObject({ rol: 'apostador', estadoValidacion: 'validado', estadoPago: 'confirmado', saldoMonedas: 9 }); // 10 - 5 + 1 refunded + 3 won (C-09)
 
 				// T-20: tickets in every state, and a ranking with a tie at the top.
 				const history = await request(app).get('/apuestas/mis-apuestas/resumen').set('Cookie', session.cookie);
@@ -193,6 +193,7 @@ describe('development sample data (D-013, D-016)', () => {
 					selecciones: { total: 5, pendiente: 2, acertada: 2, no_acertada: 0, anulada: 1 },
 					monedasUtilizadas: 5,
 					monedasDevueltas: 1,
+					monedasGanadas: 3,
 					puntos: 6,
 					aciertos: 2,
 				});
@@ -272,7 +273,8 @@ describe('development sample data (D-013, D-016)', () => {
 		}
 		// The CLI prints the real balance, not the initial 10 coins.
 		const balances = Object.fromEntries(summary.cuentas.map((c) => [c.email.split('@')[0], c.saldoMonedas]));
-		expect(balances).toMatchObject({ admin: null, ana: 6, carla: 7, dani: 9, eva: 9, beto: 0, fede: 9, gabi: 10 });
+		// C-09: the right picks were paid by the real settler: ana +1 +2, carla +2 +1, dani +1 (a right draw).
+		expect(balances).toMatchObject({ admin: null, ana: 9, carla: 10, dani: 10, eva: 9, beto: 0, fede: 9, gabi: 10 });
 	});
 
 	it('is repeatable: seeding again replaces the sample data (and its own tickets) by its marks', async () => {
@@ -290,7 +292,7 @@ describe('development sample data (D-013, D-016)', () => {
 
 		await seedDevData(pool);
 		// The sample tickets come back as seeded; Ana's extra one is gone.
-		expect(await snapshot(pool)).toEqual({ ...first, movimiento_moneda: 22, ticket: 7, seleccion: 11, sesion: 0 });
+		expect(await snapshot(pool)).toEqual({ ...first, movimiento_moneda: 27, ticket: 7, seleccion: 11, sesion: 0 });
 		expect(await marks(pool)).toBe(128);
 		expect((await checkCoinConsistency(pool)).ok).toBe(true);
 	});

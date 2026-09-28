@@ -1,6 +1,6 @@
 # Verificación final (T-23)
 
-Repaso regla por regla de [business-rules.md](business-rules.md) sobre el sistema construido: las 56 BR y los 6 NFR. Para cada una: **dónde se cumple** (ruta, archivo o pantalla), **cómo se comprueba** (prueba automática o revisión manual) y su **estado**.
+Repaso regla por regla de [business-rules.md](business-rules.md) sobre el sistema construido: las 57 BR y los 6 NFR. Para cada una: **dónde se cumple** (ruta, archivo o pantalla), **cómo se comprueba** (prueba automática o revisión manual) y su **estado**.
 
 Estados:
 
@@ -87,8 +87,9 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | **BR-036** Empate (+1) | `PUNTOS_EMPATE` | `settlement.test.ts` | Cumplida |
 | **BR-037** Marcador exacto (+3) | `PUNTOS_MARCADOR_EXACTO` | `settlement.test.ts` | Cumplida |
 | **BR-038** Evaluación independiente | Una fila por selección, evaluadas por separado (también repetidas y contradictorias) | `settlement.test.ts` | Cumplida |
-| **BR-039** Monedas y puntos separados | La liquidación nunca escribe `movimiento_moneda` ni `saldo_monedas` | `settlement.test.ts` | Cumplida |
-| **BR-040** Cálculo automático | Ocurre en la misma transacción que la confirmación; si falla, no queda confirmada | `settlement.test.ts`, `results.test.ts` | Cumplida |
+| **BR-039** Monedas y puntos separados | Los puntos nunca se convierten en monedas: desde C-09 la liquidación paga el premio de **cada acierto** por `payPrizesBatch` (`services/coins.service.ts`), 1 o 2 monedas según el tipo de apuesta (`lib/coins.ts`), nunca a partir de los puntos | `settlement.test.ts` (6 puntos pagan 3 monedas), `prizes.test.ts` | Cumplida (precisión D-038) |
+| **BR-040** Cálculo automático | Ocurre en la misma transacción que la confirmación, con el pago de los premios (C-09); si algo falla, no queda confirmada | `settlement.test.ts`, `results.test.ts`, `prizes.test.ts` | Cumplida |
+| **BR-057** Premio en monedas por acierto (C-09) | Automático al confirmar el resultado, en su misma transacción: `lockPrizeWinners` bloquea a los ganadores antes del partido (usuario → partido; `SettlementRestart` vuelve a empezar hasta 3 veces si entran apostadores nuevos), `settleMatchSelections` liquida y paga con `payPrizesBatch`: `premio_resultado_general` +1 y `premio_marcador_exacto` +2, uno por selección que pasa a acertada de un ticket de apostador (`uq_movimiento_seleccion_tipo` impide pagar dos veces). No retroactivo. Saldo máximo: 409 `BALANCE_LIMIT_EXCEEDED`, nada confirmado. La respuesta y la auditoría llevan `premios` (cantidades, sin ids ni saldos); el recibo, "Mis apuestas", su resumen, la consulta del admin, las estadísticas y los movimientos muestran las monedas ganadas desde los movimientos reales; C-07 no las muestra. Migración `db/migraciones/C-09-premios-por-acierto.sql` | `prizes.test.ts`, `settlement.test.ts`, `concurrency-stress.test.ts` (confirmaciones que pagan contra tickets y cancelaciones, cero deadlocks), `migration-c09.test.ts`, `coins-service.test.ts`, `dev-seed.test.ts`; front `prizes.test.tsx`, `partidos.test.tsx` | Cumplida (D-038) |
 
 ## Ranking
 
@@ -144,7 +145,7 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 
 ## Resumen
 
-- **62 reglas revisadas** (56 BR + 6 NFR): todas **cumplidas**, cinco de ellas con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-042 y BR-046).
+- **63 reglas revisadas** (57 BR + 6 NFR): todas **cumplidas**, seis de ellas con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-039, BR-042 y BR-046).
 
 > Revisado el 2026-09-18 tras el cambio **C-01** (contraseña de 6 a 20 caracteres, D-024): solo cambian BR-003 y BR-004; el resto de la tabla sigue igual.
 >
@@ -153,4 +154,6 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 > Revisado el 2026-09-27 tras el cambio **C-07** (apuestas de todos, D-036): se agrega **BR-056** y se precisa BR-026 (solo las propias; las de los demás, por BR-056). El resto sigue igual.
 >
 > Revisado el 2026-09-27 tras el cambio **C-08** (el admin restablece la contraseña de un participante, D-037): se precisa BR-004 (también en BR-001 de `business-rules.md`) y se movió dónde se cumplen BR-001 y NFR-006 (una acción auditada más). El resto sigue igual.
+>
+> Revisado el 2026-09-28 tras el cambio **C-09** (los aciertos también pagan monedas, D-038): se agrega **BR-057**, se precisa BR-039 (el premio sale del acierto, no de los puntos) y se movió dónde se cumple BR-040 (la confirmación también paga). El resto sigue igual.
 - Ninguna regla quedó pendiente. Lo que sigue abierto son mejoras y deudas técnicas, no incumplimientos: están en [pendientes.md](pendientes.md).

@@ -140,7 +140,7 @@ describe('the session ends while another page is asked for', () => {
 
 		admins();
 		let router = renderApp('/admin/participantes');
-		await screen.findByRole('table', { name: 'Participantes' });
+		await screen.findByRole('table', { name: 'Inscritos' });
 		const user = userEvent.setup();
 		alive = false;
 		await user.click(screen.getByRole('link', { name: 'Siguiente >' }));

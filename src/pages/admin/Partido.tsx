@@ -56,7 +56,7 @@ import { fixedSource } from '../../lib/admin-choices';
 import { loadAdmin } from '../../lib/admin-load';
 import { resultLabel } from '../../lib/betting-labels';
 import { positiveInt } from '../../lib/betting';
-import type { AdminEnrollment, AdminGoal, AdminMatch, CancellationPreview, MatchMedia, ResultPreview, VideoLink } from '../../types/admin';
+import type { AdminEnrollment, AdminGoal, AdminMatch, CancellationPreview, MatchMedia, PrizesPaid, ResultPreview, VideoLink } from '../../types/admin';
 import shared from '../Apuestas.module.css';
 import styles from './Admin.module.css';
 import { competitionName, leagueDateTime, MATCH_STATE_LABEL, MATCH_STATE_TONE, MatchFields } from './Partidos';
@@ -118,6 +118,15 @@ const videoMessage = (video: VideoLink | null) => (video ? `Video de ${video.pla
 /** "1 apuesta", "3 apuestas": a count with the form that fits it. */
 const count = (many: number, one: string, other: string) => `${many} ${many === 1 ? one : other}`;
 
+/**
+ * C-09 (BR-057): what the confirmation paid, automatically, to the right
+ * selections. The admin approves nothing apart: it is part of confirming.
+ */
+const prizesText = ({ selecciones, monedas, participantes }: PrizesPaid) =>
+	selecciones === 0
+		? 'Ningún acierto: no se pagaron monedas.'
+		: `Se pagaron ${count(monedas, 'moneda', 'monedas')} por ${count(selecciones, 'acierto', 'aciertos')} a ${count(participantes, 'participante', 'participantes')}.`;
+
 export async function action({ request, params }: ActionFunctionArgs): Promise<ActionOutcome> {
 	const id = positiveInt(params.id ?? '', Number.MAX_SAFE_INTEGER);
 	if (!id) return refused('', '', 'Partido desconocido.');
@@ -165,7 +174,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<A
 			const local = intOf(body.golesLocal);
 			const visita = intOf(body.golesVisitante);
 			if (local === undefined || visita === undefined) return refused(intent, target, 'Falta el marcador que revisaste.');
-			return perform(intent, target, () => confirmResult(id, local, visita), () => `Resultado confirmado: ${local} - ${visita}. El partido quedó finalizado y sus apuestas se liquidaron.`);
+			return perform(intent, target, () => confirmResult(id, local, visita), (r) => `Resultado confirmado: ${local} - ${visita}. El partido quedó finalizado y sus apuestas se liquidaron. ${prizesText(r.premios)}`);
 		}
 		case 'createGoal':
 			return perform(intent, target, () => createGoal(id, { jugadorId: n(body.jugadorId ?? ''), equipoId: n(body.equipoId ?? ''), minuto: n(body.minuto ?? '') }), (g) => `Gol de ${g.jugador.nombre} (minuto ${g.minuto}) registrado.`);

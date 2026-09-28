@@ -154,6 +154,7 @@ describe('ticket confirmation (T-10: BR-019 to BR-025, BR-053, BR-054)', () => {
 				cantidadSelecciones: 1,
 				monedasUtilizadas: COSTO_POR_SELECCION,
 				monedasDevueltas: 0,
+				monedasGanadas: 0,
 				puntosObtenidos: 0,
 				selecciones: [
 					{
@@ -172,6 +173,7 @@ describe('ticket confirmation (T-10: BR-019 to BR-025, BR-053, BR-054)', () => {
 						estado: 'pendiente',
 						costo: COSTO_POR_SELECCION,
 						puntosObtenidos: null,
+						monedasGanadas: 0,
 					},
 				],
 			});

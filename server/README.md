@@ -271,7 +271,10 @@ Cada fila (`items[]`, y `participante` en las respuestas de las acciones) tiene 
 
 ## Monedas (T-05)
 
-**Un solo punto mueve monedas: `services/coins.service.ts`.** Nada más en el código escribe `usuario.saldo_monedas` ni `movimiento_moneda`.
+**Un solo punto mueve monedas: `services/coins.service.ts`.** Nada más en el código escribe `usuario.saldo_monedas` ni `movimiento_moneda`. Desde C-09 también paga los premios de los aciertos (`payPrizesBatch`, ver "Premios por acierto (C-09)").
+
+- **Tipos y montos** (`lib/coins.ts`, el único lugar con los números): `validacion` +10, `seleccion_confirmada` −1, `devolucion_cancelacion` +1, `premio_resultado_general` +1 y `premio_marcador_exacto` +2 (C-09). Todos menos `validacion` llevan su selección.
+- **Saldo máximo** (`SALDO_MAXIMO`, 65 535, `saldo_monedas` es SMALLINT UNSIGNED): un movimiento que lo superaría responde 409 `BALANCE_LIMIT_EXCEEDED` con `{ participantes, saldoMaximo }` y no escribe nada (C-09; antes era un 500).
 
 - `applyCoinMovements(conn, userId, movimientos)` corre **dentro de una transacción del llamador**, junto con lo demás que cambie esa operación (el ticket en T-10, las selecciones anuladas en T-16, el estado validado en T-04). **Esto se exige**: `conn` tiene que ser la `TransactionConnection` que entrega `withTransaction` (`db/transaction.ts`). Con una conexión común no compila, y en ejecución (por ejemplo, con un cast o con la conexión usada después de terminar la transacción) se rechaza antes de escribir nada. En un solo paso:
   1. Bloquea solo la fila del usuario (`SELECT ... FOR UPDATE OF u`). Las operaciones concurrentes sobre ese usuario se esperan entre sí; las de otros usuarios no se bloquean.
@@ -738,6 +741,29 @@ Con 5000 selecciones pendientes son 8 sentencias. En la máquina de prueba, esa 
 - 5000 selecciones: plan con el índice nuevo, la misma respuesta con un índice inexistente (solo el aviso 3128), 8 sentencias y cifras exactas.
 - 6 confirmaciones en paralelo (una gana y liquida una vez) junto con tickets de otros partidos, y dos partidos que comparten tickets confirmados a la vez, sin deadlocks.
 - Por HTTP: ticket de dos partidos, confirmación de uno (ticket `pendiente` con 6 puntos) y del otro (`finalizado`, 7 puntos), "Mis apuestas", el resumen y el saldo sin cambios.
+
+## Premios por acierto (C-09)
+
+BR-057 y D-038: además de sus puntos, un acierto paga monedas. **Es automático**: ocurre al confirmar el resultado (`POST /admin/partidos/:id/resultado/confirmar`), en la misma transacción, sin ningún paso aparte del admin. La vista previa (`GET .../resultado`) no cambió (decisión del usuario).
+
+| Selección que pasa a `acertada` | Movimiento | Monedas |
+|---|---|---:|
+| `resultado_general` (ganador o empate) | `premio_resultado_general` | +1 |
+| `marcador_exacto` | `premio_marcador_exacto` | +2 |
+
+- **Quién cobra:** solo las selecciones que esta confirmación liquida como `acertada`, de tickets cuyo dueño es `apostador` hoy. Una anulada, una ya liquidada o una de una cuenta admin (cargada a mano) no cobra. **No es retroactivo**: un partido confirmado antes de C-09 no se vuelve a liquidar, así que nunca paga.
+- **Una sola vez:** la segunda liquidación no encuentra pendientes; un reintento por deadlock deshace el intento anterior entero; `uq_movimiento_seleccion_tipo` es la barrera en la base. `payPrizesBatch` comprueba además que cada selección esté `acertada` y que su tipo de apuesta sea el del premio.
+- **Orden de bloqueo (usuario → partido):** pagar bloquea usuarios, y la confirmación bloqueaba primero el partido. Ahora sigue el patrón de la cancelación (T-16):
+  1. `prepareSettlement` (el punto de extensión que Informativo declara en `results.service.ts`; Polla pone `lockPrizeWinners`) lee sin bloqueo quién acertaría con el marcador que se confirma y bloquea esos usuarios, por id;
+  2. se bloquea el partido (y competición y deporte), se comprueba el marcador;
+  3. el settler vuelve a leer los aciertos pendientes: si aparece un ganador que no se bloqueó, lanza `SettlementRestart` y la confirmación empieza de nuevo, hasta `MAX_INTENTOS_CONFIRMACION` (3); después, 409 `CONCURRENT_UPDATE` sin nada confirmado;
+  4. liquida (T-14) y paga con `payPrizesBatch`.
+  La transacción es `READ COMMITTED`, para que la relectura vea lo que confirmó antes del bloqueo del partido. Los usuarios se bloquean con `lockRowsById` (`db/locks.ts`, ver "Orden de bloqueo").
+- **Si el pago falla** (un premio ya pagado a mano, un saldo que pasaría el máximo), se deshace todo: el partido no queda finalizado, las selecciones siguen pendientes y no queda auditoría.
+- **La respuesta y la auditoría** llevan `premios: { selecciones, monedas, participantes }`: cuántos aciertos cobraron, cuántas monedas en total y a cuántos participantes. Nunca ids de usuario ni saldos.
+- **Lecturas:** `monedasGanadas` por selección y por ticket en el recibo, "Mis apuestas" (y `monedasGanadas` en su resumen) y la consulta del admin; en las estadísticas de la polla, el total. Todas suman los movimientos de premio reales (`prizeTypeFor` en `tickets.service.ts`: el premio que corresponde al tipo de apuesta de cada selección, como D-003 con las devueltas), nunca cuentan aciertos. `/monedas/movimientos` muestra los dos tipos nuevos. `/apuestas/participantes` (C-07) no muestra monedas.
+- **Bases con datos:** los dos tipos llegan con `db/migraciones/C-09-premios-por-acierto.sql` (ids 4 y 5 si están libres). Sin ella, la primera confirmación con aciertos responde 500 y no cambia nada.
+- **Datos de ejemplo:** el seed liquida sus partidos terminados con el settler real, así que genera premios (5).
 
 ## Ranking de la polla (T-15)
 
@@ -1256,6 +1282,8 @@ Módulo Polla (`services/bet-history.service.ts`). Muestra el historial propio (
 ## Orden de bloqueo y concurrencia (corrección de T-09)
 
 **Problema que se corrigió.** La evaluación del ticket bloqueaba con una sola consulta con JOIN (`... WHERE p.id IN (?) ORDER BY p.id FOR SHARE OF p, d`). Esa consulta no tiene un plan fijo: según las estadísticas, MySQL entraba por `estado_partido` y tomaba next-key locks sobre el índice `fk_partido_estado` (todos los partidos de ese estado, más el supremum). El `UPDATE partido SET estado_partido_id` de `changeMatchState` necesita modificar ese índice, y se formaba un ciclo: el tester vio 6 deadlocks en 8 rondas. `ORDER BY p.id` no fija el orden en que se toman los bloqueos.
+
+**Varios usuarios a la vez (corrección de C-09): `lockRowsById`** (`db/locks.ts`). `WHERE id IN (2, 3) ... FOR UPDATE` sobre una tabla chica (`usuario` en pruebas y en desarrollo) se planifica como un recorrido completo de la clave primaria (`type: index`) y bloquea filas que la lista no nombra. Así una confirmación que pagaba a dos apostadores tuvo la fila del admin y se trabó con una edición del admin cuya auditoría necesitaba esa fila (3 a 5 deadlocks por corrida del estrés). `lockRowsById` hace una lectura puntual por fila (`WHERE id = ?`, siempre `const`), en un `UNION ALL` de hasta 500 y en orden ascendente. La usan la liquidación, la cancelación y los lotes de monedas.
 
 **Reglas para toda transacción que bloquee:**
 

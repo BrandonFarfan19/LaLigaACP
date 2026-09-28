@@ -828,6 +828,8 @@ Las monedas y los puntos representan conceptos diferentes:
 
 Los puntos no incrementan automáticamente el saldo de monedas.
 
+Precisión (C-09, D-038): **los puntos siguen sin convertirse en monedas.** Desde C-09 un acierto también paga monedas (BR-057), pero ese premio sale del **acierto de cada selección**, no de sus puntos ni del total de puntos, y el ranking no cambia. No hay una equivalencia fija entre puntos y monedas: un empate acertado da 1 punto (BR-036) y 1 moneda; un ganador acertado, 3 puntos y 1 moneda; un marcador exacto, 3 puntos y 2 monedas.
+
 ---
 
 ## BR-040 – Cálculo automático
@@ -835,6 +837,28 @@ Los puntos no incrementan automáticamente el saldo de monedas.
 Los puntos deberán calcularse automáticamente después de que el administrador confirme el resultado oficial.
 
 Precisión (T-14): el cálculo ocurre en la misma operación que la confirmación (BR-032). Si falla, el resultado no queda confirmado y todas las apuestas siguen pendientes. Cada selección se evalúa una sola vez, aunque la operación se reintente.
+
+---
+
+## BR-057 – Premio en monedas por acierto
+
+Además de sus puntos (BR-034 a BR-038), cada selección acertada paga monedas (C-09, D-038):
+
+| Tipo de apuesta   | Acierto                                                  | Monedas |
+| ----------------- | -------------------------------------------------------- | ------: |
+| Resultado general | Acertar el ganador (local o visitante) o el empate       |      +1 |
+| Marcador exacto   | Acertar los goles de los dos equipos                     |      +2 |
+| Cualquiera        | No acertar                                               |       0 |
+
+Precisiones (C-09):
+
+* **El pago es automático.** Ocurre cuando el administrador confirma el resultado (BR-031), en esa misma operación: el sistema suma las monedas a cada participante que acertó y actualiza su saldo. El administrador no aprueba ni confirma nada aparte, y la vista previa del resultado (BR-030) no cambia. Si el pago falla, el resultado no queda confirmado y nada cambia (BR-040, BR-053).
+* Cada selección se evalúa por sí sola (BR-038): un ticket con el ganador y el marcador exacto acertados del mismo partido recibe 1 + 2 monedas. Se paga una sola vez por selección, aunque la operación se reintente.
+* Solo las selecciones que pasan a acertadas en esa confirmación, de participantes. Una anulada, una ya liquidada o una de una cuenta de administrador (BR-001) no reciben nada.
+* **No es retroactivo:** los partidos cuyo resultado se confirmó antes de este cambio no pagan nada, ni después.
+* El premio queda registrado como un movimiento de monedas (tabla 28), y el saldo sigue siendo la suma de los movimientos (BR-009). El saldo tiene un máximo técnico: si un premio lo superara, el resultado no se confirma y el administrador ve el motivo.
+* El participante ve lo que ganó en su recibo (BR-025), en "Mis apuestas" y su resumen (BR-026) y en sus movimientos de monedas; el administrador, en la consulta de apuestas y en las estadísticas de la polla (BR-001). La respuesta de la confirmación y su registro de auditoría dicen cuántas monedas se pagaron y a cuántos participantes, nunca a quién. Las "apuestas de todos" (BR-056) no muestran monedas.
+* Los puntos siguen sin convertirse en monedas (BR-039).
 
 ---
 
@@ -1266,6 +1290,9 @@ Crea ticket
 Descuenta monedas
         ↓
 Apuesta confirmada
+        ↓
+Cuando se confirma el resultado del partido:
+cada selección acertada paga su premio (BR-057)
 ```
 
 ---
@@ -1293,8 +1320,15 @@ Asigna puntos
         ↓
 Actualiza apuestas
         ↓
+Paga monedas por cada acierto (BR-057):
++1 resultado general, +2 marcador exacto
+        ↓
+Actualiza saldos y registra los movimientos
+        ↓
 Actualiza ranking
 ```
+
+Todo lo que sigue a "Administrador confirma" ocurre en esa misma operación, sin otro paso del administrador (C-09): si algo falla, el resultado no queda confirmado.
 
 ---
 
@@ -1328,7 +1362,7 @@ Registra devolución
 | Incorrecta        | No acertar                     |                        0 |
 | Partido cancelado | Apuesta anulada                | 0 + devolución de moneda |
 
-Cada selección se procesa independientemente.
+Cada selección se procesa independientemente. Además de sus puntos, un acierto paga monedas (BR-057, tabla 28): los puntos no se convierten en monedas (BR-039).
 
 ---
 
@@ -1339,7 +1373,8 @@ Cada selección se procesa independientemente.
 | Usuario validado          |                     +10 monedas |
 | Cada selección confirmada |                       -1 moneda |
 | Partido cancelado         | +1 moneda por selección anulada |
+| Acierto de resultado general (BR-057) |          +1 moneda |
+| Acierto de marcador exacto (BR-057)   |         +2 monedas |
 | Apuesta incorrecta        |                  Sin devolución |
-| Apuesta acertada          |       Sin devolución automática |
 
-Los puntos obtenidos no generan monedas adicionales.
+Los puntos obtenidos no generan monedas adicionales. Precisión (C-09, D-038): el premio de un acierto sale del acierto de cada selección, no de sus puntos (BR-039), se paga automáticamente al confirmar el resultado y no es retroactivo (BR-057).

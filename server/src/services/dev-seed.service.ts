@@ -5,7 +5,7 @@ import { HORAS_CIERRE_APUESTAS } from '../lib/betting.js';
 import { resultOfScore } from '../lib/match-result.js';
 import { hashPassword } from '../lib/password.js';
 import { plural } from '../lib/plural.js';
-import { settleMatchSelections } from './bets-settlement.service.js';
+import { lockPrizeWinners, type LockedWinners, settleMatchSelections } from './bets-settlement.service.js';
 import { debitSelections, grantValidationCoins, refundSelections } from './coins.service.js';
 import { insertUser } from './users.service.js';
 
@@ -692,19 +692,16 @@ async function seedTickets(
 		}
 	}
 
-	// The finished matches, settled as a confirmed result would be (match row locked first, like T-12).
+	// The finished matches, settled as a confirmed result would be (T-12): the winners locked first, then the
+	// match row, then the real settler, which also pays their prizes (C-09, BR-057), so the sample has some.
 	for (const [index, match] of MATCHES.entries()) {
 		if (match.estado !== 'finalizado' || !match.goles) continue;
 		const id = matchIds[index]!;
-		await conn.query('SELECT id FROM partido FORCE INDEX (PRIMARY) WHERE id = ? FOR UPDATE', [id]);
 		const [golesLocal, golesVisitante] = match.goles;
-		await settleMatchSelections(conn, {
-			id,
-			competicionId: competitionIds[match.sport]!,
-			golesLocal,
-			golesVisitante,
-			resultado: resultOfScore(golesLocal, golesVisitante),
-		});
+		const result = { golesLocal, golesVisitante, resultado: resultOfScore(golesLocal, golesVisitante) };
+		const winners = (await lockPrizeWinners(conn, id, result)) as LockedWinners;
+		await conn.query('SELECT id FROM partido FORCE INDEX (PRIMARY) WHERE id = ? FOR UPDATE', [id]);
+		await settleMatchSelections(conn, { id, competicionId: competitionIds[match.sport]!, ...result }, winners, now);
 	}
 
 	const [rows] = await conn.query<RowDataPacket[]>(

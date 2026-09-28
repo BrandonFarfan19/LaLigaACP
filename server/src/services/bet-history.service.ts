@@ -5,6 +5,7 @@ import type { ListMyBetsQuery } from '../schemas/betting.schema.js';
 import { type Page, toPage } from '../schemas/common.schema.js';
 import { Where } from './catalog-query.js';
 import {
+	prizeTypeFor,
 	REFUND_TYPE,
 	SELECTION_COLUMNS,
 	SELECTION_JOINS,
@@ -35,8 +36,8 @@ export const stateId = (codigo: EstadoSeleccion) => `(SELECT id FROM estado_sele
  * its user (and, when given, only some of its tickets); the admin query
  * (T-21) on ticket ids or on every participant. Served by
  * `idx_ticket_usuario_fecha` and the covering `idx_seleccion_ticket_estado`;
- * the refunds (D-003) through `uq_movimiento_seleccion_tipo` (at most one per
- * selection, so the join never repeats a row).
+ * the refunds (D-003) and the prizes (C-09) through `uq_movimiento_seleccion_tipo`
+ * (at most one of each per selection, so the joins never repeat a row).
  */
 export const ticketAggregatesFor = (anchor: string) => `(
 	SELECT s2.ticket_id,
@@ -46,10 +47,12 @@ export const ticketAggregatesFor = (anchor: string) => `(
 		SUM(s2.estado_seleccion_id = ${stateId('acertada')}) AS acertadas,
 		SUM(s2.estado_seleccion_id = ${stateId('no_acertada')}) AS no_acertadas,
 		COALESCE(SUM(s2.puntos_obtenidos), 0) AS puntos,
-		COALESCE(SUM(m2.cantidad), 0) AS devueltas
+		COALESCE(SUM(m2.cantidad), 0) AS devueltas,
+		COALESCE(SUM(mg2.cantidad), 0) AS ganadas
 	FROM ticket t2
 	JOIN seleccion s2 ON s2.ticket_id = t2.id
 	LEFT JOIN movimiento_moneda m2 ON m2.seleccion_id = s2.id AND m2.tipo_movimiento_id = ${REFUND_TYPE}
+	LEFT JOIN movimiento_moneda mg2 ON mg2.seleccion_id = s2.id AND mg2.tipo_movimiento_id = ${prizeTypeFor('s2')}
 	WHERE ${anchor}
 	GROUP BY s2.ticket_id
 )`;
@@ -62,7 +65,7 @@ const ORDER = HISTORY_ORDER;
 
 /** A history row: its ticket (with `agg`), then the selection with its match. */
 export const HISTORY_COLUMNS = `t.id AS t_id, t.creado_en AS t_creado_en,
-	agg.total AS t_total, agg.pendientes AS t_pendientes, agg.anuladas AS t_anuladas, agg.puntos AS t_puntos, agg.devueltas AS t_devueltas,
+	agg.total AS t_total, agg.pendientes AS t_pendientes, agg.anuladas AS t_anuladas, agg.puntos AS t_puntos, agg.devueltas AS t_devueltas, agg.ganadas AS t_ganadas,
 	${SELECTION_COLUMNS}`;
 const COLUMNS = HISTORY_COLUMNS;
 
@@ -72,6 +75,7 @@ const countsFrom = (row: RowDataPacket, prefix: string) => ({
 	anuladas: Number(row[`${prefix}anuladas`]),
 	puntos: Number(row[`${prefix}puntos`]),
 	devueltas: Number(row[`${prefix}devueltas`]),
+	ganadas: Number(row[`${prefix}ganadas`]),
 });
 
 export function myBetFrom(row: RowDataPacket): MyBet {
@@ -149,6 +153,8 @@ export interface MyBetsSummary {
 	monedasUtilizadas: number;
 	/** BR-046, D-003: the coins actually refunded to the user. */
 	monedasDevueltas: number;
+	/** BR-057, C-09: the coins the user's right selections actually won. */
+	monedasGanadas: number;
 	/** BR-039/BR-040: the sum of the settled selections' points. */
 	puntos: number;
 	/** BR-042/BR-043: selections in state `acertada` (the ranking's "apuestas acertadas"). */
@@ -172,7 +178,8 @@ export async function getMyBetsSummary(pool: Pool, userId: number): Promise<MyBe
 			COALESCE(SUM(agg.acertadas), 0) AS sel_acertadas,
 			COALESCE(SUM(agg.no_acertadas), 0) AS sel_no_acertadas,
 			COALESCE(SUM(agg.puntos), 0) AS sel_puntos,
-			COALESCE(SUM(agg.devueltas), 0) AS sel_devueltas
+			COALESCE(SUM(agg.devueltas), 0) AS sel_devueltas,
+			COALESCE(SUM(agg.ganadas), 0) AS sel_ganadas
 		FROM ${TICKET_AGGREGATES} agg`,
 		[userId],
 	);
@@ -194,6 +201,7 @@ export async function getMyBetsSummary(pool: Pool, userId: number): Promise<MyBe
 		},
 		monedasUtilizadas: totals.monedasUtilizadas,
 		monedasDevueltas: totals.monedasDevueltas,
+		monedasGanadas: totals.monedasGanadas,
 		puntos: totals.puntosObtenidos,
 		aciertos: acertada,
 	};

@@ -188,19 +188,30 @@ const FIELD_NAMES: Record<string, string> = {
 	partidoId: 'Partido',
 	creadoEn: 'Fecha',
 	cierreApuestas: 'Cierre de apuestas',
+	// C-09: what a result confirmation paid, automatically, to the right selections.
+	premios: 'Monedas pagadas',
+	participantes: 'Participantes',
 };
 
-export const fieldName = (key: string) => FIELD_NAMES[key] ?? key;
+/** Names that depend on the object a field sits in (the same key means another thing there). */
+const FIELD_NAMES_IN: Record<string, Record<string, string>> = {
+	premios: { selecciones: 'Aciertos pagados', monedas: 'Monedas' },
+};
 
-/** A detail value as text: dates in league time are left to the screen; objects as `clave: valor`. */
-export function detailText(value: unknown): string {
+export const fieldName = (key: string, parent?: string) => (parent ? FIELD_NAMES_IN[parent]?.[key] : undefined) ?? FIELD_NAMES[key] ?? key;
+
+/**
+ * A detail value as text: dates in league time are left to the screen; objects as `clave: valor`.
+ * `parent` is the key the value sits under, for the names that depend on it (`FIELD_NAMES_IN`).
+ */
+export function detailText(value: unknown, parent?: string): string {
 	if (value === null || value === undefined) return '—';
 	if (typeof value === 'boolean') return value ? 'sí' : 'no';
 	if (typeof value === 'string' || typeof value === 'number') return String(value);
-	if (Array.isArray(value)) return value.map(detailText).join(', ');
+	if (Array.isArray(value)) return value.map((item) => detailText(item)).join(', ');
 	if (typeof value === 'object') {
 		return Object.entries(value as Record<string, unknown>)
-			.map(([key, inner]) => `${fieldName(key)}: ${detailText(inner)}`)
+			.map(([key, inner]) => `${fieldName(key, parent)}: ${detailText(inner, key)}`)
 			.join(' · ');
 	}
 	return String(value);

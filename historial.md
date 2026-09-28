@@ -1959,3 +1959,80 @@ Con T-23, el plan de [docs/plan-polla.md](docs/plan-polla.md) queda **completo: 
   - **`tester_liga_2`: frontend y navegador**, a 320, 390 y 1280 px.
     - Revisó la acción por fila con `ConfirmStep`, «Mostrar», la validación de 6 a 20 con emoji, el mensaje de éxito, el campo vacío y la ausencia de fugas en la URL, el almacenamiento, la consola y los logs. También los errores por código, el pixel art, y una prueba de punta a punta con una cuenta `t2_`: sesiones cerradas (401), la vieja no entra y la nueva sí.
     - La primera ronda falló porque el foco caía al `body` al abrir y porque el campo medía 112 px a 320. En la reverificación aprobó: el foco va al campo, «Cancelar» vuelve al botón, se ven 20 caracteres, `npm test` **365/365** y el build limpio. Dejó la base de desarrollo limpia.
+
+## 2026-09-28 — C-09 · Los aciertos también pagan monedas (cambio posterior al plan)
+
+- **De dónde salió:** una regla nueva del usuario: además de sus puntos, un acierto de resultado general da **1 moneda** y uno de marcador exacto da **2** ([D-038](docs/decisiones.md)). El pago es **automático** al confirmar el resultado, sin ningún paso nuevo para el admin, y **no es retroactivo**. Se agregó **BR-057** y se precisó BR-039 (los puntos siguen sin convertirse en monedas: el premio sale del acierto de cada selección). También se actualizaron las tablas 27 y 28, los flujos de las secciones 24 y 25 y [docs/verificacion-final.md](docs/verificacion-final.md). Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Catálogo y migración:**
+  - `tipo_movimiento` suma `premio_resultado_general` (+1) y `premio_marcador_exacto` (+2), con los ids 4 y 5 de `db/init`. Los montos viven solo en `lib/coins.ts`.
+  - `db/migraciones/C-09-premios-por-acierto.sql` sigue el estilo de C-05 y C-08. **Está aplicada en la base de desarrollo**, con su respaldo en `respaldos-la-liga-acp/la_liga_acp-antes-de-C-09-2026-09-28.sql`.
+- **Backend:**
+  - **El pago:** `settleMatchSelections` (T-14) paga con `payPrizesBatch` (`services/coins.service.ts`), en la misma transacción que la confirmación (T-12). Solo cobran las selecciones que pasan a `acertada` en tickets de apostador, y la confirmación corre en `READ COMMITTED`.
+  - **Orden de bloqueo usuario → partido:** `lockPrizeWinners` bloquea a los ganadores antes que el partido. Si aparece un ganador sin bloquear, `SettlementRestart` hace que la confirmación empiece de nuevo, hasta 3 veces, y después responde 409 `CONCURRENT_UPDATE`.
+  - **Tope de saldo:** 409 `BALANCE_LIMIT_EXCEEDED` sin confirmar nada. Aplica también a las devoluciones y a `applyCoinMovements`, que antes daban 500.
+  - **Bloqueos por lista de ids:** `db/locks.ts` (`lockRowsById`, una lectura puntual por id en `UNION ALL`) reemplaza el `WHERE id IN` en la liquidación, la cancelación (T-16) y los lotes de monedas. En tablas chicas ese `IN` recorría toda la clave primaria y bloqueaba filas ajenas.
+  - **Lecturas:** las monedas ganadas se calculan desde los movimientos reales en el recibo, mis apuestas y su resumen, la consulta del admin y las estadísticas de la polla. La respuesta y la auditoría de la confirmación llevan solo los totales pagados. `/apuestas/participantes` (C-07) no muestra monedas. La vista previa del resultado **no cambió**. El seed genera premios.
+- **Frontend:** `CoinAmount` (moneda pixel art) en el recibo, mis apuestas, el inicio del panel y la consulta de apuestas del admin. El mensaje de la confirmación dice lo pagado. Por decisión del ejecutor, `/cuenta` muestra los últimos 20 movimientos del participante, con los premios marcados. Tras la primera revisión, su «Reintentar» usa `useRetryFocus`.
+- **Archivos:**
+  - **Backend:** `server/src/db/locks.ts`, `server/src/lib/{coins,error-codes}.ts`, `server/src/services/{bets-settlement,coins,results,match-cancellation,tickets,bet-history,ranking,dev-seed}.service.ts` y `server/src/routes/{index,catalog.route}.ts`.
+  - **Pruebas del backend:** `server/tests/prizes.test.ts`, `migration-c09.test.ts`, `concurrency-stress.test.ts` y los ajustes de `settlement`, `cancellation`, `coins-service`, `tickets`, `bet-history`, `admin-bets`, `ranking`, `audit` y `dev-seed`.
+  - **Base de datos:** `db/init/02-catalogos.sql` y `db/migraciones/C-09-premios-por-acierto.sql`.
+  - **Front:**
+    - Componentes y datos: `src/components/CoinAmount.tsx` y su `.module.css`, y `src/lib/{coin-history,admin-catalog,admin-pool}.ts`.
+    - Páginas: `src/pages/{Cuenta,Ticket,MisApuestas}.tsx`, `src/pages/AuthPage.module.css` y `src/pages/admin/{AdminHome,ApuestasAdmin,Auditoria,Partido}.tsx`.
+    - Tipos: `src/types/{admin,api,betting}.ts`.
+    - Pruebas y fixtures: `src/pages/prizes.test.tsx`, `src/pages/admin/partidos.test.tsx`, `src/test/admin-fixtures.ts` y `src/test/betting-fixtures.ts`.
+  - **Docs:** `docs/business-rules.md`, `docs/verificacion-final.md`, `docs/decisiones.md` (D-038), `docs/pendientes.md`, `EsquemaBD.md`, `CLAUDE.md`, `AGENTS.md`, `README.md` y `server/README.md`.
+- **Verificación, repartida entre los dos testers.**
+  - **Entorno:** el `.env` de la raíz no se tocó. Las pruebas del backend recibieron por el entorno del proceso DB_PORT=3307, las credenciales actuales de los contenedores (leídas en el momento, sin copiarlas a archivos) y TRUST_PROXY vacío.
+  - **`tester_liga`: reglas, backend, concurrencia y migración.**
+    - **Pruebas:** `npm run server:test` **1241/1241** (51 archivos) y `server:typecheck` limpio. `concurrency-stress`, `prizes`, `cancellation` y `settlement` en verde en **tres corridas seguidas** (64/64 cada una), con la exigencia de cero deadlocks. Esas pruebas cubren:
+      - los montos (1 y 2), el empate acertado que da 1 y el fallo que da 0;
+      - que no cobren las anuladas, las ya liquidadas, las de admin ni los partidos confirmados antes;
+      - sin doble pago, ni en una segunda confirmación ni en un reintento por deadlock;
+      - el rollback completo si el pago falla y `BALANCE_LIMIT_EXCEEDED`;
+      - el reinicio y el 409 tras 3 intentos;
+      - confirmaciones concurrentes con tickets nuevos y con una cancelación;
+      - las garantías de T-16: una sola devolución, anulación por lotes y orden usuario → partido.
+    - **`db/locks.ts` medido con `performance_schema.data_locks`:** `lockRowsById` bloquea **exactamente** los ids pedidos (`X,REC_NOT_GAP`), tanto en READ COMMITTED como en REPEATABLE READ. El `IN` anterior, en REPEATABLE READ, bloqueaba todas las filas de `usuario` y el supremo, así que el hallazgo del ejecutor se confirma. Un id inexistente en REPEATABLE READ toma el hueco hasta el supremo. El comentario del archivo se corrigió para decirlo, y todos los llamadores pasan ids que existen.
+    - **Riesgo que quedó en el ticket:** el `IN` de `lockByPrimaryKey` sobre `partido` es **real con los datos de hoy**. Con 3 partidos, el plan es `index` y un ticket esperó a otro partido bloqueado que no había pedido; con 6 partidos el plan es `range` y bloquea solo lo pedido. Solo causa espera, sin deadlock, porque todas las transacciones bloquean `usuario` antes que `partido`. Quedó anotado en `docs/pendientes.md` (Backend).
+    - **Migración:** se aplicó sobre una copia del respaldo previo a C-09.
+      - Con `CHECKSUM TABLE` antes y después, solo cambia `tipo_movimiento`: ids 4 y 5, idéntico a `db/init` y a la base de pruebas.
+      - La segunda corrida se niega (`motivo` y `ERROR 1231` con el texto) sin cambios ni procedimientos sobrantes.
+    - **Desarrollo contra el respaldo de C-09:** las filas reales son idénticas. Lo único nuevo durante la revisión fue la prueba de punta a punta de `tester_liga_2` (su cuenta `t2_` y un partido que creó en una competición real), ya quitada. Al final no quedan filas del seed, cuentas `t2_` ni procedimientos.
+    - **Otras comprobaciones:**
+      - `coins:check` cuadra en desarrollo.
+      - La vista previa del resultado no cambió.
+      - BR-039, BR-057, las tablas 27 y 28 y `verificacion-final.md` (57 BR) están en paso con el código.
+  - **`tester_liga_2`: frontend y navegador**, a 320, 390 y 1280 px.
+    - Prueba de punta a punta con una cuenta `t2_`: apostó resultado general y marcador exacto, el admin confirmó, y el pago fue automático (3 monedas, de 6 a 9), con el contador del navbar en 9.
+    - Revisó el recibo, mis apuestas, `/cuenta` con los premios, el panel, la auditoría con totales, y que `/apuestas-de-todos` no muestre monedas. `npm test` **373/373** y build limpio.
+    - La primera ronda falló por el foco de «Reintentar» en `/cuenta`. En la reverificación aprobó: el foco queda en el botón si falla y va al conteo, anunciado, si carga. La prueba nueva falla con la versión anterior. Dejó la base de desarrollo limpia.
+
+## 2026-09-28 — C-10 · La sección «Participantes» del panel pasa a llamarse «Inscritos» (cambio posterior al plan)
+
+- **De dónde salió:** un pedido del usuario ([D-039](docs/decisiones.md)). «Participantes» hacía pensar en quienes juegan la polla, y la sección lista a **todas las cuentas registradas**, pendientes incluidas. Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Qué cambió (solo textos):**
+  - **Sección `/admin/participantes`:** dice «Inscritos» en:
+    - el enlace de la navegación del panel, el título de la pestaña y el encabezado;
+    - el conteo («N inscritos.»), el filtro («Filtrar inscritos»), el caption de la tabla y la paginación;
+    - el mensaje vacío, el de carga («los inscritos») y el texto de la sección («al validar, el inscrito recibe sus 10 monedas»).
+    - Entre los conteos, la cifra que repetía el título ahora dice **«Total»**; «Validados» y «Pendientes» no cambian.
+  - **Inicio del panel:** la bienvenida dice «Valida inscritos…» y «Los administradores no participan: estas cifras no los cuentan». La tarjeta se titula «Inscritos», y su primera cifra dice «Total».
+  - **Consulta de apuestas del admin:** la ayuda del id dice «El id está en Inscritos y en el ranking».
+  - **Se dejó «participante» donde significa alguien que juega la polla:** el ranking, «Apuestas de todos», el mensaje de premios pagados y las estadísticas de la polla («Suma de los saldos de los participantes»). También en la consulta de apuestas («Participante (id)» y su columna: solo apuestan participantes) y en la página de error para administradores. Los mensajes de las acciones usan el nombre de la persona.
+  - **Sin cambios de URL, API, códigos de error (`NOT_A_PARTICIPANT`) ni nombres de archivos, componentes o variables.**
+- **Archivos:**
+  - **Front:** `src/pages/admin/{AdminLayout,Participantes,AdminHome,ApuestasAdmin}.tsx` y el comentario de `src/lib/admin-load.ts`.
+  - **Pruebas:** `src/pages/admin/panel.test.tsx` (textos, título, encabezado, filtro, «Total», bienvenida y ningún «participante» en la sección) y `src/pages/session-gone.test.tsx`.
+  - **Docs:** `CLAUDE.md`, `AGENTS.md` y `README.md`, además de `docs/decisiones.md` (D-039, del coordinador).
+- **Verificación (`tester_liga_2`, la revisión completa):**
+  - **El diff:** son solo textos, pruebas y docs, y `AGENTS.md` está en paso con `CLAUDE.md`. `npm test` **375/375** y `npm run build` sin avisos.
+  - **Navegador, a 320, 390 y 1280 px:**
+    - La página Inscritos muestra el título, el encabezado, el caption y el conteo nuevos, «Total» entre los conteos y ningún «participante».
+    - El enlace «Inscritos» queda marcado con `aria-current="page"`.
+    - En el inicio se ven la bienvenida corregida y la tarjeta con «Total», y la ayuda de la consulta de apuestas dice «Inscritos».
+    - El panel no se desborda en ningún ancho.
+  - **Entorno:** el usuario estaba usando la base de desarrollo con datos reales, así que la reverificación no la tocó ni cargó el seed. Se hizo con un backend propio sobre `la_liga_acp_test_2`, con un admin `t2_` creado con `admin:create` y tres cuentas `t2_` (una validada y dos pendientes), borradas al terminar. El `.env` no se tocó.
+  - **Primera ronda:** falló porque la bienvenida seguía diciendo «estas cifras cuentan solo a los participantes», y la tarjeta de esas cifras cuenta también a los pendientes. En la reverificación aprobó.
+  - **Fuera de C-10:** a 320 px el enlace «Posiciones» del navbar del sitio se sale 4 px por la derecha. No está en `docs/pendientes.md`: se informó al coordinador.

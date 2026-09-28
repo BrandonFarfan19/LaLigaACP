@@ -64,8 +64,11 @@ export interface CatalogRouterOptions {
 	countBetsOnMatch: matches.MatchBetsProbe;
 	/** T-12: how many pending selections a match has (the Polla probe). */
 	countPendingSelections: results.PendingSelectionsProbe;
-	/** T-12/T-14: settles a match's bets when its result is confirmed (the Polla settler). */
-	settleMatch: results.MatchSettler;
+	/**
+	 * T-12/T-14/C-09: settles a match's bets and pays the prizes when its result is confirmed (the Polla
+	 * settler), locking the winners before the match.
+	 */
+	settlement: Pick<results.ResultDeps, 'settle' | 'prepareSettlement'>;
 	/** T-13: where uploaded images go, the upload parser and its rate limit. */
 	media: { deps: MediaDeps; parseImage: RequestHandler; uploadLimit: RequestHandler };
 	/** T-17: the audit hook for every write. */
@@ -88,7 +91,7 @@ export function createCatalogRouter(pool: Pool, options: CatalogRouterOptions): 
 	const router = Router();
 	const { hooks } = options;
 	const matchDeps: matches.MatchDeps = { countBets: options.countBetsOnMatch };
-	const resultDeps: results.ResultDeps = { countPendingSelections: options.countPendingSelections, settle: options.settleMatch };
+	const resultDeps: results.ResultDeps = { countPendingSelections: options.countPendingSelections, ...options.settlement };
 
 	router.use(
 		'/deportes',

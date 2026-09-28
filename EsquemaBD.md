@@ -353,17 +353,17 @@ Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general
 - `CHECK (puntos_obtenidos IN (0, 1, 3))`: son los únicos valores que produce la tabla de puntuación (BR-035 a BR-038).
 - Índice `idx_seleccion_ticket_estado (ticket_id, estado_seleccion_id, puntos_obtenidos)` (T-11): calcula el estado, las monedas y los puntos de cada ticket leyendo solo el índice. También es el índice de la FK a `ticket`, que antes tenía uno propio. Con 1000 tickets y 3000 selecciones de un usuario, la página de "Mis apuestas" pasó de unos 28 ms a 16 ms, y el resumen de 21 ms a 12 ms.
 - Índice `idx_seleccion_partido_estado (partido_id, estado_seleccion_id)` (T-14): las selecciones pendientes de un partido, que se liquidan al confirmar su resultado y que cuenta su vista previa. También es el índice de la FK a `partido`, que antes tenía uno propio (`fk_seleccion_partido`). Con 5000 selecciones pendientes en un partido, la liquidación hace 8 sentencias.
-- **Backend (T-14):** al confirmar el resultado, cada selección `pendiente` del partido pasa a `acertada` (con 3 o 1 puntos) o `no_acertada` (con 0), según la tabla de "Reglas del backend". Las `anulada` y las ya liquidadas no cambian, y ningún punto genera un movimiento de monedas (BR-039).
+- **Backend (T-14):** al confirmar el resultado, cada selección `pendiente` del partido pasa a `acertada` (con 3 o 1 puntos) o `no_acertada` (con 0), según la tabla de "Reglas del backend". Las `anulada` y las ya liquidadas no cambian, y ningún punto genera un movimiento de monedas (BR-039). **Desde C-09 (BR-057)**, en esa misma transacción, cada selección que pasa a `acertada` de un ticket de apostador recibe su premio: un `movimiento_moneda` `premio_resultado_general` (+1) o `premio_marcador_exacto` (+2) con su `seleccion_id`. El premio sale del acierto, no de los puntos.
 - Varias selecciones por partido y por ticket, incluso contradictorias entre sí, están permitidas (BR-017, BR-018): no hay `UNIQUE` que las junte por `usuario_id`/`partido_id` como en el diseño anterior.
 
 ### tipo_movimiento — catálogo
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | `validacion` (BR-008, +10), `seleccion_confirmada` (BR-020, −1), `devolucion_cancelacion` (BR-046, +1) |
+| codigo | VARCHAR, único | `validacion` (BR-008, +10), `seleccion_confirmada` (BR-020, −1), `devolucion_cancelacion` (BR-046, +1) y, desde C-09, `premio_resultado_general` (BR-057, +1) y `premio_marcador_exacto` (BR-057, +2), con ids 4 y 5 en `02-catalogos.sql` |
 | nombre | VARCHAR | Etiqueta visible. |
 
-Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta incorrecta" y "apuesta acertada" no generan movimiento (la tabla lo dice explícitamente: "sin devolución").
+Solo los eventos de la tabla 28 que efectivamente mueven monedas; "apuesta incorrecta" no genera movimiento. Desde C-09 (D-038) un acierto sí: su premio. Los montos no se guardan en el catálogo, viven solo en `server/src/lib/coins.ts`. Una base creada antes de C-09 recibe los dos tipos con `db/migraciones/C-09-premios-por-acierto.sql`.
 
 ### movimiento_moneda
 | Campo | Tipo | Notas |
@@ -371,14 +371,14 @@ Solo los tres eventos de la tabla 28 que efectivamente mueven monedas; "apuesta 
 | id | PK | |
 | usuario_id | FK → usuario | |
 | tipo_movimiento_id | FK → tipo_movimiento | |
-| seleccion_id | FK → seleccion, opcional | Vacío en `validacion`; presente en `seleccion_confirmada` y `devolucion_cancelacion`. |
+| seleccion_id | FK → seleccion, opcional | Vacío en `validacion`; presente en `seleccion_confirmada`, `devolucion_cancelacion` y los dos premios (C-09). |
 | cantidad | SMALLINT | Con signo: positivo para créditos, negativo para débitos. |
 | creado_en | DATETIME (UTC) | |
 | sin_seleccion | TINYINT, generada (`STORED`) | `1` si `seleccion_id` es NULL, NULL si no. Nadie la escribe; existe solo para el índice de abajo (D19). |
 
-- `UNIQUE(seleccion_id, tipo_movimiento_id)`: una selección no puede procesarse dos veces con el mismo tipo de movimiento (protege contra reintentos duplicados, en el espíritu de BR-054). No aplica a `validacion` (MySQL no cruza varios `NULL` en un índice único).
+- `UNIQUE(seleccion_id, tipo_movimiento_id)`: una selección no puede procesarse dos veces con el mismo tipo de movimiento (protege contra reintentos duplicados, en el espíritu de BR-054). No aplica a `validacion` (MySQL no cruza varios `NULL` en un índice único). Es también la barrera de C-09: un acierto no se paga dos veces. El esquema no cambia con C-09: los premios siempre llevan selección, así que `sin_seleccion` queda NULL y D19 no los toca, y `CHECK (cantidad <> 0)` ya vale para +1 y +2.
 - `UNIQUE(usuario_id, tipo_movimiento_id, sin_seleccion)`: como mucho **un** movimiento sin selección por usuario y tipo. Es la barrera de base de datos de BR-008: un usuario no puede recibir dos veces el `validacion` de +10 aunque el backend fallara (D19). A los tipos que siempre llevan selección no los afecta, porque ahí `sin_seleccion` es NULL y MySQL no compara NULL en un índice único.
-  - **Límites conocidos de D19** (observados en T-04, sin cambiar el esquema todavía): (1) un movimiento `validacion` con `seleccion_id` cargado a mano esquiva la barrera, porque ahí `sin_seleccion` es NULL; (2) dos movimientos del **mismo tipo** sin selección para el mismo usuario chocan con la UNIQUE aunque sean legítimos. La regla del backend: `seleccion_confirmada` y `devolucion_cancelacion` siempre llevan `seleccion_id`, y `validacion` nunca (ver notas de T-10 y T-16 en `docs/plan-polla.md`).
+  - **Límites conocidos de D19** (observados en T-04, sin cambiar el esquema todavía): (1) un movimiento `validacion` con `seleccion_id` cargado a mano esquiva la barrera, porque ahí `sin_seleccion` es NULL; (2) dos movimientos del **mismo tipo** sin selección para el mismo usuario chocan con la UNIQUE aunque sean legítimos. La regla del backend: `seleccion_confirmada`, `devolucion_cancelacion` y los premios de C-09 siempre llevan `seleccion_id`, y `validacion` nunca (ver notas de T-10 y T-16 en `docs/plan-polla.md`).
 - `CHECK (cantidad <> 0)`.
 - Índice `idx_movimiento_usuario_fecha (usuario_id, creado_en, id)` (T-05): el historial propio, del más reciente al más antiguo, y la suma por usuario de la comprobación de consistencia.
 - **Backend:** mantener `usuario.saldo_monedas` sincronizado con la suma de sus movimientos, en la misma transacción que cada inserción (D12, BR-053, BR-055). Desde T-05 hay un único punto que escribe ambos: `server/src/services/coins.service.ts`. Bloquea la fila del usuario, no deja el saldo negativo, inserta los movimientos y fija el saldo nuevo. `npm run coins:check` compara cada saldo con `SUM(cantidad)` y lista los descuadres sin corregirlos.

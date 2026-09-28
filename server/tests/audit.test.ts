@@ -216,7 +216,8 @@ describe('audit log (T-17: NFR-006)', () => {
 					'confirmacion_resultado',
 					matchIdOf,
 				),
-			).toEqual({ marcador: { golesLocal: 2, golesVisitante: 1 } });
+			// C-09: what the confirmation paid, as counts only (no bets on this match: nothing).
+			).toEqual({ marcador: { golesLocal: 2, golesVisitante: 1 }, premios: { selecciones: 0, monedas: 0, participantes: 0 } });
 
 			// Cancellation (T-16). NFR-006: "Cancelación de partido".
 			let otherId = 0;
@@ -635,7 +636,7 @@ describe('audit log (T-17: NFR-006)', () => {
 			expect(details.modificacion_gol).toEqual({ cambios: { video: { antes: null, despues: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' } } });
 			expect(details.alta_multimedia).toMatchObject({ nuevo: { imagen: null, video: 'https://vimeo.com/1234' } });
 			expect(Object.keys((details.alta_multimedia as { nuevo: object }).nuevo).sort()).toEqual(['creadoEn', 'id', 'imagen', 'video']);
-			expect(details.confirmacion_resultado).toEqual({ marcador: { golesLocal: 1, golesVisitante: 0 } });
+			expect(details.confirmacion_resultado).toEqual({ marcador: { golesLocal: 1, golesVisitante: 0 }, premios: { selecciones: 0, monedas: 0, participantes: 0 } });
 			const text = JSON.stringify(details);
 			for (const computed of ['cierreApuestas', 'deporteId', 'Alianza', 'Boca', '"Ana"', 'lado', 'embedUrl', 'plataforma', '"resultado"', 'jugadorNombre', 'equipoNombre', 'competicionNombre', 'deporteNombre']) {
 				expect(text, computed).not.toContain(computed);

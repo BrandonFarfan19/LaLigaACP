@@ -38,7 +38,8 @@ export async function loader(args: LoaderFunctionArgs) {
 const ACTION_OPTIONS = AUDIT_ACTIONS.map(([value, label]) => ({ value, label }));
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-const valueText = (value: unknown) => (typeof value === 'string' && ISO.test(value) ? `${leagueDateTime(value)} (Lima)` : detailText(value));
+const valueText = (value: unknown, parent?: string) =>
+	typeof value === 'string' && ISO.test(value) ? `${leagueDateTime(value)} (Lima)` : detailText(value, parent);
 const isChange = (value: unknown): value is { antes: unknown; despues: unknown; recortado?: boolean } =>
 	Boolean(value && typeof value === 'object' && 'antes' in value && 'despues' in value);
 
@@ -81,7 +82,7 @@ function AuditDetail({ detalle }: { detalle: AuditRecord['detalle'] }): ReactNod
 		} else {
 			lines.push(
 				<li key={key}>
-					<strong>{fieldName(key)}:</strong> {valueText(value)}
+					<strong>{fieldName(key)}:</strong> {valueText(value, key)}
 				</li>,
 			);
 		}

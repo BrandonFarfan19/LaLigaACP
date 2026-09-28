@@ -40,6 +40,8 @@ export const stats: PoolStats = {
 	selecciones: { total: 7, pendiente: 3, acertada: 2, no_acertada: 1, anulada: 1 },
 	monedasUtilizadas: 7,
 	monedasDevueltas: 1,
+	// C-09: one right general result (1) and one right exact score (2).
+	monedasGanadas: 3,
 	monedasDisponibles: 4,
 	puntos: 6,
 	aciertos: 2,
@@ -131,6 +133,8 @@ export const resultPreview = (overrides: Partial<ResultPreview> = {}): ResultPre
 export const confirmedResult = (partido: AdminMatch, golesLocal: number, golesVisitante: number) => ({
 	partido,
 	resultado: { golesLocal, golesVisitante, resultado: golesLocal > golesVisitante ? 'local_gana' : golesLocal === golesVisitante ? 'empate' : 'visitante_gana' },
+	// C-09: what the confirmation paid, as the backend answers it.
+	premios: { selecciones: 2, monedas: 3, participantes: 2 },
 });
 
 export const goal = (overrides: Partial<AdminGoal> = {}): AdminGoal => ({

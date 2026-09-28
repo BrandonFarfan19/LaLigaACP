@@ -5,7 +5,7 @@ import styles from './Admin.module.css';
 /** The panel's sections, in the order an admin works through them. */
 export const ADMIN_SECTIONS = [
 	{ to: '/admin', label: 'Resumen' },
-	{ to: '/admin/participantes', label: 'Participantes' },
+	{ to: '/admin/participantes', label: 'Inscritos' },
 	{ to: '/admin/partidos', label: 'Partidos' },
 	{ to: '/admin/apuestas', label: 'Apuestas' },
 	{ to: '/admin/ranking', label: 'Ranking' },

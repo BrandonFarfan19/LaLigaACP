@@ -2,7 +2,7 @@ import type { Express } from 'express';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { withTransaction } from '../src/db/transaction.js';
-import { COSTO_POR_SELECCION, DEVOLUCION_POR_SELECCION, MONEDAS_POR_VALIDACION, MOVIMIENTOS } from '../src/lib/coins.js';
+import { COSTO_POR_SELECCION, DEVOLUCION_POR_SELECCION, MONEDAS_POR_VALIDACION, MOVIMIENTOS, PREMIO_MARCADOR_EXACTO, PREMIO_POR_TIPO_APUESTA, PREMIO_RESULTADO_GENERAL } from '../src/lib/coins.js';
 import { HttpError } from '../src/lib/http-error.js';
 import {
 	applyCoinMovements,
@@ -68,8 +68,13 @@ describe('coin service (BR-009, BR-020 to BR-022, BR-046, BR-055, table 28)', ()
 			validacion: { cantidad: MONEDAS_POR_VALIDACION, conSeleccion: false },
 			seleccion_confirmada: { cantidad: -COSTO_POR_SELECCION, conSeleccion: true },
 			devolucion_cancelacion: { cantidad: DEVOLUCION_POR_SELECCION, conSeleccion: true },
+			premio_resultado_general: { cantidad: PREMIO_RESULTADO_GENERAL, conSeleccion: true },
+			premio_marcador_exacto: { cantidad: PREMIO_MARCADOR_EXACTO, conSeleccion: true },
 		});
 		expect([MONEDAS_POR_VALIDACION, COSTO_POR_SELECCION, DEVOLUCION_POR_SELECCION]).toEqual([10, 1, 1]);
+		// BR-057 (C-09): a right general result pays 1, a right exact score 2, each by its bet type.
+		expect([PREMIO_RESULTADO_GENERAL, PREMIO_MARCADOR_EXACTO]).toEqual([1, 2]);
+		expect(PREMIO_POR_TIPO_APUESTA).toEqual({ resultado_general: 'premio_resultado_general', marcador_exacto: 'premio_marcador_exacto' });
 	});
 
 	describe('valid movements', () => {

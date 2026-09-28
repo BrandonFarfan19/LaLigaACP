@@ -1,4 +1,5 @@
 import { data, Link, type LoaderFunctionArgs, useLoaderData } from 'react-router';
+import CoinAmount from '../components/CoinAmount';
 import PixelIcon from '../components/PixelIcon';
 import TeamCrest from '../components/TeamCrest';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -68,6 +69,12 @@ export default function Ticket() {
 						<dd>{coinsText(ticket.monedasDevueltas)}</dd>
 					</div>
 					<div>
+						<dt>Monedas ganadas</dt>
+						<dd>
+							<CoinAmount amount={ticket.monedasGanadas} />
+						</dd>
+					</div>
+					<div>
 						<dt>Puntos</dt>
 						<dd>{ticket.puntosObtenidos}</dd>
 					</div>
@@ -127,6 +134,14 @@ export default function Ticket() {
 									<dt>Puntos</dt>
 									<dd>{selection.puntosObtenidos ?? '-'}</dd>
 								</div>
+								{selection.monedasGanadas > 0 && (
+									<div>
+										<dt>Monedas ganadas</dt>
+										<dd>
+											<CoinAmount amount={selection.monedasGanadas} signed />
+										</dd>
+									</div>
+								)}
 							</dl>
 						</li>
 					);

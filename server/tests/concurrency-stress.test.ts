@@ -1,6 +1,6 @@
 import type { Express } from 'express';
 import { randomUUID } from 'node:crypto';
-import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
+import mysql, { type Pool, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { transactionStats, withTransaction } from '../src/db/transaction.js';
@@ -17,7 +17,10 @@ import { resetDatabase } from './helpers/db.js';
  * writes that lock the same rows: postponing and advancing a match, editing
  * matches whose betting closed (T-07 had manual state changes until T-13),
  * flipping permite_empate, (T-12) loading and confirming a result, and (T-16)
- * cancelling a match with bets every other round.
+ * cancelling a match with bets every other round. Since C-09 every confirmed
+ * result pays prizes to bettors 0 and 1 (usuario → partido, like the
+ * cancellation), while those same users place tickets and bettor 0 is locked
+ * by the cancellation.
  *
  * Before the fix the ticket locked through a joined query with no fixed plan
  * and deadlocked with changeMatchState (6 deadlocks in 8 rounds). Now every
@@ -64,6 +67,8 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 		past: [] as number[],
 		bettors: [] as number[],
 		sessions: [] as Array<Awaited<ReturnType<typeof signedInUser>>>,
+		/** C-09: the tickets loaded by hand with right picks on the matches each round confirms. */
+		handTickets: [] as number[],
 	};
 
 	beforeAll(async () => {
@@ -93,6 +98,29 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			await pool.query('UPDATE usuario SET saldo_monedas = 60000 WHERE id = ?', [bettor.user.id]);
 			s.bettors.push(bettor.user.id);
 			s.sessions.push(bettor);
+		}
+		// C-09: bettors 0 and 1 hold pending picks on every match a round confirms (loaded by hand: their betting closed
+		// long ago): the three general results and the exact score the round loads, so each confirmation pays each of
+		// them 1 + 2 coins while they place tickets. Not debited: the final balance counts the movements.
+		for (const [round, matchId] of s.past.entries()) {
+			for (const bettor of [0, 1]) {
+				const [t] = await pool.query<ResultSetHeader>(
+					'INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES (?, UTC_TIMESTAMP(), UUID(), SHA2(UUID(), 256))',
+					[s.bettors[bettor]],
+				);
+				s.handTickets.push(t.insertId);
+				await pool.query(
+					`INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id, estado_seleccion_id)
+					SELECT ?, ?, ta.id, rg.id, es.id FROM tipo_apuesta ta, resultado_general rg, estado_seleccion es
+					WHERE ta.codigo = 'resultado_general' AND es.codigo = 'pendiente' ORDER BY rg.id`,
+					[t.insertId, matchId],
+				);
+				await pool.query(
+					`INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_goles_local, pronostico_goles_visitante, estado_seleccion_id)
+					SELECT ?, ?, ta.id, ?, 1, es.id FROM tipo_apuesta ta, estado_seleccion es WHERE ta.codigo = 'marcador_exacto' AND es.codigo = 'pendiente'`,
+					[t.insertId, matchId, round % 4],
+				);
+			}
 		}
 	});
 
@@ -215,7 +243,10 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 		// Real contention happened: bets were placed and admin writes went through.
 		expect(outcomes['201'], JSON.stringify(outcomes)).toBe(ROUNDS);
 		expect(outcomes['409:TICKET_REJECTED'], JSON.stringify(outcomes)).toBe(ROUNDS);
-		const [[mine]] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS n FROM ticket WHERE usuario_id = ?', [s.bettors[0]]);
+		const [[mine]] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS n FROM ticket WHERE usuario_id = ? AND id NOT IN (?)', [
+			s.bettors[0],
+			s.handTickets,
+		]);
 		expect(Number(mine!.n)).toBe(ROUNDS);
 		expect(outcomes['200'] ?? 0, JSON.stringify(outcomes)).toBeGreaterThan(0);
 		// Every round's result was confirmed.
@@ -239,14 +270,18 @@ describe('concurrency stress: tickets vs match and sport edits (T-09 follow-up)'
 			expect(deadlockAfter ?? '', 'InnoDB registró un deadlock nuevo en la base de pruebas').not.toContain(`\`${env.db.database}\`.`);
 		}
 
-		// Coins stayed consistent with the bets actually placed, and the ones refunded by the cancellations.
+		// Coins stayed consistent with the bets actually placed, the ones refunded by the cancellations and the
+		// prizes of every confirmed result (C-09): each round paid bettors 0 and 1 one general result and one exact score.
 		const [[coins]] = await pool.query<RowDataPacket[]>(
 			`SELECT (SELECT SUM(saldo_monedas) FROM usuario WHERE id IN (?)) AS saldo,
-				(SELECT COUNT(*) FROM seleccion) AS selecciones,
-				(SELECT COUNT(*) FROM seleccion s JOIN estado_seleccion es ON es.id = s.estado_seleccion_id WHERE es.codigo = 'anulada') AS anuladas`,
-			[s.bettors],
+				(SELECT COUNT(*) FROM seleccion WHERE ticket_id NOT IN (?)) AS selecciones,
+				(SELECT COUNT(*) FROM seleccion s JOIN estado_seleccion es ON es.id = s.estado_seleccion_id WHERE es.codigo = 'anulada') AS anuladas,
+				(SELECT COUNT(*) FROM movimiento_moneda m JOIN tipo_movimiento tm ON tm.id = m.tipo_movimiento_id WHERE tm.codigo LIKE 'premio\\_%') AS premios,
+				(SELECT COALESCE(SUM(m.cantidad), 0) FROM movimiento_moneda m JOIN tipo_movimiento tm ON tm.id = m.tipo_movimiento_id WHERE tm.codigo LIKE 'premio\\_%') AS ganadas`,
+			[s.bettors, s.handTickets],
 		);
 		expect(Number(coins!.anuladas)).toBeGreaterThan(0);
-		expect(Number(coins!.saldo)).toBe(60000 * TICKETS_PER_ROUND - Number(coins!.selecciones) + Number(coins!.anuladas));
+		expect([Number(coins!.premios), Number(coins!.ganadas)]).toEqual([ROUNDS * 2 * 2, ROUNDS * 2 * 3]);
+		expect(Number(coins!.saldo)).toBe(60000 * TICKETS_PER_ROUND - Number(coins!.selecciones) + Number(coins!.anuladas) + Number(coins!.ganadas));
 	});
 });

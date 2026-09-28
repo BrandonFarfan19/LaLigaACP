@@ -55,7 +55,7 @@ describe('admin panel: access and navigation (T-21)', () => {
 		const links = within(nav).getAllByRole('link');
 		expect(links.map((a) => a.textContent)).toEqual([
 			'Resumen',
-			'Participantes',
+			'Inscritos',
 			'Partidos',
 			'Apuestas',
 			'Ranking',
@@ -67,8 +67,15 @@ describe('admin panel: access and navigation (T-21)', () => {
 			'Auditoría',
 		]);
 		expect(within(nav).getByRole('link', { name: 'Resumen' }).getAttribute('aria-current')).toBe('page');
-		const participants = screen.getByRole('region', { name: 'Participantes' });
-		expect(within(participants).getByText('Inscritos').nextElementSibling?.textContent).toBe(String(counts.inscritos));
+		// C-10 (D-039): the section is "Inscritos" (every registered account), and its card and the welcome say so.
+		const participants = screen.getByRole('region', { name: 'Inscritos' });
+		// The card's title already says "Inscritos": its figure is the "Total" (C-10 fix).
+		expect(within(participants).getByText('Total', { selector: 'dt' }).nextElementSibling?.textContent).toBe(String(counts.inscritos));
+		expect(within(participants).queryByText('Inscritos', { selector: 'dt' })).toBeNull();
+		// The pending accounts are counted too, so the welcome doesn't call them participants: it only leaves admins out.
+		const welcome = screen.getByText(/Valida inscritos, administra los partidos/);
+		expect(welcome.textContent).toMatch(/Los administradores no participan: estas cifras no los cuentan\./);
+		expect(welcome.textContent).not.toMatch(/participantes/);
 		const figures = screen.getByRole('region', { name: 'Estadísticas de la polla' });
 		expect(within(figures).getByText('Monedas devueltas').nextElementSibling?.textContent).toBe('1 moneda');
 		expect(within(figures).getByText('Tickets').nextElementSibling?.textContent).toBe('42 pendientes · 1 finalizado · 1 anulado');
@@ -109,7 +116,7 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 	it('lists participants with their states, balance and points; the filters live in the URL and reach the API', async () => {
 		const { calls } = mockFetch(adminRoutes());
 		const router = renderApp('/admin/participantes?estadoPago=pendiente&q=ros&foo=1');
-		const table = await screen.findByRole('table', { name: 'Participantes' });
+		const table = await screen.findByRole('table', { name: 'Inscritos' });
 		expect(params(gets(calls, '/api/admin/participantes')[0]!)).toEqual({ estadoPago: 'pendiente', q: 'ros', page: '1', pageSize: '20' });
 		const row = within(table).getAllByRole('row')[1]!;
 		expect(within(row).getByText('Rosa')).toBeTruthy();
@@ -119,7 +126,16 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 		await user.selectOptions(screen.getByLabelText('Validación'), 'validado');
 		await user.click(screen.getByRole('button', { name: 'Filtrar' }));
 		await waitFor(() => expect(where(router)).toBe('/admin/participantes?q=ros&estadoPago=pendiente&estadoValidacion=validado'));
-		await waitFor(() => expect(document.activeElement?.textContent).toBe('1 participante.'));
+		await waitFor(() => expect(document.activeElement?.textContent).toBe('1 inscrito.'));
+		// C-10 (D-039): the section says "Inscritos" everywhere it names itself or the accounts it lists.
+		expect(document.title).toBe('Inscritos · Administración · La Liga ACP');
+		expect(screen.getByRole('heading', { name: 'Inscritos', level: 1 })).toBeTruthy();
+		// The heading already says "Inscritos": the figure is the "Total", as on the home card (C-10 fix).
+		expect(screen.getByText('Total', { selector: 'dt' }).nextElementSibling?.textContent).toBe(String(counts.inscritos));
+		expect(screen.queryByText('Inscritos', { selector: 'dt' })).toBeNull();
+		expect(screen.getByRole('form', { name: 'Filtrar inscritos' })).toBeTruthy();
+		expect(screen.getByText(/al validar, el inscrito recibe sus 10 monedas/)).toBeTruthy();
+		expect(screen.queryByText(/participante/i)).toBeNull();
 		// No role actions anywhere.
 		expect(screen.queryByText(/rol/i, { selector: 'button' })).toBeNull();
 	});
@@ -156,7 +172,7 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 		await user.click(screen.getByRole('button', { name: 'Sí, validar' }));
 		expect(await screen.findByText(/Rosa quedó validado y recibió sus monedas: su saldo es 10\./)).toBeTruthy();
 		await waitFor(() => expect(screen.getByText('Ya está validado: no le quedan pasos.')).toBeTruthy());
-		expect(screen.getByRole('table', { name: 'Participantes' }).textContent).toMatch(/10 monedas/);
+		expect(screen.getByRole('table', { name: 'Inscritos' }).textContent).toMatch(/10 monedas/);
 	});
 
 	it('explains a refusal with the backend reason and what to do; revert has its own step', async () => {
@@ -551,7 +567,7 @@ describe('every admin list: pages and filter problems (T-21)', () => {
 		);
 		renderApp('/admin/participantes?page=9');
 		expect(await screen.findByText('La página 9 no existe: se muestra la última (2).')).toBeTruthy();
-		expect(screen.getByText('25 participantes. Página 2 de 2.')).toBeTruthy();
+		expect(screen.getByText('25 inscritos. Página 2 de 2.')).toBeTruthy();
 	});
 
 	it('a page past the end also replaces the URL, without reading everything again', async () => {
@@ -583,7 +599,7 @@ describe('every admin list: pages and filter problems (T-21)', () => {
 			}),
 		);
 		const router = renderApp('/admin/participantes');
-		await screen.findByRole('table', { name: 'Participantes' });
+		await screen.findByRole('table', { name: 'Inscritos' });
 		alive = false;
 		await userEvent.setup().click(screen.getByRole('link', { name: 'Siguiente >' }));
 
@@ -637,5 +653,22 @@ describe('every admin list: pages and filter problems (T-21)', () => {
 		const notice = await screen.findByRole('alert');
 		expect(notice.textContent).toMatch(/No se pudieron cargar los partidos: demasiadas solicitudes/);
 		await waitFor(() => expect(document.activeElement?.contains(notice)).toBe(true));
+	});
+});
+
+describe('the section is called "Inscritos" (C-10, D-039)', () => {
+	it('its failed read and the bets help name it that way; the URL stays /admin/participantes', async () => {
+		mockFetch(adminRoutes({ 'GET /api/admin/participantes': () => new Response('', { status: 502 }) }));
+		const router = renderApp('/admin/participantes');
+		const alert = await screen.findByRole('alert');
+		expect(alert.textContent).toMatch(/^No se pudieron cargar los inscritos./);
+		expect(where(router)).toBe('/admin/participantes');
+	});
+
+	it('the bets query says the id is in Inscritos, and still calls the bettor "Participante"', async () => {
+		mockFetch(adminRoutes());
+		renderApp('/admin/apuestas');
+		expect(await screen.findByText('El id está en Inscritos y en el ranking.')).toBeTruthy();
+		expect(screen.getByLabelText(/Participante \(id\)/)).toBeTruthy();
 	});
 });

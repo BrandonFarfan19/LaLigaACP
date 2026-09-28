@@ -61,7 +61,10 @@ INSERT INTO estado_seleccion (codigo, nombre) VALUES
 INSERT INTO tipo_movimiento (codigo, nombre) VALUES
   ('validacion',             'Validación de usuario'),
   ('seleccion_confirmada',   'Selección confirmada'),
-  ('devolucion_cancelacion', 'Devolución por cancelación');
+  ('devolucion_cancelacion', 'Devolución por cancelación'),
+  -- C-09 (BR-057): el premio de un acierto, siempre con su selección (ids 4 y 5).
+  ('premio_resultado_general', 'Premio por acertar el resultado general'),
+  ('premio_marcador_exacto',   'Premio por acertar el marcador exacto');
 
 -- Las 5 de NFR-006 y, desde T-17, el resto de las escrituras del admin.
 INSERT INTO accion_auditoria (codigo, nombre, entidad) VALUES

@@ -32,7 +32,7 @@ const PATH = '/admin/participantes';
 export async function loader(args: LoaderFunctionArgs) {
 	const { filters, problems } = parseFilters(new URL(args.request.url).searchParams, PARTICIPANT_FILTERS);
 	let pageFixed = false;
-	const load = await loadAdmin(args, 'los participantes', async (signal) => {
+	const load = await loadAdmin(args, 'los inscritos', async (signal) => {
 		const [first, conteos] = await Promise.all([listParticipants(filters, signal), countParticipants(signal)]);
 		const { page, problem } = await pageInRange(filters, first, () => listParticipants(filters, signal));
 		if (problem) {
@@ -124,7 +124,7 @@ const FIELDS: readonly FilterField[] = [
 ];
 
 export default function Participantes() {
-	useDocumentTitle('Participantes · Administración · La Liga ACP');
+	useDocumentTitle('Inscritos · Administración · La Liga ACP');
 	const { user } = useSession();
 	const load = useLoaderData<typeof loader>();
 	const data = useKept(load.data);
@@ -199,10 +199,10 @@ export default function Participantes() {
 			<header className={shared.head}>
 				<p className={shared.kicker}>Administración</p>
 				<h1 className={shared.title} id="participants-title">
-					Participantes
+					Inscritos
 				</h1>
 				<p className={shared.lead}>
-					Primero confirma el pago y después valida: al validar, el participante recibe sus 10 monedas una sola vez. La validación no se
+					Primero confirma el pago y después valida: al validar, el inscrito recibe sus 10 monedas una sola vez. La validación no se
 					deshace. Si alguien olvidó su contraseña, puedes escribirle una nueva: se cierran sus sesiones y tú se la comunicas. Los roles no
 					se cambian desde aquí.
 				</p>
@@ -214,13 +214,13 @@ export default function Participantes() {
 
 			{data && (
 				<dl className={styles.stats}>
-					<Stat label="Inscritos" value={data.conteos.inscritos} />
+					<Stat label="Total" value={data.conteos.inscritos} />
 					<Stat label="Validados" value={data.conteos.validados} />
 					<Stat label="Pendientes" value={data.conteos.pendientes} />
 				</dl>
 			)}
 
-			<FilterForm path={PATH} fields={FIELDS} values={load.filters} label="Filtrar participantes" />
+			<FilterForm path={PATH} fields={FIELDS} values={load.filters} label="Filtrar inscritos" />
 			<FilterProblems problems={load.problems} />
 
 			<ActionMessage ref={messageRef} outcome={writer.data} />
@@ -229,12 +229,12 @@ export default function Participantes() {
 				<>
 					<p className={`${styles.muted} ${styles.focusable}`} ref={countRef} tabIndex={-1}>
 						{page.total === 0
-							? 'No hay participantes con esos filtros.'
-							: `${page.total} ${page.total === 1 ? 'participante' : 'participantes'}.${page.totalPages > 1 ? ` Página ${Math.min(load.filters.page, page.totalPages)} de ${page.totalPages}.` : ''}`}
+							? 'No hay inscritos con esos filtros.'
+							: `${page.total} ${page.total === 1 ? 'inscrito' : 'inscritos'}.${page.totalPages > 1 ? ` Página ${Math.min(load.filters.page, page.totalPages)} de ${page.totalPages}.` : ''}`}
 					</p>
 					{page.items.length > 0 && (
 						<DataTable
-							caption="Participantes"
+							caption="Inscritos"
 							columns={columns}
 							rows={page.items}
 							rowKey={(p) => p.id}
@@ -243,7 +243,7 @@ export default function Participantes() {
 							}
 						/>
 					)}
-					<Pager path={PATH} filters={load.filters} page={load.filters.page} totalPages={page.totalPages} label="Páginas de participantes" />
+					<Pager path={PATH} filters={load.filters} page={load.filters.page} totalPages={page.totalPages} label="Páginas de inscritos" />
 				</>
 			)}
 		</section>

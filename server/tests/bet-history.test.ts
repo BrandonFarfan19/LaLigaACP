@@ -18,7 +18,7 @@ type Session = Awaited<ReturnType<typeof signedInUser>>;
 /** Every key the history may return. Anything else (email, saldo, clave, huella...) fails the privacy test. */
 const ALLOWED_KEYS = new Set([
 	'data', 'items', 'page', 'pageSize', 'total', 'totalPages',
-	'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'monedasUtilizadas', 'monedasDevueltas', 'puntosObtenidos',
+	'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'monedasUtilizadas', 'monedasDevueltas', 'monedasGanadas', 'puntosObtenidos',
 	'partido', 'competicion', 'deporte', 'nombre', 'slug', 'permiteEmpate', 'jornada', 'fechaHora', 'sede',
 	'local', 'visita', 'equipo', 'goles', 'competicionId', 'nombreCorto', 'escudo', 'colorAcento',
 	'resultadoReal', 'golesLocal', 'golesVisitante', 'resultado', 'tipo', 'pronostico', 'costo',
@@ -182,6 +182,7 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 				selecciones: { total: 0, pendiente: 0, acertada: 0, no_acertada: 0, anulada: 0 },
 				monedasUtilizadas: 0,
 				monedasDevueltas: 0,
+				monedasGanadas: 0,
 				puntos: 0,
 				aciertos: 0,
 			});
@@ -212,6 +213,8 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 					cantidadSelecciones: 2,
 					monedasUtilizadas: 2,
 					monedasDevueltas: 0,
+					// Settled by hand, as before C-09: right, but no prize movement, so nothing won (D-038).
+					monedasGanadas: 0,
 					puntosObtenidos: 6,
 				},
 				partido: expect.objectContaining({
@@ -230,6 +233,7 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 				estado: 'acertada',
 				costo: 1,
 				puntosObtenidos: 3,
+				monedasGanadas: 0,
 			});
 			expect(bySel.get(s.sel.s7)).toMatchObject({
 				tipo: 'resultado_general',
@@ -254,6 +258,7 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 					cantidadSelecciones: 3,
 					monedasUtilizadas: 3,
 					monedasDevueltas: 1,
+					monedasGanadas: 0,
 					puntosObtenidos: 0,
 				});
 			}
@@ -344,6 +349,7 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 				selecciones: { total: 7, pendiente: 2, acertada: 2, no_acertada: 1, anulada: 2 },
 				monedasUtilizadas: 7,
 				monedasDevueltas: 2,
+				monedasGanadas: 0,
 				puntos: 6,
 				aciertos: 2,
 			});

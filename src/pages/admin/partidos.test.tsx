@@ -170,7 +170,12 @@ describe('one match (T-21)', () => {
 		expect(alert.textContent).toMatch(/El marcador cambió desde la vista previa\. Alguien corrigió el marcador mientras tanto/);
 		expect(writes(calls)[0]!.body).toEqual({ confirmar: true, golesLocal: 1, golesVisitante: 1 });
 		await user.click(within(step).getByRole('button', { name: 'Sí, confirmar 1 - 1' }));
-		expect(await within(result).findByText(/Resultado confirmado: 1 - 1\. El partido quedó finalizado/)).toBeTruthy();
+		const done = await within(result).findByText(/Resultado confirmado: 1 - 1\. El partido quedó finalizado/);
+		// C-09: the coins were paid automatically by the confirmation; the message says how many, to how many.
+		expect(done.textContent).toMatch(/Se pagaron 3 monedas por 2 aciertos a 2 participantes\./);
+		// Nothing new to approve: the preview and its step are as before C-09.
+		expect(step.textContent).not.toMatch(/moneda/i);
+		expect(within(result).queryByRole('button', { name: /pag|moneda/i })).toBeNull();
 	});
 
 	it('a finished match: no edits, no score, no goals changes; media still allowed; cannot be cancelled', async () => {

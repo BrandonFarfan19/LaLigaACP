@@ -442,3 +442,25 @@ Formato de cada entrada:
   - **Cómo recibe el participante la contraseña:** fuera de la app. El admin se la comunica por su cuenta, y la pantalla lo dice. La app no envía correos.
   - **Reglas de negocio:** se agrega la precisión en `docs/business-rules.md`, en la sección de acceso y contraseñas.
 - **Dónde quedó aplicada:** C-08.
+
+## D-038 · 2026-09-28 · C-09 — Los aciertos también pagan monedas
+
+- **Qué pidió el usuario:** una regla nueva. Además de sus puntos, cada acierto da monedas:
+  - acertar el **resultado general** (gana el local, empate o gana el visitante) da **1 moneda**;
+  - acertar el **marcador exacto** da **2 monedas**.
+- **Lo que decidió el usuario:**
+  - **No es retroactivo.** Se paga solo por los partidos cuyo resultado se confirme después del despliegue. Los que ya estaban confirmados quedan como estaban, sin recalcular nada ni tocar saldos. Otra opción era pagar una vez, con una migración, los aciertos que ya existían; el usuario la descartó.
+- **Lo que decidió el coordinador:**
+  - **BR-039 se precisa, no se rompe.** Los puntos siguen sin convertirse en monedas: el premio sale del **acierto de cada selección**, no del total de puntos, y el ranking no cambia. Un empate acertado da 1 punto (BR-035) y 1 moneda, así que no hay una equivalencia fija entre puntos y monedas. Se actualizan BR-039, las tablas consolidadas 27 y 28 y la frase «los puntos obtenidos no generan monedas adicionales».
+  - **Dos tipos de movimiento nuevos:** `premio_resultado_general` (+1) y `premio_marcador_exacto` (+2), siempre asociados a su selección. Los montos viven solo en `lib/coins.ts`, y `UNIQUE(seleccion_id, tipo_movimiento_id)` impide pagar dos veces la misma selección. Otra opción era un solo tipo `premio_acierto` con monto variable; se descartó porque rompe la regla de que el tipo de movimiento fija el monto.
+  - **Cuándo se paga:** en la misma transacción que confirma el resultado y liquida las selecciones (T-12 y T-14). Si el pago falla, no se confirma nada. Solo se pagan las selecciones `acertada` de tickets de apostador.
+- **Dónde quedó aplicada:** C-09.
+- **Aclaración del usuario (mismo día):** el pago es **automático**. Cuando el admin sube el resultado, en el paso que ya existe y que lo vuelve oficial, el sistema suma las monedas a quienes acertaron y actualiza su saldo. El admin no aprueba ni interviene en el pago, y el panel no agrega ningún paso. Por eso se quitó de C-09 que la vista previa del resultado anticipe las monedas a pagar.
+
+## D-039 · 2026-09-28 · C-10 — La sección «Participantes» del panel pasa a llamarse «Inscritos»
+
+- **Qué pidió el usuario:** que la sección «Participantes» del panel se llame **«Inscritos»**, porque «participantes» hace pensar en los que juegan la polla y la sección lista a todos los que se registraron, pendientes incluidos.
+- **Lo que decidió el coordinador:**
+  - **Qué cambia:** todo texto del panel que nombra **esa sección o a las cuentas que lista**: el enlace de la navegación del panel, el título de la página y de la pestaña, el encabezado, el conteo, los filtros, la tabla, la paginación, los mensajes de sus acciones, la tarjeta y el texto de bienvenida del inicio del panel, y la ayuda de la consulta de apuestas que remite a esa sección.
+  - **Qué no cambia:** donde «participante» sí significa alguien que juega la polla (el ranking, «Apuestas de todos», el pago de premios, las estadísticas de la polla y la página de error para administradores), sigue igual. Tampoco cambian la dirección `/admin/participantes`, para no romper enlaces guardados, la API ni los nombres del código.
+- **Dónde quedó aplicada:** C-10.

@@ -9,7 +9,7 @@ import {
 	type TipoApuestaCodigo,
 	ticketStateFromCounts,
 } from '../lib/betting.js';
-import { COSTO_POR_SELECCION } from '../lib/coins.js';
+import { COSTO_POR_SELECCION, PREMIO_POR_TIPO_APUESTA } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { type OfficialResult, officialResult } from '../lib/match-result.js';
@@ -45,6 +45,8 @@ export interface TicketSelectionView {
 	costo: number;
 	/** `null` until the match's result is confirmed (T-12). */
 	puntosObtenidos: number | null;
+	/** BR-057, C-09: the coins its prize movement actually paid (0 without one: not right, or confirmed before C-09). */
+	monedasGanadas: number;
 }
 
 /** What a ticket shows that is computed from its selections (BR-025), shared by the receipt and the history (T-11). */
@@ -56,6 +58,8 @@ export interface TicketTotals {
 	monedasUtilizadas: number;
 	/** BR-046, D-003: the coins actually refunded (`devolucion_cancelacion` movements of its selections). */
 	monedasDevueltas: number;
+	/** BR-057, C-09: the coins its right selections actually won (their prize movements, like D-003). */
+	monedasGanadas: number;
 	/** BR-040: the sum of the settled selections' points (0 while none is settled). */
 	puntosObtenidos: number;
 }
@@ -86,18 +90,30 @@ export function realResult(match: PublicMatch): RealResult | null {
 export const REFUND_TYPE = "(SELECT id FROM tipo_movimiento WHERE codigo = 'devolucion_cancelacion')";
 
 /**
+ * C-09: the id of the prize movement type that the selection aliased `alias`
+ * can get, by its bet type (`PREMIO_POR_TIPO_APUESTA`), as SQL. Only
+ * uncorrelated subqueries on the catalogs (evaluated once). Joining on it
+ * finds at most one movement per selection (`uq_movimiento_seleccion_tipo`).
+ */
+export const prizeTypeFor = (alias: string) =>
+	`(CASE ${alias}.tipo_apuesta_id ${Object.entries(PREMIO_POR_TIPO_APUESTA)
+		.map(([apuesta, movimiento]) => `WHEN (SELECT id FROM tipo_apuesta WHERE codigo = '${apuesta}') THEN (SELECT id FROM tipo_movimiento WHERE codigo = '${movimiento}')`)
+		.join(' ')} END)`;
+
+/**
  * BR-025 totals from counts: the receipt counts its selections, the history
  * (T-11) gets them from SQL. `devueltas` is the coins actually refunded
  * (`SUM` of the ticket's `devolucion_cancelacion` movements, D-003), not a
  * count of voided selections: one with no debit, or of an admin account
  * (D-002), got nothing back.
  */
-export function ticketTotals(counts: TicketCounts & { puntos: number; devueltas: number }): TicketTotals {
+export function ticketTotals(counts: TicketCounts & { puntos: number; devueltas: number; ganadas: number }): TicketTotals {
 	return {
 		estado: ticketStateFromCounts(counts),
 		cantidadSelecciones: counts.total,
 		monedasUtilizadas: counts.total * COSTO_POR_SELECCION,
 		monedasDevueltas: counts.devueltas,
+		monedasGanadas: counts.ganadas,
 		puntosObtenidos: counts.puntos,
 	};
 }
@@ -110,6 +126,8 @@ export function ticketTotals(counts: TicketCounts & { puntos: number; devueltas:
 export const SELECTION_COLUMNS = `s.id AS s_id, tap.codigo AS s_tipo, rg.codigo AS s_pronostico,
 	s.pronostico_goles_local AS s_goles_local, s.pronostico_goles_visitante AS s_goles_visitante,
 	es.codigo AS s_estado, s.puntos_obtenidos AS s_puntos,
+	(SELECT COALESCE(SUM(mg.cantidad), 0) FROM movimiento_moneda mg
+		WHERE mg.seleccion_id = s.id AND mg.tipo_movimiento_id = ${prizeTypeFor('s')}) AS s_ganadas,
 	${MATCH_COLUMNS}`;
 export const SELECTION_JOINS = `${MATCH_FROM.replace('FROM partido p', 'JOIN partido p ON p.id = s.partido_id')}
 	JOIN tipo_apuesta tap ON tap.id = s.tipo_apuesta_id
@@ -129,6 +147,7 @@ export function selectionFrom(row: RowDataPacket): TicketSelectionView {
 		estado: row.s_estado as EstadoSeleccion,
 		costo: COSTO_POR_SELECCION,
 		puntosObtenidos: row.s_puntos === null ? null : Number(row.s_puntos),
+		monedasGanadas: Number(row.s_ganadas ?? 0),
 	};
 }
 
@@ -163,6 +182,7 @@ async function readTicket(db: Db, userId: number, ticketId: number): Promise<Tic
 			anuladas: selecciones.filter((x) => x.estado === 'anulada').length,
 			puntos: selecciones.reduce((sum, x) => sum + (x.puntosObtenidos ?? 0), 0),
 			devueltas: Number(refunded!.devueltas),
+			ganadas: selecciones.reduce((sum, x) => sum + x.monedasGanadas, 0),
 		}),
 		selecciones,
 	};

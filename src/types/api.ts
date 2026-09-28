@@ -72,3 +72,16 @@ export interface RegisterResponse {
 export interface CoinBalance {
 	saldoMonedas: number;
 }
+
+/** The movement types (table 28); `premio_*` since C-09 (BR-057). */
+export type CoinMovementType = 'validacion' | 'seleccion_confirmada' | 'devolucion_cancelacion' | 'premio_resultado_general' | 'premio_marcador_exacto';
+
+/** A row of `GET /monedas/movimientos`, newest first. */
+export interface CoinMovement {
+	id: number;
+	tipo: { codigo: CoinMovementType; nombre: string };
+	/** Signed. */
+	cantidad: number;
+	creadoEn: string;
+	seleccion: { id: number; ticketId: number; partidoId: number } | null;
+}

@@ -111,6 +111,7 @@ export function receipt(id: number, userId: number, overrides: Partial<TicketRec
 		cantidadSelecciones: 2,
 		monedasUtilizadas: 2,
 		monedasDevueltas: 0,
+		monedasGanadas: 1,
 		puntosObtenidos: 3,
 		selecciones: [
 			{
@@ -124,6 +125,7 @@ export function receipt(id: number, userId: number, overrides: Partial<TicketRec
 				estado: 'acertada',
 				costo: 1,
 				puntosObtenidos: 3,
+				monedasGanadas: 1,
 			},
 			{
 				id: 2,
@@ -136,6 +138,7 @@ export function receipt(id: number, userId: number, overrides: Partial<TicketRec
 				estado: 'no_acertada',
 				costo: 1,
 				puntosObtenidos: 0,
+				monedasGanadas: 0,
 			},
 		],
 		...overrides,
@@ -172,6 +175,8 @@ export function myBet(ticketId: number, overrides: Partial<MyBet> = {}, ticket: 
 		estado: 'acertada',
 		costo: 1,
 		puntosObtenidos: 3,
+		// C-09: a right general result pays 1 coin.
+		monedasGanadas: 1,
 		...overrides,
 		ticket: {
 			id: ticketId,
@@ -180,6 +185,7 @@ export function myBet(ticketId: number, overrides: Partial<MyBet> = {}, ticket: 
 			cantidadSelecciones: 1,
 			monedasUtilizadas: 1,
 			monedasDevueltas: 0,
+			monedasGanadas: 1,
 			puntosObtenidos: 3,
 			...ticket,
 		},
@@ -192,6 +198,8 @@ export function summaryOf(overrides: Partial<MyBetsSummary> = {}): MyBetsSummary
 		selecciones: { total: 5, pendiente: 1, acertada: 2, no_acertada: 1, anulada: 1 },
 		monedasUtilizadas: 5,
 		monedasDevueltas: 1,
+		// C-09: the two hits, one of each type.
+		monedasGanadas: 3,
 		puntos: 4,
 		aciertos: 2,
 		...overrides,

@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { transactionStats } from '../src/db/transaction.js';
 import type { AdminActionOutcome } from '../src/services/admin-action.js';
 import { countPendingSelections } from '../src/services/bets-match-probe.service.js';
-import { settleMatchBets } from '../src/services/bets-settlement.service.js';
+import { matchSettlement } from '../src/services/bets-settlement.service.js';
 import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
 import { cancelMatch, cancellationStats } from '../src/services/match-cancellation.service.js';
 import { confirmResult } from '../src/services/results.service.js';
@@ -257,7 +257,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 			const ana = await bettor();
 			await ticket(ana, [win(x)]);
 			await played(x, [1, 0]);
-			await confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, { countPendingSelections, settle: settleMatchBets });
+			await confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, { countPendingSelections, ...matchSettlement });
 			const before = await snapshot();
 			const finished = await cancel(x);
 			expect(finished.status).toBe(409);
@@ -456,7 +456,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				await played(x, [2, 0]);
 				const [cancelled, confirmed] = await Promise.allSettled([
 					cancelMatch(pool, ctx(), x),
-					confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 2, golesVisitante: 0 }, { countPendingSelections, settle: settleMatchBets }),
+					confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 2, golesVisitante: 0 }, { countPendingSelections, ...matchSettlement }),
 				]);
 				const winners = [cancelled, confirmed].filter((r) => r.status === 'fulfilled');
 				expect(winners, `ronda ${round}`).toHaveLength(1);
@@ -484,7 +484,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				const deadlocks = { ...transactionStats };
 				const [cancelled, settled, ...placed] = await Promise.all([
 					cancel(x),
-					confirmResult(pool, ctx(), y, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, { countPendingSelections, settle: settleMatchBets }),
+					confirmResult(pool, ctx(), y, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, { countPendingSelections, ...matchSettlement }),
 					...people.map((who) => placeTicket(who, [win(z)])),
 				]);
 				expect(cancelled.status).toBe(200);
@@ -497,7 +497,8 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 					expect((await receipt(who, tickets[i]!)).body.data).toMatchObject({ estado: 'finalizado', puntosObtenidos: 3, monedasDevueltas: 1 });
 				}
 			}
-			for (const who of people) expect(await balance(who.user.id)).toBe(10 - 3 * 3 + 3);
+			// Per round: 3 debits, the refund of x and the prize of the right winner on y (C-09, 1 coin).
+			for (const who of people) expect(await balance(who.user.id)).toBe(10 - 3 * 3 + 3 + 3);
 		});
 
 		it.skipIf(!canInspectLocks)('a new bettor slipping in while the cancellation waits for the match: it starts over and refunds them too', async () => {

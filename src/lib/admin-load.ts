@@ -20,7 +20,7 @@ export interface AdminLoad<T> {
 }
 
 export function loadMessage(error: { code: string; message: string; retryAfterSeconds: number | null }, what: string): string {
-	// "los participantes" are many: "no se pudieron cargar" (T-21 fix).
+	// "los inscritos" are many: "no se pudieron cargar" (T-21 fix).
 	const could = /^(los|las) /.test(what) ? 'No se pudieron cargar' : 'No se pudo cargar';
 	if (error.code === 'RATE_LIMITED') {
 		return `${could} ${what}: demasiadas solicitudes. Espera ${waitText(error.retryAfterSeconds) ?? 'unos minutos'} y vuelve a intentarlo.`;

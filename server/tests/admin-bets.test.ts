@@ -17,7 +17,7 @@ type Session = Awaited<ReturnType<typeof signedInUser>>;
 /** Every key the query may return: the history's, plus the participant. Never an email, balance, key or fingerprint. */
 const ALLOWED_KEYS = new Set([
 	'data', 'items', 'page', 'pageSize', 'total', 'totalPages',
-	'usuario', 'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'monedasUtilizadas', 'monedasDevueltas', 'puntosObtenidos',
+	'usuario', 'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'monedasUtilizadas', 'monedasDevueltas', 'monedasGanadas', 'puntosObtenidos',
 	'partido', 'competicion', 'deporte', 'nombre', 'slug', 'permiteEmpate', 'jornada', 'fechaHora', 'sede',
 	'local', 'visita', 'equipo', 'goles', 'competicionId', 'nombreCorto', 'escudo', 'colorAcento',
 	'resultadoReal', 'golesLocal', 'golesVisitante', 'resultado', 'tipo', 'pronostico', 'costo',

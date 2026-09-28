@@ -10,6 +10,7 @@ import type {
 	ApiPage,
 	CancellationFigures,
 	CancellationPreview,
+	ConfirmedResult,
 	MatchImage,
 	MatchMedia,
 	MatchVideo,
@@ -162,7 +163,7 @@ export const setResult = (id: number, golesLocal: unknown, golesVisitante: unkno
 
 /** BR-031: explicit, with the score the admin saw. The answer carries the official result (BR-029). */
 export const confirmResult = (id: number, golesLocal: number, golesVisitante: number) =>
-	api.post<{ partido: AdminMatch; resultado: OfficialResult }>(`/admin/partidos/${id}/resultado/confirmar`, { confirmar: true, golesLocal, golesVisitante });
+	api.post<ConfirmedResult>(`/admin/partidos/${id}/resultado/confirmar`, { confirmar: true, golesLocal, golesVisitante });
 
 /* ---- Goals and media (T-13) -------------------------------------------- */
 

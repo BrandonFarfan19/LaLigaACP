@@ -9,6 +9,7 @@ import {
 	useNavigationType,
 } from 'react-router';
 import ChoiceGroup from '../components/ChoiceGroup';
+import CoinAmount from '../components/CoinAmount';
 import StateTag from '../components/StateTag';
 import TeamCrest from '../components/TeamCrest';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -342,6 +343,12 @@ function Summary({ summary }: { summary: MyBetsSummary }) {
 					<dt>Monedas devueltas</dt>
 					<dd>{coinsText(summary.monedasDevueltas)}</dd>
 				</div>
+				<div>
+					<dt>Monedas ganadas</dt>
+					<dd>
+						<CoinAmount amount={summary.monedasGanadas} />
+					</dd>
+				</div>
 			</dl>
 		</section>
 	);
@@ -377,6 +384,14 @@ function TicketCard({ ticket, selections }: { ticket: MyBet['ticket']; selection
 					<dt>Puntos</dt>
 					<dd>{ticket.puntosObtenidos}</dd>
 				</div>
+				{ticket.monedasGanadas > 0 && (
+					<div>
+						<dt>Ganadas</dt>
+						<dd>
+							<CoinAmount amount={ticket.monedasGanadas} />
+						</dd>
+					</div>
+				)}
 			</dl>
 			{cut && (
 				<p className={styles.small}>
@@ -439,6 +454,14 @@ function SelectionRow({ selection }: { selection: MyBet }) {
 					<dt>Costo</dt>
 					<dd>{coinsText(selection.costo)}</dd>
 				</div>
+				{selection.monedasGanadas > 0 && (
+					<div>
+						<dt>Ganó</dt>
+						<dd>
+							<CoinAmount amount={selection.monedasGanadas} signed />
+						</dd>
+					</div>
+				)}
 			</dl>
 		</>
 	);

@@ -1,4 +1,5 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { lockRowsById } from '../db/locks.js';
 import type { TransactionConnection } from '../db/transaction.js';
 import { DEVOLUCION_POR_SELECCION } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
@@ -220,9 +221,8 @@ async function cancelOnce(pool: Pool, ctx: AdminActionContext, matchId: number, 
 		async (conn) => {
 			// 1-2. The users first (usuario → partido).
 			const users = await usersWithPending(conn, matchId);
-			for (let i = 0; i < users.length; i += LOTE) {
-				await conn.query('SELECT id FROM usuario FORCE INDEX (PRIMARY) WHERE id IN (?) ORDER BY id FOR UPDATE', [users.slice(i, i + LOTE)]);
-			}
+			// One point read per user (db/locks.ts): an IN list on a small table scans the primary key and locks others.
+			await lockRowsById(conn, 'usuario', users, 'UPDATE');
 			// 3. The match.
 			const before = await findForUpdate(conn, matchId, at);
 			const problem = cancellationProblem(before.estado);

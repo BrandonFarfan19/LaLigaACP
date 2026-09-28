@@ -143,6 +143,23 @@ export interface OfficialResult {
 	resultado: GeneralResult;
 }
 
+/**
+ * C-09 (BR-057): what the confirmation paid, automatically, to the right
+ * selections: counts only, never who got what.
+ */
+export interface PrizesPaid {
+	selecciones: number;
+	monedas: number;
+	participantes: number;
+}
+
+/** `POST /admin/partidos/:id/resultado/confirmar`. */
+export interface ConfirmedResult {
+	partido: AdminMatch;
+	resultado: OfficialResult;
+	premios: PrizesPaid;
+}
+
 /** `GET /admin/partidos/:id/resultado` (BR-030). */
 export interface ResultPreview {
 	partido: AdminMatch;
@@ -243,6 +260,8 @@ export interface PoolStats {
 	selecciones: { total: number } & Record<SelectionState, number>;
 	monedasUtilizadas: number;
 	monedasDevueltas: number;
+	/** BR-057 (C-09): the coins the right selections really won. */
+	monedasGanadas: number;
 	monedasDisponibles: number;
 	puntos: number;
 	aciertos: number;

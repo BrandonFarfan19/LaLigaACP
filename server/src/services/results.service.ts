@@ -26,16 +26,61 @@ export interface SettledMatch extends OfficialResult {
 }
 
 /**
- * Extension point: settles the match's bets (T-14). Called exactly once per
- * confirmation, inside its transaction, after the match became `finalizado`
- * and with its row locked. Anything it throws rolls the confirmation back.
- * It must only write to the database (a deadlock retry runs it again).
+ * What the settler paid when the result was confirmed (C-09, BR-057), for the
+ * answer and the audit record. Informativo only carries it: never a user id or
+ * a balance.
  */
-export type MatchSettler = (conn: TransactionConnection, match: SettledMatch) => Promise<void>;
+export interface SettlementPayout {
+	/** Right selections that got a prize. */
+	selecciones: number;
+	/** The coins paid in total. */
+	monedas: number;
+	/** How many participants got at least one. */
+	participantes: number;
+}
+
+/**
+ * Extension point: settles the match's bets (T-14) and pays the prizes (C-09).
+ * Called exactly once per confirmation, inside its transaction, after the
+ * match became `finalizado` and with its row locked, with whatever
+ * `prepareSettlement` returned. Anything it throws rolls the confirmation
+ * back; `SettlementRestart` starts the confirmation over. It must only write
+ * to the database (a deadlock retry runs it again).
+ */
+export type MatchSettler = (conn: TransactionConnection, match: SettledMatch, prepared?: unknown) => Promise<SettlementPayout | void>;
+
+/**
+ * Extension point (C-09): runs inside the confirmation's transaction **before**
+ * the match is locked, with the score the admin is confirming. Polla locks
+ * there the rows that the app's lock order puts before `partido` (the users
+ * it will pay: usuario → partido). What it returns reaches the settler.
+ */
+export type SettlementPreparer = (conn: TransactionConnection, matchId: number, result: OfficialResult) => Promise<unknown>;
+
+/**
+ * Thrown by the settler when the rows `prepareSettlement` locked no longer
+ * cover what it has to change (bets from new users came in before the match
+ * was locked). The confirmation is rolled back and run again, up to
+ * `MAX_INTENTOS_CONFIRMACION` times, then 409 `CONCURRENT_UPDATE`.
+ */
+export class SettlementRestart extends Error {
+	constructor(message = 'Entraron apuestas nuevas mientras se confirmaba el resultado.') {
+		super(message);
+		this.name = 'SettlementRestart';
+	}
+}
+
+/** How many times a confirmation starts over (`SettlementRestart`) before answering 409. */
+export const MAX_INTENTOS_CONFIRMACION = 3;
+
+/** How often a confirmation started over, for tests and diagnostics. */
+export const confirmationStats = { restarts: 0 };
 
 export interface ResultDeps {
 	countPendingSelections: PendingSelectionsProbe;
 	settle: MatchSettler;
+	/** C-09: locks what must come before the match; see `SettlementPreparer`. */
+	prepareSettlement?: SettlementPreparer;
 	/** The current time; injectable for tests. */
 	now?: () => Date;
 }
@@ -85,7 +130,11 @@ export interface ResultPreview {
 export interface ConfirmedResult {
 	partido: Match;
 	resultado: OfficialResult;
+	/** C-09: what was paid (zero when nothing was right, or with a settler that pays nothing). */
+	premios: SettlementPayout;
 }
+
+const NO_PAYOUT: SettlementPayout = { selecciones: 0, monedas: 0, participantes: 0 };
 
 const WARNING =
 	'Confirmar el resultado es definitivo: el partido pasa a finalizado, el marcador y el ganador ya no se pueden modificar y se liquidan las apuestas.';
@@ -272,7 +321,14 @@ export async function getResultPreview(pool: Pool, id: number, deps: ResultDeps)
  * score must be complete, the one the admin saw (\`input\`), and not a draw in
  * a sport without draws. The match becomes \`finalizado\`, which every other
  * write refuses from then on (409 \`MATCH_LOCKED\` / \`RESULT_ALREADY_CONFIRMED\`),
- * and the settler runs in the same transaction (BR-034, BR-040).
+ * and the settler runs in the same transaction (BR-034, BR-040) and pays the
+ * prizes (C-09, BR-057).
+ *
+ * Lock order (C-09): paying locks users, and the app locks usuario → partido.
+ * So `prepareSettlement` runs first, before the match is locked, and the
+ * settler starts over (`SettlementRestart`) if bets from other users came in
+ * meanwhile, like the cancellation (T-16). `READ COMMITTED`, so every read
+ * after the match lock sees what committed before it.
  */
 export async function confirmResult(
 	pool: Pool,
@@ -281,9 +337,30 @@ export async function confirmResult(
 	input: ConfirmResultBody,
 	deps: ResultDeps,
 ): Promise<ConfirmedResult> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await confirmOnce(pool, ctx, id, input, deps);
+		} catch (error) {
+			if (!(error instanceof SettlementRestart)) throw error;
+			confirmationStats.restarts++;
+			if (attempt >= MAX_INTENTOS_CONFIRMACION) {
+				throw HttpError.conflict(ErrorCode.CONCURRENT_UPDATE, 'Siguen entrando apuestas a este partido: vuelve a intentar la confirmación.');
+			}
+		}
+	}
+}
+
+async function confirmOnce(pool: Pool, ctx: AdminActionContext, id: number, input: ConfirmResultBody, deps: ResultDeps): Promise<ConfirmedResult> {
 	const at = now(deps);
 	let confirmed: OfficialResult | undefined;
+	let payout: SettlementPayout = NO_PAYOUT;
 	const outcome = await runAdminAction<Match>(pool, ctx, 'confirmar_resultado', 'partido', async (conn) => {
+		// C-09: whatever must be locked before the match (the users to pay), with the score being confirmed.
+		const prepared = await deps.prepareSettlement?.(conn, id, {
+			golesLocal: input.golesLocal,
+			golesVisitante: input.golesVisitante,
+			resultado: resultOfScore(input.golesLocal, input.golesVisitante),
+		});
 		const before = await findForUpdate(conn, id, at);
 		const { deporte } = await sportOf(conn, before.competicionId, true);
 		const [problem] = confirmationProblems(before, deporte.permiteEmpate, at);
@@ -296,9 +373,10 @@ export async function confirmResult(
 
 		await conn.query('UPDATE partido SET estado_partido_id = ? WHERE id = ?', [await stateId(conn, 'finalizado'), id]);
 		const result: OfficialResult = { ...loaded, resultado: resultOfScore(loaded.golesLocal, loaded.golesVisitante) };
-		await deps.settle(conn, { id, competicionId: before.competicionId, ...result });
+		payout = (await deps.settle(conn, { id, competicionId: before.competicionId, ...result }, prepared)) ?? NO_PAYOUT;
 		confirmed = result;
-		return { id, before, after: await find(conn, id, at) };
-	});
-	return { partido: outcome.after!, resultado: confirmed! };
+		// The audit record carries the counts only (never who got what).
+		return { id, before, after: await find(conn, id, at), detail: { premios: { ...payout } } };
+	}, { isolation: 'READ COMMITTED' });
+	return { partido: outcome.after!, resultado: confirmed!, premios: payout };
 }

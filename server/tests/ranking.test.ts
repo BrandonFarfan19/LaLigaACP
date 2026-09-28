@@ -441,6 +441,7 @@ describe('pool ranking (T-15: BR-041 to BR-044)', () => {
 				monedasUtilizadas: 6,
 				// D-003: B's selections were voided by hand, with no refund movement.
 				monedasDevueltas: 0,
+				monedasGanadas: 0,
 				monedasDisponibles: 10,
 				puntos: 4,
 				aciertos: 2,

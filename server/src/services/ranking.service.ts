@@ -4,7 +4,7 @@ import { ticketStateCondition } from '../lib/betting.js';
 import { MAX_FILAS_TOP, POSICIONES_TOP } from '../lib/ranking.js';
 import { type Page, type PaginationQuery, toPage } from '../schemas/common.schema.js';
 import { stateId } from './bet-history.service.js';
-import { REFUND_TYPE, ticketTotals } from './tickets.service.js';
+import { prizeTypeFor, REFUND_TYPE, ticketTotals } from './tickets.service.js';
 
 /**
  * Módulo Polla, T-15: the pool ranking (BR-041 to BR-044) and the pool's
@@ -165,6 +165,8 @@ export interface PoolStats {
 	selecciones: { total: number } & Record<EstadoSeleccion, number>;
 	monedasUtilizadas: number;
 	monedasDevueltas: number;
+	/** BR-057, C-09: the coins the participants' right selections actually won (their prize movements). */
+	monedasGanadas: number;
 	/** `SUM(saldo_monedas)` of the participants: the coins still to spend. */
 	monedasDisponibles: number;
 	puntos: number;
@@ -193,7 +195,8 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 			COALESCE(SUM(agg.acertadas), 0) AS acertadas,
 			COALESCE(SUM(agg.no_acertadas), 0) AS no_acertadas,
 			COALESCE(SUM(agg.puntos), 0) AS puntos,
-			COALESCE(SUM(agg.devueltas), 0) AS devueltas
+			COALESCE(SUM(agg.devueltas), 0) AS devueltas,
+			COALESCE(SUM(agg.ganadas), 0) AS ganadas
 		FROM (SELECT id FROM rol WHERE codigo = 'apostador') ap
 		LEFT JOIN (
 			SELECT s.ticket_id, u.rol_id,
@@ -203,11 +206,13 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 				SUM(s.estado_seleccion_id = ${stateId('acertada')}) AS acertadas,
 				SUM(s.estado_seleccion_id = ${stateId('no_acertada')}) AS no_acertadas,
 				COALESCE(SUM(s.puntos_obtenidos), 0) AS puntos,
-				COALESCE(SUM(m.cantidad), 0) AS devueltas
+				COALESCE(SUM(m.cantidad), 0) AS devueltas,
+				COALESCE(SUM(mg.cantidad), 0) AS ganadas
 			FROM ticket t
 			JOIN usuario u ON u.id = t.usuario_id
 			JOIN seleccion s ON s.ticket_id = t.id
 			LEFT JOIN movimiento_moneda m ON m.seleccion_id = s.id AND m.tipo_movimiento_id = ${REFUND_TYPE}
+			LEFT JOIN movimiento_moneda mg ON mg.seleccion_id = s.id AND mg.tipo_movimiento_id = ${prizeTypeFor('s')}
 			GROUP BY s.ticket_id, u.rol_id
 		) agg ON agg.rol_id = ap.id
 		GROUP BY ap.id`,
@@ -218,6 +223,7 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 		anuladas: Number(row!.anuladas),
 		puntos: Number(row!.puntos),
 		devueltas: Number(row!.devueltas),
+		ganadas: Number(row!.ganadas),
 	});
 	const inscritos = Number(row!.inscritos);
 	const validados = Number(row!.validados);
@@ -239,6 +245,7 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 		},
 		monedasUtilizadas: totals.monedasUtilizadas,
 		monedasDevueltas: totals.monedasDevueltas,
+		monedasGanadas: totals.monedasGanadas,
 		monedasDisponibles: Number(row!.disponibles),
 		puntos: totals.puntosObtenidos,
 		aciertos: acertadas,

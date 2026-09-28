@@ -1,6 +1,8 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { lockRowsById } from '../db/locks.js';
 import { assertInTransaction, type TransactionConnection, withTransaction } from '../db/transaction.js';
-import { movementRule, SALDO_MAXIMO, type TipoMovimientoCodigo } from '../lib/coins.js';
+import type { TipoApuestaCodigo } from '../lib/betting.js';
+import { movementRule, PREMIO_POR_TIPO_APUESTA, SALDO_MAXIMO, TIPOS_PREMIO, type TipoMovimientoCodigo } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { isDuplicateEntry } from './users.service.js';
@@ -33,7 +35,7 @@ import { isDuplicateEntry } from './users.service.js';
 
 export interface CoinMovement {
 	tipo: TipoMovimientoCodigo;
-	/** Required for `seleccion_confirmada` and `devolucion_cancelacion`; forbidden for `validacion` (D19). */
+	/** Required for debits, refunds and prizes; forbidden for `validacion` (D19). */
 	seleccionId?: number | null;
 }
 
@@ -200,7 +202,7 @@ export async function applyCoinMovements(
 			requerido: -total,
 		});
 	}
-	if (saldoNuevo > SALDO_MAXIMO) throw new CoinMovementError(`El saldo superaría el máximo (${SALDO_MAXIMO}).`);
+	if (saldoNuevo > SALDO_MAXIMO) throw balanceLimitExceeded(1);
 
 	const owners = ownersOf(userId, movements);
 	await checkSelectionsOwned(conn, owners);
@@ -257,41 +259,92 @@ export function refundSelections(conn: TransactionConnection, userId: number, se
 	);
 }
 
-export interface BatchRefundResult {
-	/** Refunded users, with their balance before and after. */
+export interface BatchMovementResult {
+	/** Users whose balance the batch touched, with their balance before and after. */
 	usuarios: Array<{ usuarioId: number; saldoAnterior: number; saldoNuevo: number }>;
 	movimientos: number;
+	/** The coins the batch moved, signed. */
+	monedas: number;
+}
+
+/** The result of a refund batch (T-16). */
+export type BatchRefundResult = BatchMovementResult;
+
+/** One movement of a batch: always tied to a selection (a refund or a prize). */
+export interface SelectionMovement {
+	usuarioId: number;
+	seleccionId: number;
+	tipo: TipoMovimientoCodigo;
 }
 
 /**
- * BR-046/BR-047/BR-055, T-16: the refunds of a cancelled match, for many users
- * at once, in a few statements (lock, roles, ownership, debits, one multi-row
- * INSERT and one UPDATE per batch). Same rules as `refundSelections`: every
- * selection needs its debit for that user and no earlier refund, admins get
- * nothing, and one bad selection rejects everything (the caller's
- * transaction rolls back).
- *
- * Locks the users' rows (`FOR UPDATE`, by primary key, ascending id). The
- * cancellation already holds them, before the match (usuario → partido).
+ * C-09: a balance never goes past `SALDO_MAXIMO` (`saldo_monedas` is
+ * SMALLINT UNSIGNED). Only reachable with a huge balance, but a movement that
+ * would overflow is a clear 409 and nothing is written, never a 500 from the
+ * database. The caller's whole transaction rolls back (the result
+ * confirmation, the cancellation, a ticket).
  */
-export async function refundSelectionsBatch(
-	conn: TransactionConnection,
-	refunds: ReadonlyMap<number, readonly number[]>,
-	now: Date = new Date(),
-): Promise<BatchRefundResult> {
-	assertInTransaction(conn);
-	const userIds = [...refunds.keys()].sort((a, b) => a - b);
-	const movements = userIds.flatMap((usuarioId) => refunds.get(usuarioId)!.map((seleccionId) => ({ usuarioId, seleccionId })));
-	if (movements.length === 0) return { usuarios: [], movimientos: 0 };
-	checkShape(movements.map(({ seleccionId }) => ({ tipo: 'devolucion_cancelacion' as const, seleccionId })));
+function balanceLimitExceeded(participantes: number): HttpError {
+	return new HttpError(
+		409,
+		ErrorCode.BALANCE_LIMIT_EXCEEDED,
+		`El saldo de ${participantes === 1 ? 'un participante' : `${participantes} participantes`} superaría el máximo de ${SALDO_MAXIMO} monedas: no se aplicó nada.`,
+		{ participantes, saldoMaximo: SALDO_MAXIMO },
+	);
+}
 
-	const saldos = new Map<number, number>();
-	for (const ids of chunks(userIds)) {
-		const [locked] = await conn.query<RowDataPacket[]>(
-			'SELECT id, saldo_monedas AS saldo FROM usuario FORCE INDEX (PRIMARY) WHERE id IN (?) ORDER BY id FOR UPDATE',
+/**
+ * C-09: each prize names a selection that is `acertada`, and its bet type is
+ * the one the prize is for (`PREMIO_POR_TIPO_APUESTA`). A caller bug otherwise.
+ */
+async function checkPrizesWereWon(conn: TransactionConnection, prizes: readonly SelectionMovement[]): Promise<void> {
+	if (prizes.length === 0) return;
+	const expected = new Map(prizes.map((p) => [p.seleccionId, p.tipo]));
+	const wrong: number[] = [];
+	for (const ids of chunks([...expected.keys()])) {
+		const [rows] = await conn.query<RowDataPacket[]>(
+			`SELECT s.id, tap.codigo AS tipo, es.codigo AS estado
+			FROM seleccion s JOIN tipo_apuesta tap ON tap.id = s.tipo_apuesta_id JOIN estado_seleccion es ON es.id = s.estado_seleccion_id
+			WHERE s.id IN (?)`,
 			[ids],
 		);
-		for (const row of locked) saldos.set(Number(row.id), Number(row.saldo));
+		const found = new Map(rows.map((row) => [Number(row.id), row]));
+		for (const id of ids) {
+			const row = found.get(id);
+			if (!row || row.estado !== 'acertada' || PREMIO_POR_TIPO_APUESTA[row.tipo as TipoApuestaCodigo] !== expected.get(id)) wrong.push(id);
+		}
+	}
+	if (wrong.length > 0) throw new CoinMovementError(`Las selecciones ${wrong.join(', ')} no están acertadas o su premio es de otro tipo.`);
+}
+
+/**
+ * Selection movements (refunds of T-16, prizes of C-09) for many users at
+ * once, in a few statements: lock the users, check roles, ownership, debits
+ * and hits, one multi-row INSERT and one UPDATE per batch. Every rule of
+ * `applyCoinMovements` holds: admins get nothing, a refund needs its debit and
+ * no earlier refund, a prize needs its selection `acertada` of its bet type,
+ * the same movement never twice (`uq_movimiento_seleccion_tipo`), and one bad
+ * movement rejects everything (the caller's transaction rolls back).
+ *
+ * Locks the users' rows (`FOR UPDATE`, by primary key, ascending id). The
+ * callers already hold them, before the match (usuario → partido).
+ */
+export async function applySelectionMovementsBatch(
+	conn: TransactionConnection,
+	movements: readonly SelectionMovement[],
+	now: Date = new Date(),
+): Promise<BatchMovementResult> {
+	assertInTransaction(conn);
+	if (movements.length === 0) return { usuarios: [], movimientos: 0, monedas: 0 };
+	checkShape(movements.map(({ tipo, seleccionId }) => ({ tipo, seleccionId })));
+	const userIds = [...new Set(movements.map((m) => m.usuarioId))].sort((a, b) => a - b);
+
+	const saldos = new Map<number, number>();
+	// One point read per user (db/locks.ts): an IN list on a small table scans the primary key and locks others.
+	for (const row of await lockRowsById(conn, 'usuario', userIds, 'UPDATE', 'id, saldo_monedas AS saldo')) {
+		saldos.set(Number(row.id), Number(row.saldo));
+	}
+	for (const ids of chunks(userIds)) {
 		const [roles] = await conn.query<RowDataPacket[]>(
 			'SELECT u.id FROM usuario u JOIN rol r ON r.id = u.rol_id WHERE u.id IN (?) AND r.codigo <> ?',
 			[ids, 'apostador'],
@@ -303,23 +356,35 @@ export async function refundSelectionsBatch(
 	const missing = userIds.filter((id) => !saldos.has(id));
 	if (missing.length > 0) throw HttpError.notFound('No existe un usuario con ese id.', ErrorCode.USER_NOT_FOUND);
 
-	const amount = movementRule('devolucion_cancelacion')!.cantidad;
+	const delta = new Map<number, number>();
+	for (const m of movements) delta.set(m.usuarioId, (delta.get(m.usuarioId) ?? 0) + movementRule(m.tipo)!.cantidad);
 	const usuarios = userIds.map((usuarioId) => {
 		const saldoAnterior = saldos.get(usuarioId)!;
-		const saldoNuevo = saldoAnterior + amount * refunds.get(usuarioId)!.length;
-		if (saldoNuevo > SALDO_MAXIMO) throw new CoinMovementError(`El saldo del usuario ${usuarioId} superaría el máximo (${SALDO_MAXIMO}).`);
-		return { usuarioId, saldoAnterior, saldoNuevo };
+		return { usuarioId, saldoAnterior, saldoNuevo: saldoAnterior + delta.get(usuarioId)! };
 	});
+	if (usuarios.some((u) => u.saldoNuevo < 0)) {
+		throw new HttpError(409, ErrorCode.INSUFFICIENT_BALANCE, 'No hay monedas suficientes para esta operación.');
+	}
+	const overflowing = usuarios.filter((u) => u.saldoNuevo > SALDO_MAXIMO).length;
+	if (overflowing > 0) throw balanceLimitExceeded(overflowing);
 
 	const owners: SelectionOwners = new Map(movements.map((m) => [m.seleccionId, m.usuarioId]));
 	await checkSelectionsOwned(conn, owners);
-	await checkRefundsWereDebited(conn, owners, movements.map((m) => m.seleccionId));
-	const typeId = (await movementTypeIds(conn, ['devolucion_cancelacion'])).get('devolucion_cancelacion');
+	await checkRefundsWereDebited(
+		conn,
+		owners,
+		movements.filter((m) => m.tipo === 'devolucion_cancelacion').map((m) => m.seleccionId),
+	);
+	await checkPrizesWereWon(
+		conn,
+		movements.filter((m) => TIPOS_PREMIO.includes(m.tipo)),
+	);
+	const typeIds = await movementTypeIds(conn, [...new Set(movements.map((m) => m.tipo))]);
 
 	try {
 		for (const batch of chunks(movements)) {
 			await conn.query('INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en) VALUES ?', [
-				batch.map((m) => [m.usuarioId, typeId, m.seleccionId, amount, now]),
+				batch.map((m) => [m.usuarioId, typeIds.get(m.tipo), m.seleccionId, movementRule(m.tipo)!.cantidad, now]),
 			]);
 		}
 	} catch (error) {
@@ -328,13 +393,46 @@ export async function refundSelectionsBatch(
 		}
 		throw error;
 	}
-	for (const batch of chunks(usuarios)) {
+	for (const batch of chunks(usuarios.filter((u) => u.saldoNuevo !== u.saldoAnterior))) {
 		await conn.query(
 			`UPDATE usuario FORCE INDEX (PRIMARY) SET saldo_monedas = CASE id ${batch.map(() => 'WHEN ? THEN ?').join(' ')} END WHERE id IN (?)`,
 			[...batch.flatMap((u) => [u.usuarioId, u.saldoNuevo]), batch.map((u) => u.usuarioId)],
 		);
 	}
-	return { usuarios, movimientos: movements.length };
+	return { usuarios, movimientos: movements.length, monedas: [...delta.values()].reduce((sum, n) => sum + n, 0) };
+}
+
+/**
+ * BR-046/BR-047/BR-055, T-16: the refunds of a cancelled match, for many users
+ * at once (`applySelectionMovementsBatch`): every selection needs its debit
+ * for that user and no earlier refund.
+ */
+export function refundSelectionsBatch(
+	conn: TransactionConnection,
+	refunds: ReadonlyMap<number, readonly number[]>,
+	now: Date = new Date(),
+): Promise<BatchMovementResult> {
+	const movements = [...refunds.keys()]
+		.sort((a, b) => a - b)
+		.flatMap((usuarioId) => refunds.get(usuarioId)!.map((seleccionId) => ({ usuarioId, seleccionId, tipo: 'devolucion_cancelacion' as const })));
+	return applySelectionMovementsBatch(conn, movements, now);
+}
+
+/**
+ * BR-057, C-09: the prizes of a confirmed result, one per right selection of
+ * an `apostador` ticket, by its bet type (`PREMIO_POR_TIPO_APUESTA`). Runs
+ * inside the confirmation, after the settlement made them `acertada`.
+ */
+export function payPrizesBatch(
+	conn: TransactionConnection,
+	prizes: ReadonlyArray<{ usuarioId: number; seleccionId: number; tipoApuesta: TipoApuestaCodigo }>,
+	now: Date = new Date(),
+): Promise<BatchMovementResult> {
+	return applySelectionMovementsBatch(
+		conn,
+		prizes.map(({ usuarioId, seleccionId, tipoApuesta }) => ({ usuarioId, seleccionId, tipo: PREMIO_POR_TIPO_APUESTA[tipoApuesta] })),
+		now,
+	);
 }
 
 /** Convenience for a coin-only operation: its own transaction. */
