@@ -92,9 +92,9 @@ export default defineConfig({
 			crest: ['96', '96@2', '48', '48@2', '32', '32@2', '32x32', '32x32@2'],
 			// Navbar 32×32 · Hero 96×96 — both with a 2x density
 			logo: ['32x32', '32x32@2', '96x96', '96x96@2'],
-			// Layout backdrop: landscape from 48rem, portrait on phones
-			'backdrop-landscape': ['480'],
-			'backdrop-portrait': ['240'],
+			// Layout backdrop: already pixel art, so at its native size (no downscale)
+			'backdrop-landscape': ['1672'],
+			'backdrop-portrait': ['941'],
 			// SquadBoard pitch 240, 2x density
 			pitch: ['240', '240@2'],
 			// PlayerStatsDialog portrait, drawn at exactly 2× by CSS

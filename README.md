@@ -752,7 +752,7 @@ docker compose -f compose.prod.yaml exec -T db \
 
 En `/posiciones`, la tabla del **fútbol masculino** (competición 13) se muestra en dos grupos. El **Grupo A** tiene los equipos 50 (AQUÍ SE COBRA FC), 54 (Grupzul 2.0) y 53 (SPORT LA PLATA FC); el **Grupo B**, el resto, incluido cualquiera que se agregue después. Cada grupo es su propia tabla, con todas las columnas y su propio scroll horizontal, y numera desde 1 en el orden de siempre (puntos, diferencia, goles a favor…). El fútbol femenino y el vóley siguen con una sola tabla.
 
-Es **solo del front**: la configuración está en `src/lib/league-groups.ts`, por id (los ids se conservan en producción con el volcado de datos reales). La API y la base no cambian. Para cambiar los grupos hay que editar ese archivo y desplegar; si el admin tiene que poder hacerlo desde el panel, hará falta una columna en el esquema (`docs/pendientes.md`).
+Es **solo del front**: la configuración está en `src/lib/league-groups.ts`, por id. Los ids de producción no son los de desarrollo (allí la competición es la 1 y el Grupo A son los equipos 12, 15 y 16), así que el archivo lista los dos juegos. La API y la base no cambian. Para cambiar los grupos hay que editar ese archivo y desplegar; si el admin tiene que poder hacerlo desde el panel, hará falta una columna en el esquema (`docs/pendientes.md`).
 
 ## ⚠️ Limitaciones conocidas
 

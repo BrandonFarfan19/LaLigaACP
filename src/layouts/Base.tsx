@@ -20,9 +20,9 @@ import styles from './Base.module.css';
  * `<head>` (charset, viewport, favicon) lives in `index.html`; each page sets
  * its own title with `useDocumentTitle()`.
  *
- * The backdrop is rendered small and upscaled by CSS with nearest-neighbour,
- * like every other image here — it is what makes the crowd read as a tiled
- * background rather than a photo sitting behind pixel art.
+ * The backdrop is already drawn as pixel art, so unlike the crests it is
+ * served at its native size and without `pixelated`: shrinking it and
+ * upscaling it again doubled its pixels and blurred the crowd.
  *
  * It also keeps the session current (T-18, D-009) for the coin counter and
  * the account corner (BR-010): on a page change or when the tab becomes
@@ -97,8 +97,8 @@ export default function Base() {
 		}
 	}, [navigate, pathname]);
 
-	const landscape = bgDesktop['480'];
-	const portrait = bgMobile['240'];
+	const landscape = bgDesktop['1672'];
+	const portrait = bgMobile['941'];
 
 	return (
 		<>
@@ -107,7 +107,6 @@ export default function Base() {
 			<picture className={styles.backdrop} aria-hidden="true">
 				<source media="(min-width: 48rem)" srcSet={landscape.src} />
 				<img
-					className="pixelated"
 					src={portrait.src}
 					alt=""
 					width={portrait.width}
