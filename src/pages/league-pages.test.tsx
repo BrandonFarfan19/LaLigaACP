@@ -635,3 +635,88 @@ describe('squad (T-22, C-05)', () => {
 		expect(await screen.findByRole('heading', { name: 'Página no encontrada' })).toBeTruthy();
 	});
 });
+
+describe('standings in groups (C-11, D-040)', () => {
+	const masculino = { id: 13, nombre: 'torneo futbol masculino', slug: 'torneo-futbol-masculino', deporte: futbol };
+	const team = (id: number, nombre: string) => ({ ...halcones, id, competicionId: 13, nombre, nombreCorto: nombre.slice(0, 3).toUpperCase() });
+	/** The API's table, in BR-050 order, as `/public/competiciones/13/posiciones` sends it. */
+	const FILAS = [
+		standingRow(team(49, 'LOS IMPARABLES'), 1, 9),
+		standingRow(team(54, 'Grupzul 2.0'), 2, 6),
+		standingRow(team(51, 'Bad Legend'), 3, 6),
+		standingRow(team(50, 'AQUÍ SE COBRA FC'), 4, 3, { diferencia: -1 }),
+		standingRow(team(52, 'LOS DIBUJITOS FC CON IA'), 5, 3),
+		standingRow(team(53, 'SPORT LA PLATA FC'), 6, 0, { diferencia: -4 }),
+	];
+	const groupedApi = (filas = FILAS) =>
+		mockFetch(
+			apiRoutes(
+				leagueRoutes({
+					'GET /api/public/competiciones': competitionsRoute([liga, copa, masculino]),
+					'GET /api/public/competiciones/13': () => ok(masculino),
+					'GET /api/public/competiciones/13/posiciones': () => ok({ competicion: masculino, filas }),
+				}),
+			),
+		);
+	const regionOf = (name: string) => screen.getByRole('region', { name: `Tabla de posiciones, ${name}` });
+	const cellsOf = (region: HTMLElement) =>
+		within(region)
+			.getAllByRole('row')
+			.slice(1)
+			.map((tr) => [within(tr).getAllByRole('cell')[0]!.textContent, within(tr).getByRole('rowheader').textContent]);
+
+	it('men\'s football shows Grupo A and then Grupo B, each numbered from 1 in the API\'s order', async () => {
+		const { calls } = groupedApi();
+		renderLeague('/posiciones?competicionId=13');
+		await screen.findByRole('heading', { name: 'Grupo A', level: 2 });
+		const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+		expect(headings).toEqual(['Grupo A', 'Grupo B']);
+		expect(cellsOf(regionOf('Grupo A'))).toEqual([
+			['1', 'Grupzul 2.0'],
+			['2', 'AQUÍ SE COBRA FC'],
+			['3', 'SPORT LA PLATA FC'],
+		]);
+		expect(cellsOf(regionOf('Grupo B'))).toEqual([
+			['1', 'LOS IMPARABLES'],
+			['2', 'Bad Legend'],
+			['3', 'LOS DIBUJITOS FC CON IA'],
+		]);
+		// The figures travel as the API sent them: nothing recalculated.
+		const aquí = within(regionOf('Grupo A')).getAllByRole('row')[2]!;
+		expect(within(aquí).getAllByRole('cell').map((c) => c.textContent)).toEqual(['2', '3', '1', '0', '2', '5', '2', '-1', '3']);
+		// One read of the table, as always: the groups are the front's.
+		expect(calls.filter((c) => c.url.startsWith('/api/public/competiciones/13/posiciones'))).toHaveLength(1);
+	});
+
+	it('each group is its own table: every column of BR-050, its own labelled scroll, the team pinned', async () => {
+		groupedApi();
+		renderLeague('/posiciones?competicionId=13');
+		await screen.findByRole('heading', { name: 'Grupo B', level: 2 });
+		for (const name of ['Grupo A', 'Grupo B']) {
+			const region = regionOf(name);
+			expect(region.getAttribute('tabindex')).toBe('0');
+			const table = within(region).getByRole('table');
+			expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['#Posición', 'Equipo', 'PJPartidos jugados', 'PGPartidos ganados', 'PEPartidos empatados', 'PPPartidos perdidos', 'GFGoles a favor', 'GCGoles en contra', 'DGDiferencia de goles', 'PtsPuntos']);
+			// The leader of each group is marked, as the leader of a single table.
+			expect(within(table).getAllByRole('row')[1]!.className).not.toBe('');
+		}
+		// No region shares a name with another (the page's own included).
+		const names = screen.getAllByRole('region').map((region) => region.getAttribute('aria-label') ?? document.getElementById(region.getAttribute('aria-labelledby') ?? '')?.textContent);
+		expect(new Set(names).size).toBe(names.length);
+	});
+
+	it('a group left with no rows says so instead of disappearing', async () => {
+		groupedApi(FILAS.filter((f) => ![50, 53, 54].includes(f.equipo.id)));
+		renderLeague('/posiciones?competicionId=13');
+		expect(await screen.findByText('El Grupo A todavía no tiene equipos en la tabla.')).toBeTruthy();
+		expect(screen.queryByRole('region', { name: 'Tabla de posiciones, Grupo A' })).toBeNull();
+		expect(cellsOf(regionOf('Grupo B')).map(([position]) => position)).toEqual(['1', '2', '3']);
+	});
+
+	it('any other competition keeps its single table, with no group headings', async () => {
+		mockFetch(apiRoutes(leagueRoutes()));
+		renderLeague('/posiciones?competicionId=10');
+		expect(await screen.findByRole('region', { name: 'Tabla de posiciones' })).toBeTruthy();
+		expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
+	});
+});

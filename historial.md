@@ -2036,3 +2036,32 @@ Con T-23, el plan de [docs/plan-polla.md](docs/plan-polla.md) queda **completo: 
   - **Entorno:** el usuario estaba usando la base de desarrollo con datos reales, así que la reverificación no la tocó ni cargó el seed. Se hizo con un backend propio sobre `la_liga_acp_test_2`, con un admin `t2_` creado con `admin:create` y tres cuentas `t2_` (una validada y dos pendientes), borradas al terminar. El `.env` no se tocó.
   - **Primera ronda:** falló porque la bienvenida seguía diciendo «estas cifras cuentan solo a los participantes», y la tarjeta de esas cifras cuenta también a los pendientes. En la reverificación aprobó.
   - **Fuera de C-10:** a 320 px el enlace «Posiciones» del navbar del sitio se sale 4 px por la derecha. No está en `docs/pendientes.md`: se informó al coordinador.
+
+## 2026-09-28 — C-11 · Grupo A y Grupo B en la tabla de posiciones del fútbol masculino (cambio posterior al plan)
+
+- **De dónde salió:** un pedido del usuario ([D-040](docs/decisiones.md)): en `/posiciones`, la tabla del fútbol masculino se divide en dos grupos. Es solo del front: la API, el backend y el esquema no cambian. Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Qué cambió:**
+  - **Configuración:** `src/lib/league-groups.ts`, la única excepción a «nada en pantalla está escrito a mano». Para la competición 13 («torneo futbol masculino»):
+    - el **Grupo A** tiene los equipos 50 (AQUÍ SE COBRA FC), 54 (Grupzul 2.0) y 53 (SPORT LA PLATA FC), por id y con los nombres en comentarios;
+    - el **Grupo B** tiene el resto, incluido cualquier equipo que se agregue después.
+  - **Agrupación:** `groupStandings` es una función pura. Conserva el orden en que la API envía las filas (BR-050: puntos, diferencia, goles a favor, nombre, id), no recalcula nada, renumera desde 1 dentro de cada grupo y devuelve `null` para una competición sin grupos.
+  - **`/posiciones`:**
+    - Cada grupo tiene su `h2` y su tabla completa. Cada tabla va en su propia región con scroll horizontal (`role="region"`, `tabindex="0"`, `aria-label` «Tabla de posiciones, Grupo X»), con la celda del equipo fijada a la izquierda.
+    - Un grupo sin filas lo dice.
+    - El fútbol femenino y el vóley siguen con su tabla única de siempre, con la región «Tabla de posiciones».
+  - **Docs:** `CLAUDE.md` (la excepción en la sección Data y el párrafo de la tabla), `AGENTS.md` en paso y `README.md`. En `docs/pendientes.md` queda que los grupos viven en el front por id, y que si el admin tuviera que cambiarlos haría falta una columna en el esquema.
+- **Archivos:**
+  - **Front:** `src/lib/league-groups.ts`, `src/pages/Posiciones.tsx` y `src/pages/Posiciones.module.css`.
+  - **Pruebas:** `src/lib/league-groups.test.ts` (6) y 4 nuevas en `src/pages/league-pages.test.tsx`.
+  - **Docs:** `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/pendientes.md` y `docs/decisiones.md` (D-040, del coordinador).
+- **Verificación (`tester_liga_2`, la revisión completa):**
+  - **El diff:** solo front y docs, sin cambios en la API, el backend ni el esquema. `npm test` **385/385** y `npm run build` sin avisos.
+  - **Ids y nombres, leyendo la base de desarrollo sin escribir:** la competición 13 es «torneo futbol masculino», y los equipos 50, 53 y 54 son AQUÍ SE COBRA FC, SPORT LA PLATA FC y Grupzul 2.0. Los otros tres (49, 51 y 52) van al B.
+  - **Datos reales en el navegador, a 320, 390 y 1280 px:** backend propio sobre la base de desarrollo, solo con lecturas públicas.
+    - Aparecen el Grupo A y el Grupo B con los equipos correctos, cada tabla en su región con scroll propio y el equipo fijado, y la página sin desplazamiento lateral.
+    - Las competiciones 14 (femenino) y 15 (vóley) muestran su tabla única, como antes.
+  - **Orden con partidos jugados:** se copiaron los deportes, las competiciones y los equipos reales (leídos sin escribir) a `la_liga_acp_test_2`, con 6 partidos finalizados. A 320, 390 y 1280 px, cada grupo muestra exactamente el orden de la API filtrado a sus equipos, numerado 1..3, con el líder marcado en cada grupo. El empate a 4 puntos entre los equipos 50 y 49 lo decidió la diferencia de goles, como manda la API.
+  - **Selector y URL:** el deporte cambia con `?deporteId=`, y `?competicionId=` también sirve. Del fútbol al femenino se pasa a una tabla y se vuelve a los dos grupos.
+  - **Teclado:** las dos regiones están en el orden de tabulación después del selector y tienen su contorno `:focus-visible`. Pixel art: el título del grupo usa una sombra dura; la única transición ya tenía `steps()` y su regla de movimiento reducido.
+  - **Observación, sin bloquear:** las dos tablas calculan el ancho de sus columnas por separado, así que las columnas del Grupo A y del Grupo B no quedan alineadas entre sí.
+  - **Entorno:** la base de desarrollo solo se leyó (sigue con 2 usuarios, 1 ticket y 1 partido del usuario). Los datos de prueba de `la_liga_acp_test_2` se borraron al terminar. El `.env` no se tocó.

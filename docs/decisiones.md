@@ -464,3 +464,13 @@ Formato de cada entrada:
   - **Qué cambia:** todo texto del panel que nombra **esa sección o a las cuentas que lista**: el enlace de la navegación del panel, el título de la página y de la pestaña, el encabezado, el conteo, los filtros, la tabla, la paginación, los mensajes de sus acciones, la tarjeta y el texto de bienvenida del inicio del panel, y la ayuda de la consulta de apuestas que remite a esa sección.
   - **Qué no cambia:** donde «participante» sí significa alguien que juega la polla (el ranking, «Apuestas de todos», el pago de premios, las estadísticas de la polla y la página de error para administradores), sigue igual. Tampoco cambian la dirección `/admin/participantes`, para no romper enlaces guardados, la API ni los nombres del código.
 - **Dónde quedó aplicada:** C-10.
+
+## D-040 · 2026-09-28 · C-11 — Dos grupos en la tabla de posiciones del fútbol masculino
+
+- **Qué pidió el usuario:** que la tabla de posiciones del fútbol se divida en **Grupo A** y **Grupo B**, **solo en el front**. El Grupo A es AQUÍ SE COBRA FC, Grupzul 2.0 y SPORT LA PLATA FC; el Grupo B, el resto de los equipos del fútbol masculino. El orden no cambia: primero el que tiene más puntos, luego diferencia de goles, goles a favor, etc.
+- **Lo que decidió el coordinador:**
+  - **Dónde se aplica:** solo en la competición «torneo futbol masculino» (id 13, deporte Futbol). Fútbol femenino y vóley siguen con una sola tabla.
+  - **Cómo se identifican los equipos:** por su **id** (50, 54 y 53 van al A), no por su nombre, porque el nombre lo puede editar un admin y los ids se conservan entre desarrollo y producción (D-04, el volcado de datos reales). Todo equipo de esa competición que no esté en el A va al B, incluido uno que se agregue después. La configuración vive en un solo archivo de `src/lib/`, con los nombres en comentarios.
+  - **Posiciones:** cada grupo numera desde 1, respetando el orden que ya envía la API (BR-050). No se recalcula nada.
+  - **Qué no cambia:** la API, el esquema y el cálculo de la tabla. Es un agrupamiento de presentación. Si algún día los grupos tienen que ser datos que el admin pueda cambiar, hará falta una columna en el esquema; queda anotado en `docs/pendientes.md`.
+- **Dónde quedó aplicada:** C-11.

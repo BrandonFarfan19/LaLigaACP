@@ -5,6 +5,7 @@ import LeagueNotice from '../components/LeagueNotice';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { isTransientError } from '../lib/api';
 import { listStandings } from '../lib/league';
+import { groupStandings } from '../lib/league-groups';
 import { leagueLoadError, readLeagueChoice } from '../lib/league-view';
 import type { ResolvedStanding } from '../types';
 import styles from './Posiciones.module.css';
@@ -20,6 +21,11 @@ import styles from './Posiciones.module.css';
  * team stays pinned to the left edge so a scrolled row is still identifiable.
  * The headings are the abbreviations anyone reading a league table expects
  * (PJ, PG, GF…), each carrying its full words for screen readers.
+ *
+ * **Groups (C-11, D-040):** a competition configured with groups in
+ * `src/lib/league-groups.ts` (the men's football, today) shows one table per
+ * group, each with its heading, its own scroll and positions from 1, in the
+ * order the API sent the rows. Any other competition keeps its single table.
  */
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -47,8 +53,67 @@ function Heading({ short, long, className }: { short: string; long: string; clas
 /** Goal difference reads as a difference: `+4`, `0`, `-2`. */
 const difference = (value: number) => (value > 0 ? `+${value}` : String(value));
 
+/** A group's heading as an id fragment: `Grupo A` → `grupo-a`. */
+const slugOf = (name: string) =>
+	name
+		.normalize('NFD')
+		.replace(/\p{M}/gu, '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-|-$/g, '');
+
+/** One table, in its own scroll region (D-023), named after what it shows. */
+function StandingsTable({ rows, label }: { rows: readonly ResolvedStanding[]; label: string }) {
+	return (
+		<div className={`${styles.scroller} pixel-box`} role="region" aria-label={label} tabIndex={0}>
+			<table className={styles.table}>
+				<caption className={styles['visually-hidden']}>Partidos jugados, ganados, empatados y perdidos, goles a favor y en contra, diferencia y puntos.</caption>
+				<thead>
+					<tr>
+						<Heading short="#" long="Posición" className={styles['col-position']} />
+						<th scope="col" className={styles['col-team']}>
+							Equipo
+						</th>
+						<Heading short="PJ" long="Partidos jugados" className={styles['col-number']} />
+						<Heading short="PG" long="Partidos ganados" className={styles['col-number']} />
+						<Heading short="PE" long="Partidos empatados" className={styles['col-number']} />
+						<Heading short="PP" long="Partidos perdidos" className={styles['col-number']} />
+						<Heading short="GF" long="Goles a favor" className={styles['col-number']} />
+						<Heading short="GC" long="Goles en contra" className={styles['col-number']} />
+						<Heading short="DG" long="Diferencia de goles" className={styles['col-number']} />
+						<Heading short="Pts" long="Puntos" className={styles['col-points']} />
+					</tr>
+				</thead>
+				<tbody>
+					{rows.map((row) => (
+						<tr key={row.team.id} className={row.position === 1 ? styles.leader : undefined}>
+							<td className={styles['col-position']}>{row.position}</td>
+							<th scope="row" className={styles['col-team']}>
+								<span className={styles.team}>
+									<Crest team={row.team} size={32} loading="eager" />
+									<span className={styles['team-name']}>{row.team.name}</span>
+								</span>
+							</th>
+							<td className={styles['col-number']}>{row.played}</td>
+							<td className={styles['col-number']}>{row.won}</td>
+							<td className={styles['col-number']}>{row.drawn}</td>
+							<td className={styles['col-number']}>{row.lost}</td>
+							<td className={styles['col-number']}>{row.goalsFor}</td>
+							<td className={styles['col-number']}>{row.goalsAgainst}</td>
+							<td className={styles['col-number']}>{difference(row.goalDifference)}</td>
+							<td className={styles['col-points']}>{row.points}</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
+		</div>
+	);
+}
+
 export default function Posiciones() {
 	const { sports, sportId, competition, rows, loadError } = useLoaderData<typeof loader>();
+	// C-11: a competition with groups shows one table per group; the others, their single table.
+	const groups = competition && rows.length > 0 ? groupStandings(competition.id, rows) : null;
 	useDocumentTitle(competition ? `Posiciones · ${competition.name}` : 'Posiciones · La Liga ACP');
 
 	return (
@@ -79,50 +144,25 @@ export default function Posiciones() {
 			    Its name is its own ("Tabla de posiciones"), not the page heading's,
 			    so the two regions are told apart. Nothing is drawn without rows:
 			    a head of empty columns beside the notice said nothing. */}
-			{rows.length > 0 && (
-				<div className={`${styles.scroller} pixel-box`} role="region" aria-label="Tabla de posiciones" tabIndex={0}>
-					<table className={styles.table}>
-						<caption className={styles['visually-hidden']}>Partidos jugados, ganados, empatados y perdidos, goles a favor y en contra, diferencia y puntos.</caption>
-						<thead>
-							<tr>
-								<Heading short="#" long="Posición" className={styles['col-position']} />
-								<th scope="col" className={styles['col-team']}>
-									Equipo
-								</th>
-								<Heading short="PJ" long="Partidos jugados" className={styles['col-number']} />
-								<Heading short="PG" long="Partidos ganados" className={styles['col-number']} />
-								<Heading short="PE" long="Partidos empatados" className={styles['col-number']} />
-								<Heading short="PP" long="Partidos perdidos" className={styles['col-number']} />
-								<Heading short="GF" long="Goles a favor" className={styles['col-number']} />
-								<Heading short="GC" long="Goles en contra" className={styles['col-number']} />
-								<Heading short="DG" long="Diferencia de goles" className={styles['col-number']} />
-								<Heading short="Pts" long="Puntos" className={styles['col-points']} />
-							</tr>
-						</thead>
-						<tbody>
-							{rows.map((row) => (
-								<tr key={row.team.id} className={row.position === 1 ? styles.leader : undefined}>
-									<td className={styles['col-position']}>{row.position}</td>
-									<th scope="row" className={styles['col-team']}>
-										<span className={styles.team}>
-											<Crest team={row.team} size={32} loading="eager" />
-											<span className={styles['team-name']}>{row.team.name}</span>
-										</span>
-									</th>
-									<td className={styles['col-number']}>{row.played}</td>
-									<td className={styles['col-number']}>{row.won}</td>
-									<td className={styles['col-number']}>{row.drawn}</td>
-									<td className={styles['col-number']}>{row.lost}</td>
-									<td className={styles['col-number']}>{row.goalsFor}</td>
-									<td className={styles['col-number']}>{row.goalsAgainst}</td>
-									<td className={styles['col-number']}>{difference(row.goalDifference)}</td>
-									<td className={styles['col-points']}>{row.points}</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</div>
-			)}
+			{groups
+				? groups.map((group) => {
+						const titleId = `group-${slugOf(group.name)}`;
+						return (
+							<section key={group.name} className={styles.group} aria-labelledby={titleId}>
+								<h2 className={styles['group-title']} id={titleId}>
+									{group.name}
+								</h2>
+								{group.rows.length > 0 ? (
+									<StandingsTable rows={group.rows} label={`Tabla de posiciones, ${group.name}`} />
+								) : (
+									<p className={styles['group-empty']} role="status">
+										El {group.name} todavía no tiene equipos en la tabla.
+									</p>
+								)}
+							</section>
+						);
+					})
+				: rows.length > 0 && <StandingsTable rows={rows} label="Tabla de posiciones" />}
 		</section>
 	);
 }

@@ -37,6 +37,29 @@
 	color: var(--color-text-muted);
 }
 
+/* C-11 (D-040): a group of the table (Grupo A, Grupo B), its heading over its own table. */
+.group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.group-title {
+	margin: 0;
+	font-size: var(--text-sm);
+	line-height: 1.4;
+	text-transform: uppercase;
+	color: var(--color-accent-alt);
+	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
+}
+
+.group-empty {
+	margin: 0;
+	font-size: var(--text-sm);
+	color: var(--color-text-muted);
+}
+
 /* The ten columns of BR-050 never fit a phone, so the table scrolls inside
    this box instead of dragging the page sideways (D-023). It is focusable and
    labelled, so it can be reached and read with the keyboard alone. */
