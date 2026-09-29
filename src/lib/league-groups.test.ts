@@ -60,6 +60,13 @@ describe('groups of the table (C-11, D-040)', () => {
 		expect(b!.rows).toHaveLength(3);
 	});
 
+	it('production (competition 1): teams 12, 15 and 16 in Grupo A, the rest in Grupo B', () => {
+		const prod = [row(3, 'LOS IMPARABLES', 1, 9), row(15, 'Grupzul 2.0', 2, 6), row(12, 'AQUÍ SE COBRA FC', 3, 3), row(7, 'Bad Legend', 4, 3), row(16, 'SPORT LA PLATA FC', 5, 0)];
+		const [a, b] = groupStandings('1', prod)!;
+		expect(a!.rows.map((r) => [r.position, r.team.id])).toEqual([[1, '15'], [2, '12'], [3, '16']]);
+		expect(b!.rows.map((r) => [r.position, r.team.id])).toEqual([[1, '3'], [2, '7']]);
+	});
+
 	it('any other competition (women\'s football, volleyball) has no groups: its single table as always', () => {
 		for (const id of ['14', '15', '10', '']) expect(groupStandings(id, TABLE)).toBeNull();
 	});

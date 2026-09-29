@@ -19,20 +19,32 @@ export interface GroupSpec {
 	teams: readonly string[] | 'rest';
 }
 
+/**
+ * Torneo futbol masculino (Futbol). Production was not loaded with the dump, so
+ * its ids differ from development's: both sets are listed. A team belongs to
+ * one competition only, so the other environment's ids never match anything.
+ */
+const MENS_FOOTBALL: readonly GroupSpec[] = [
+	{
+		name: 'Grupo A',
+		teams: [
+			// Development.
+			'50', // AQUÍ SE COBRA FC
+			'54', // Grupzul 2.0
+			'53', // SPORT LA PLATA FC
+			// Production: the same three teams.
+			'12',
+			'15',
+			'16',
+		],
+	},
+	{ name: 'Grupo B', teams: 'rest' },
+];
+
 /** By competition id. A competition that isn't here keeps a single table. */
 const GROUPS: Readonly<Record<string, readonly GroupSpec[]>> = {
-	// 13: torneo futbol masculino (Futbol).
-	'13': [
-		{
-			name: 'Grupo A',
-			teams: [
-				'50', // AQUÍ SE COBRA FC
-				'54', // Grupzul 2.0
-				'53', // SPORT LA PLATA FC
-			],
-		},
-		{ name: 'Grupo B', teams: 'rest' },
-	],
+	'13': MENS_FOOTBALL, // development
+	'1': MENS_FOOTBALL, // production
 };
 
 export interface StandingGroup {
