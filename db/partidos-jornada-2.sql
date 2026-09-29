@@ -3,8 +3,11 @@
 -- Inserta los 11 partidos en `partido` (estado programado, sin goles) y sus dos
 -- lados en `partido_equipo` (el primer equipo nombrado es el local). Los
 -- equipos y las competiciones se buscan por NOMBRE, nunca por id, así que sirve
--- igual en desarrollo y en producción. Los nombres son los guardados en la base
--- (la comparación no distingue mayúsculas ni tildes).
+-- igual en desarrollo y en producción. La comparación es con LIKE '%nombre%'
+-- (no distingue mayúsculas ni tildes), y cada equipo se busca SOLO dentro de
+-- su competición: NEXUS PRIME del fútbol femenino y el de vóley no se cruzan.
+-- Si un texto coincide con dos equipos de la misma competición, la barrera 1
+-- lo detiene en vez de elegir uno.
 --
 -- Horas: se escriben en hora de Lima y se guardan en UTC (+5 h; Perú no tiene
 -- horario de verano), como pide el esquema.
@@ -49,17 +52,17 @@ INSERT INTO tmp_fixture (n, competicion, local_nombre, visita_nombre, hora_lima)
   -- Torneo de fútbol masculino
   ( 1, 'torneo futbol masculino', 'Bad Legend',                'LOS IMPARABLES',            '09:45'),
   ( 2, 'torneo futbol masculino', 'Grupzul 2.0',               'SPORT LA PLATA FC',         '11:00'),
-  ( 3, 'torneo futbol masculino', 'LOS IMPARABLES',            'LOS DIBUJITOS FC CON IA',   '11:45'),
+  ( 3, 'torneo futbol masculino', 'LOS IMPARABLES',            'LOS DIBUJITOS FC',          '11:45'),
   -- Torneo de fútbol femenino
   ( 4, 'torneo futbol femenino',  'FINZULIANAS',               'LAS GALACTICAS DEL MASTER', '09:00'),
   ( 5, 'torneo futbol femenino',  'NEXUS PRIME',               'LAS GALACTICAS DEL MASTER', '10:25'),
   ( 6, 'torneo futbol femenino',  'FINZULIANAS',               'LAS QUE MANDAN',            '12:30'),
   -- Torneo de voleibol
   ( 7, 'torneo de voleibol',      'FINANFORCE',                'NEXUS PRIME',               '09:30'),
-  ( 8, 'torneo de voleibol',      'LOS GALACTICOS DEL MASTER', 'GRUZUL',                    '10:15'),
+  ( 8, 'torneo de voleibol',      'LOS GALACTICOS DEL MASTER', 'GRUPZUL 2.0',               '10:15'),
   ( 9, 'torneo de voleibol',      'FINANFORCE',                'Impacto Call B',            '11:00'),
   (10, 'torneo de voleibol',      'Impacto Call B',            'LOS GALACTICOS DEL MASTER', '11:45'),
-  (11, 'torneo de voleibol',      'NEXUS PRIME',               'GRUZUL',                    '13:15');
+  (11, 'torneo de voleibol',      'NEXUS PRIME',               'GRUPZUL 2.0',               '13:15');
 
 UPDATE tmp_fixture SET fecha_hora = TIMESTAMP(@fecha, hora_lima) + INTERVAL 5 HOUR;
 
@@ -70,19 +73,19 @@ START TRANSACTION;
 -- ---------------------------------------------------------------------------
 SET @sin_resolver := (
   SELECT COUNT(*) FROM tmp_fixture f
-  WHERE (SELECT COUNT(*) FROM competicion c WHERE c.nombre = f.competicion) <> 1
+  WHERE (SELECT COUNT(*) FROM competicion c WHERE c.nombre LIKE CONCAT('%', f.competicion, '%')) <> 1
      OR (SELECT COUNT(*) FROM equipo e JOIN competicion c ON c.id = e.competicion_id
-         WHERE c.nombre = f.competicion AND e.nombre = f.local_nombre) <> 1
+         WHERE c.nombre LIKE CONCAT('%', f.competicion, '%') AND e.nombre LIKE CONCAT('%', f.local_nombre, '%')) <> 1
      OR (SELECT COUNT(*) FROM equipo e JOIN competicion c ON c.id = e.competicion_id
-         WHERE c.nombre = f.competicion AND e.nombre = f.visita_nombre) <> 1
+         WHERE c.nombre LIKE CONCAT('%', f.competicion, '%') AND e.nombre LIKE CONCAT('%', f.visita_nombre, '%')) <> 1
 );
 SELECT f.n, f.competicion, f.local_nombre, f.visita_nombre, 'nombre no encontrado o repetido' AS problema
 FROM tmp_fixture f
-WHERE (SELECT COUNT(*) FROM competicion c WHERE c.nombre = f.competicion) <> 1
+WHERE (SELECT COUNT(*) FROM competicion c WHERE c.nombre LIKE CONCAT('%', f.competicion, '%')) <> 1
    OR (SELECT COUNT(*) FROM equipo e JOIN competicion c ON c.id = e.competicion_id
-       WHERE c.nombre = f.competicion AND e.nombre = f.local_nombre) <> 1
+       WHERE c.nombre LIKE CONCAT('%', f.competicion, '%') AND e.nombre LIKE CONCAT('%', f.local_nombre, '%')) <> 1
    OR (SELECT COUNT(*) FROM equipo e JOIN competicion c ON c.id = e.competicion_id
-       WHERE c.nombre = f.competicion AND e.nombre = f.visita_nombre) <> 1;
+       WHERE c.nombre LIKE CONCAT('%', f.competicion, '%') AND e.nombre LIKE CONCAT('%', f.visita_nombre, '%')) <> 1;
 
 SET @sql := IF(@sin_resolver = 0, 'SELECT ''Nombres OK'' AS control', 'SELECT * FROM `ABORTADO_hay_equipos_o_competiciones_que_no_se_encuentran`');
 PREPARE comprobacion FROM @sql;
@@ -90,9 +93,9 @@ EXECUTE comprobacion;
 DEALLOCATE PREPARE comprobacion;
 
 UPDATE tmp_fixture f
-  JOIN competicion c ON c.nombre = f.competicion
-  JOIN equipo el ON el.competicion_id = c.id AND el.nombre = f.local_nombre
-  JOIN equipo ev ON ev.competicion_id = c.id AND ev.nombre = f.visita_nombre
+  JOIN competicion c ON c.nombre LIKE CONCAT('%', f.competicion, '%')
+  JOIN equipo el ON el.competicion_id = c.id AND el.nombre LIKE CONCAT('%', f.local_nombre, '%')
+  JOIN equipo ev ON ev.competicion_id = c.id AND ev.nombre LIKE CONCAT('%', f.visita_nombre, '%')
 SET f.competicion_id = c.id, f.local_id = el.id, f.visita_id = ev.id;
 
 -- ---------------------------------------------------------------------------
