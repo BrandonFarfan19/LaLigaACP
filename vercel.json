@@ -3,6 +3,8 @@
   "rewrites": [
     { "source": "/posiciones", "destination": "/index.html" },
     { "source": "/posiciones/", "destination": "/index.html" },
+    { "source": "/en-vivo", "destination": "/index.html" },
+    { "source": "/en-vivo/", "destination": "/index.html" },
     { "source": "/plantilla/:id", "destination": "/index.html" },
     { "source": "/plantilla/:id/", "destination": "/index.html" },
     { "source": "/ingresar", "destination": "/index.html" },
@@ -35,6 +37,8 @@
     { "source": "/admin/jugadores/", "destination": "/index.html" },
     { "source": "/admin/planteles", "destination": "/index.html" },
     { "source": "/admin/planteles/", "destination": "/index.html" },
+    { "source": "/admin/transmision", "destination": "/index.html" },
+    { "source": "/admin/transmision/", "destination": "/index.html" },
     { "source": "/apuestas", "destination": "/index.html" },
     { "source": "/apuestas/", "destination": "/index.html" },
     { "source": "/apuestas/tickets/:id", "destination": "/index.html" },

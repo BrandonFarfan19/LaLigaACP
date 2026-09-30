@@ -9,8 +9,8 @@ import { type TransactionConnection, type TransactionOptions, withTransaction } 
  * the action back.
  */
 
-/** `gol` and `multimedia` (a match's image or video) since T-13. */
-export type CatalogEntity = 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'partido' | 'gol' | 'multimedia';
+/** `gol` and `multimedia` (a match's image or video) since T-13; `transmision` (the live stream's single row) since C-14. */
+export type CatalogEntity = 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'partido' | 'gol' | 'multimedia' | 'transmision';
 /**
  * `registrar_resultado`, `confirmar_resultado` (T-12) and `cancelar` (T-16) only apply to `partido`;
  * `registrar_estadisticas` and `borrar_estadisticas` (C-05) only to `plantel`.

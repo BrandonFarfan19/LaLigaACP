@@ -148,6 +148,9 @@ export function soloGuardados(entity: AdminActionOutcome['entity'], row: unknown
 			};
 		case 'multimedia':
 			return { id: r.id, imagen: r.url ?? null, video: videoUrl(r.video), creadoEn: r.creadoEn };
+		// C-14: only the stored link; embedUrl is derived and actualizadoEn is when, which the record already says.
+		case 'transmision':
+			return { url: r.url ?? null };
 		// Joined names (T-21): shown in lists, never a stored column of the row.
 		// A sport's profile is stored as its id; the API names it by `codigo` (C-05), its name is joined.
 		case 'deporte': {
@@ -203,6 +206,17 @@ export function detailOf(outcome: AdminActionOutcome): DetalleAuditoria | null {
 			const valores = valuesOf(outcome.after);
 			if (!extra && JSON.stringify(anterior) === JSON.stringify(valores)) return null;
 			return { valores, anterior, ...detail };
+		}
+		// C-14: removing a stream that isn't there records nothing (D-004); the same link again is an edit with no change.
+		case 'borrar_transmision': {
+			const anterior = (before as { url?: unknown } | null)?.url ?? null;
+			if (!extra && anterior === null) return null;
+			return { anterior, ...detail };
+		}
+		case 'editar_transmision': {
+			const changed = cambios(before, after);
+			if (!extra && Object.keys(changed).length === 0) return null;
+			return { cambios: changed, ...detail };
 		}
 		case 'borrar_estadisticas_plantel': {
 			const anterior = valuesOf(outcome.before);

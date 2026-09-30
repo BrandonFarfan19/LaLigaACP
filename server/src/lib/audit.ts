@@ -6,7 +6,17 @@
  */
 
 /** The table each audit code affects (`accion_auditoria.entidad`). */
-export type EntidadAuditada = 'usuario' | 'partido' | 'deporte' | 'competicion' | 'equipo' | 'jugador' | 'plantel' | 'gol' | 'multimedia_partido';
+export type EntidadAuditada =
+	| 'usuario'
+	| 'partido'
+	| 'deporte'
+	| 'competicion'
+	| 'equipo'
+	| 'jugador'
+	| 'plantel'
+	| 'gol'
+	| 'multimedia_partido'
+	| 'transmision_en_vivo';
 
 export interface AccionAuditada {
 	codigo: string;
@@ -65,6 +75,9 @@ export const ACCIONES_AUDITADAS = {
 	borrar_gol: borrado('borrado_gol', 'gol'),
 	crear_multimedia: alta('alta_multimedia', 'multimedia_partido'),
 	borrar_multimedia: borrado('borrado_multimedia', 'multimedia_partido'),
+	// C-14 (D-043): the live stream's link, set or changed, and removed. The row (id 1) always stays.
+	editar_transmision: alta('actualizacion_transmision', 'transmision_en_vivo'),
+	borrar_transmision: alta('retiro_transmision', 'transmision_en_vivo'),
 } as const satisfies Record<string, AccionAuditada>;
 
 export type AccionApp = keyof typeof ACCIONES_AUDITADAS;

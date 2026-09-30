@@ -7,6 +7,7 @@ import { rejectQueryParams } from '../middleware/no-query.js';
 import { type CatalogRouterOptions, createCatalogRouter } from './catalog.route.js';
 import type { ParticipantActionHooks } from '../services/participant-validation.service.js';
 import { createAuditRouter } from './audit.route.js';
+import { createLiveStreamRouter } from './live-stream.route.js';
 import { createMatchCancellationRouter } from './match-cancellation.route.js';
 import { createParticipantsRouter } from './participants.route.js';
 import { createAdminPoolRouter } from './ranking.route.js';
@@ -39,6 +40,8 @@ export function createAdminRouter(pool: Pool, requireAuth: RequestHandler, optio
 	router.use('/participantes', createParticipantsRouter(pool, options.participantHooks));
 	router.use('/polla', createAdminPoolRouter(pool));
 	router.use('/auditoria', createAuditRouter(pool));
+	// C-14: the live stream's link (Informativo), audited like every catalog write.
+	router.use('/transmision', createLiveStreamRouter(pool, options.catalog.hooks));
 	// T-16: a Polla action on a match (voids its pending bets), next to the Informativo match routes.
 	router.use('/partidos', createMatchCancellationRouter(pool, options.catalog.hooks));
 	router.use(createCatalogRouter(pool, options.catalog));

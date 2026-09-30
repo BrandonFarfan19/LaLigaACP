@@ -120,6 +120,8 @@ Desde C-13 (D-042) no hay monedas: estas reglas quedan derogadas y se conservan 
 | **BR-051** Filtros de la interfaz de apuestas | `/apuestas`: deporte, competición, fechas y estado de apuesta, en la URL de la página | `betting.test.ts`; front `Apuestas.test.tsx` | Cumplida |
 | **BR-052** Estado visual | `apuesta.estado` (`disponible`, `cerrada`, `en_curso`, `finalizado`, `cancelado`) con icono + palabra (`BetMatchCard`, `PixelIcon`), nunca solo color | `betting.test.ts`; front `Apuestas.test.tsx` | Cumplida |
 
+| **BR-058** Transmisión en vivo (C-14) | `transmision_en_vivo` (una sola fila, `CHECK (id = 1)`), `lib/facebook-links.ts` (formas admitidas, forma canónica y `embedUrl`; el servidor nunca visita el enlace), `GET`/`PUT`/`DELETE /admin/transmision` con auditoría y `GET /public/transmision`; página `/en-vivo` y sección «Transmisión» del panel, con el reproductor solo desde el `embedUrl` de la API | `live-stream.test.ts` (formas, hosts ajenos, http, fb.watch, largo, sin peticiones salientes, auditoría y D-004, una fila), `migration-c14.test.ts`, `audit.test.ts`; front: pruebas de `/en-vivo`, del menú y del panel | Cumplida (C-14) |
+
 ## Integridad transaccional
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
@@ -143,11 +145,11 @@ Desde C-13 (D-042) no hay monedas: estas reglas quedan derogadas y se conservan 
 | **NFR-003** Pixel art | `src/styles/global.css` (tokens, `pixel-box`, `pixel-bevel`, `pixel-shadow`); sin `border-radius`, sin desenfoques, sin `backdrop-filter`, gradientes en bandas, `steps()` en todo movimiento y todo apagado con `prefers-reduced-motion` | Auditoría automática del CSS (T-23, sobre los archivos) + revisión visual en el navegador | Cumplida |
 | **NFR-004** Indicador de monedas | Derogada por C-13 (D-042): la interfaz no muestra monedas | front `SessionBar.test.tsx` | Derogada |
 | **NFR-005** Seguridad | argon2id, sesiones en servidor con cookie `HttpOnly`/`SameSite=Strict`, CSRF en toda escritura, `requireAuth`/`requireRole`/`requireBettor`/`requireParticipant`, zod en body, params y query, límites por IP, subida de imágenes validada por contenido, `helmet`, CORS cerrado y errores sin datos internos | `authorization.test.ts`, `csrf.test.ts`, `auth-rate-limits.test.ts`, `rate-limit.test.ts`, `query-params.test.ts`, `body-errors.test.ts`, `media-lib.test.ts`, `env.test.ts`, `read-secret.test.ts` | Cumplida |
-| **NFR-006** Auditoría | `services/audit.service.ts` + `lib/audit.ts`: una fila por escritura del admin (desde C-05, también las estadísticas de una inscripción; desde C-08, el restablecimiento de la contraseña de un participante, con cuántas sesiones se cerraron y nunca la contraseña ni su hash), en su misma transacción, con administrador, acción, fecha, registro afectado y detalle acotado; consulta en `GET /admin/auditoria` | `audit.test.ts`, `enrollment-stats.test.ts`, `participant-password.test.ts`; front `panel.test.tsx` | Cumplida |
+| **NFR-006** Auditoría | `services/audit.service.ts` + `lib/audit.ts`: una fila por escritura del admin (desde C-05, también las estadísticas de una inscripción; desde C-08, el restablecimiento de la contraseña de un participante, con cuántas sesiones se cerraron y nunca la contraseña ni su hash; desde C-14, poner, cambiar o quitar el enlace de la transmisión en vivo), en su misma transacción, con administrador, acción, fecha, registro afectado y detalle acotado; consulta en `GET /admin/auditoria` | `audit.test.ts`, `enrollment-stats.test.ts`, `participant-password.test.ts`; front `panel.test.tsx` | Cumplida |
 
 ## Resumen
 
-- **63 reglas revisadas** (57 BR + 6 NFR): desde C-13, **10 derogadas** (BR-008, BR-009, BR-010, BR-020, BR-021, BR-022, BR-046, BR-055 en la devolución, BR-057 y NFR-004) y el resto **cumplidas**, varias con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-017, BR-039, BR-042).
+- **64 reglas revisadas** (58 BR + 6 NFR; BR-058 desde C-14): desde C-13, **10 derogadas** (BR-008, BR-009, BR-010, BR-020, BR-021, BR-022, BR-046, BR-055 en la devolución, BR-057 y NFR-004) y el resto **cumplidas**, varias con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-017, BR-039, BR-042).
 
 > Revisado el 2026-09-18 tras el cambio **C-01** (contraseña de 6 a 20 caracteres, D-024): solo cambian BR-003 y BR-004; el resto de la tabla sigue igual.
 >
@@ -160,4 +162,6 @@ Desde C-13 (D-042) no hay monedas: estas reglas quedan derogadas y se conservan 
 > Revisado el 2026-09-28 tras el cambio **C-09** (los aciertos también pagan monedas, D-038): se agrega **BR-057**, se precisa BR-039 (el premio sale del acierto, no de los puntos) y se movió dónde se cumple BR-040 (la confirmación también paga). El resto sigue igual.
 >
 > Revisado el 2026-09-30 tras el cambio **C-13** (se quitan las monedas: la polla es solo por puntos, D-042): se derogan BR-008 a BR-010, BR-020 a BR-022, BR-046, la devolución de BR-055, BR-057 y NFR-004; se reescriben BR-017 y BR-018 (una apuesta de cada tipo por partido) y se precisan BR-039, BR-045 y BR-047. Las tablas y columnas de monedas quedan en la base, sin uso.
+>
+> Revisado el 2026-09-30 tras el cambio **C-14** (sección «En vivo» con la transmisión de Facebook, D-043): se agrega **BR-058** y NFR-006 suma dos acciones auditadas. El resto sigue igual.
 - Ninguna regla quedó pendiente. Lo que sigue abierto son mejoras y deudas técnicas, no incumplimientos: están en [pendientes.md](pendientes.md).

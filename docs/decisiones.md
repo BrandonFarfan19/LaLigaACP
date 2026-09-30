@@ -501,3 +501,32 @@ Formato de cada entrada:
   - **Lo que no cambia:** hay que estar validado para apostar (el pago de la inscripción y la validación siguen), los puntos (BR-034 a BR-038), el ranking, el cierre de 1 hora (C-12), el máximo de 50 selecciones por ticket, «Apuestas de todos» (C-07) y la cancelación, salvo la devolución.
   - **Reglas de negocio:** se actualiza `docs/business-rules.md`. Las reglas de monedas (BR-008 a BR-010, BR-020, la parte de devolución de BR-045 a BR-047 y BR-055, BR-057 y la tabla 28) no se borran: se marcan **derogadas por C-13**, para que la numeración y el historial sigan teniendo sentido. BR-017 y BR-018 se reescriben con el límite nuevo.
 - **Dónde quedó aplicada:** C-13.
+
+## D-043 · 2026-09-30 · C-14 — Sección «En vivo» con la transmisión de Facebook
+
+- **Qué pidió el usuario:** una sección nueva del menú, en la **parte informativa**, para seguir la **transmisión en vivo** de los partidos. Es **una sola y general**: no depende del deporte ni del partido. El admin coloca el link de la transmisión desde el panel. La transmisión se hace por **Facebook**, y había que validar antes que se pudiera insertar en la página.
+- **Validación hecha por el coordinador (2026-09-30):** sí se puede. El reproductor insertado de Facebook admite videos y **videos en vivo**, con un `iframe` a `https://www.facebook.com/plugins/video.php?href=<link del video codificado>`. Hay tres condiciones:
+  - la publicación del video tiene que ser **pública** (ícono del globo gris);
+  - puede venir de una **página** o de un **perfil**;
+  - cada transmisión tiene su **propio link**, así que el admin lo pega en cada transmisión: no hay un link fijo que muestre siempre el en vivo actual de una página.
+  - El autoplay no funciona en celulares, y quien mira carga contenido de Facebook (sus cookies).
+- **Lo que decidió el coordinador (con la opción recomendada):**
+  - **Dónde se guarda:** una tabla nueva de una sola fila, `transmision_en_vivo` (url normalizada, actualizado_en), del Módulo Informativo, con su migración `db/migraciones/C-14-...sql`. Otra opción era una variable de entorno; se descartó porque el admin tiene que cambiarla sin desplegar.
+  - **Qué links se aceptan:** solo links `https` de un video de Facebook (`www.`, `m.` o `web.facebook.com`), en sus formas `/<página>/videos/<id>`, `/watch/?v=<id>` y `/watch/live/?v=<id>`. Se normalizan a una forma canónica, y el backend nunca los visita. Los enlaces cortos (`fb.watch`) se rechazan con un mensaje que pide el link completo, porque resolverlos obligaría al servidor a visitarlos. Con la misma idea que `lib/video-links.ts` (T-13).
+  - **El iframe** se arma solo desde el link normalizado, nunca con HTML pegado por el admin.
+  - **Sin transmisión:** si no hay link, la página «En vivo» lo dice («No hay transmisión en vivo en este momento»). El admin puede quitar el link.
+  - **Menú:** «En vivo» va con las secciones del sitio (Inicio, Fixture, Posiciones), en su color normal (C-02), no en el dorado de la polla. Es pública: no pide sesión.
+  - **Auditoría:** poner, cambiar o quitar el link queda registrado.
+- **Dónde quedó aplicada:** C-14.
+- **Precisión (mismo día, tras la revisión de `tester_liga`):** también se aceptan los links de `facebook.com` sin `www`, y se normalizan a `www.facebook.com`. Copiar el link sin `www` es común y no cambia la seguridad, porque la forma canónica se vuelve a armar solo con partes validadas. Los videos con el título dentro de la ruta siguen rechazándose y quedan anotados en `docs/pendientes.md`.
+- **Precisión 2 (mismo día, tras la revisión de `tester_liga_2`):**
+  - **Reels:** según el tester, desde septiembre de 2025 Facebook publica todo video como reel (`/reel/<id>`), así que esos links **también se aceptan**. Se usa la forma canónica que el reproductor insertado de verdad reproduzca, comprobada en el navegador.
+  - **Links de compartir:** los que no llevan el id del video (`/share/v/...`, `/share/r/...`, `fb.watch`) se rechazan con un mensaje que explica cómo copiar el link completo.
+  - **Efecto CRT:** el reproductor queda por encima del efecto de líneas del sitio.
+
+## D-044 · 2026-09-30 · C-15 — Puntos nuevos: 3 por resultado general, 5 por marcador exacto
+
+- **Qué pidió el usuario:** acertar el resultado general, sea el ganador o el empate, da **3 puntos**, y acertar el marcador exacto da **5 puntos**. Antes eran 3 por el ganador, 1 por el empate y 3 por el exacto (BR-034 a BR-038). Fallar sigue dando 0.
+- **Lo que dijo el usuario:** todavía no hay ningún partido con el resultado confirmado, así que no hay puntos viejos que recalcular. No hace falta migración.
+- **Lo que decidió el coordinador:** los números viven solo en `server/src/lib/points.ts`. El `CASE` de SQL de la liquidación sigue igual a `settleSelection`, y una prueba los mantiene iguales. Se actualizan BR-034 a BR-038, la tabla 27 de `docs/business-rules.md`, `docs/verificacion-final.md`, la documentación y todo texto del front que muestre los puntos. Con el límite de C-13, el máximo por partido pasa a ser 3 + 5 = **8 puntos**, sea el resultado un ganador o un empate.
+- **Dónde quedó aplicada:** C-15, después de cerrar C-14.

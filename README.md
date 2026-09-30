@@ -124,6 +124,19 @@ El front llama a la API **en su mismo origen**, con rutas relativas bajo `/api` 
 - **Estados:** si no hay competiciones, si la competición no tiene nada cargado o si una lectura falla, la página lo dice sin taparse, y el fallo ofrece "Reintentar".
 - **Radar del jugador (C-05, D-034):** las estadísticas son reales y dependen del deporte: fútbol tiene Disparo, Pase, Fuerza, Defensa, Velocidad y Dribbling; vóley, Mate, Saque, Recepción, Armado y Bloqueo; cada una de 0 a 99. Las carga el administrador en cada inscripción (panel, Planteles). Todo jugador abre su ficha: con estadísticas, el radar (un eje por atributo), la tabla y la media; sin ellas, «Sin estadísticas». La cancha dibuja jugadores y puestos al azar, sorteados en cada visita (C-06, D-035), y lo dice (D-033): el dorsal sí es el del plantel.
 
+### En vivo (C-14, D-043)
+
+La sección **«En vivo»** (`/en-vivo`, en el menú junto a Inicio, Fixture y Posiciones, pública) muestra la transmisión en vivo de Facebook: una sola y general, que no depende del deporte ni del partido. Sin transmisión dice «No hay transmisión en vivo en este momento». El reproductor es el de Facebook, armado solo con el `embedUrl` que da la API (nunca con código pegado por el admin), con un enlace para abrir el video en Facebook. En celulares no arranca solo, y quien mira carga contenido de Facebook.
+
+**Cómo poner la transmisión** (panel, sección «Transmisión»):
+
+1. En Facebook, empezar la transmisión en vivo desde la página o el perfil, con la publicación **pública** (el ícono del globo). Si no es pública, el reproductor no la muestra.
+2. Con el en vivo al aire, **abrir el video en Facebook** (tocar la publicación del en vivo para que se vea solo el video) y **copiar el link de la barra de direcciones del navegador**. Tiene que ser de la forma `https://www.facebook.com/<página>/videos/<número>`, `https://www.facebook.com/watch/?v=<número>`, `https://www.facebook.com/watch/live/?v=<número>` o, desde que Facebook publica los videos como reels, `https://www.facebook.com/reel/<número>` (también sirven `facebook.com` sin `www`, `m.facebook.com` y `web.facebook.com`). Se guarda en una forma única con `www.`; un reel, como `https://www.facebook.com/watch/?v=<número>`, que es la forma con la que el reproductor lo pasa sin cortarse (probado en Chrome con un reel público). **Los links del botón «Compartir» no sirven** (`fb.watch/...`, `facebook.com/share/v/...`, `.../share/r/...`): no llevan el número del video, así que se rechazan con un mensaje que pide el link de la barra de direcciones.
+3. Pegarlo en el panel y **Guardar**. La vista previa muestra el reproductor, y la página «En vivo» lo muestra enseguida (puede tardar hasta 30 s en verse, por la caché de la API pública).
+4. **Cada transmisión tiene su propio enlace**: hay que pegar el nuevo en cada transmisión. Al terminar se puede **Quitar** (con un paso de confirmación), y la página vuelve a decir que no hay transmisión.
+
+Poner, cambiar o quitar el enlace queda en la auditoría. El servidor nunca visita el enlace: solo lo valida y lo guarda en una forma única.
+
 ### Panel de administración (T-21)
 
 - **`/admin`** y sus secciones son solo para administradores: sin sesión llevan a ingresar (con la sección pedida en `?next=`); un apostador, validado o no, ve "Acceso restringido" sin la navegación del panel. Cada sección carga su código la primera vez que se abre (`lazy`): los visitantes y apostadores no descargan el panel.
@@ -694,6 +707,7 @@ Resetear borra los datos, así que un cambio de esquema para una base que ya los
 | `C-05-estadisticas.sql` | Estadísticas reales de los jugadores (D-034): crea `perfil_estadistico`, `estadistica` y `plantel_estadistica` (vacía), agrega `deporte.perfil_estadistico_id` y asigna el perfil a cada deporte por su nombre (fútbol en cualquier variante, incluido femenino → `futbol`; vóley, voleibol o volley → `voley`; otro nombre queda sin perfil, y se elige en el panel). Agrega también los dos códigos de auditoría nuevos. Ningún jugador recibe estadísticas. |
 | `C-08-restablecer-contrasena.sql` | El admin restablece la contraseña de un participante (D-037): agrega el código de auditoría `restablecimiento_contrasena`, con el id 34 de `db/init/` si está libre (si no, el siguiente). No cambia el esquema ni otra fila. Necesita C-05 aplicada antes; sin C-08, restablecer una contraseña responde 500 y no cambia nada. |
 | `C-09-premios-por-acierto.sql` | Los aciertos también pagan monedas (D-038, BR-057): agrega a `tipo_movimiento` `premio_resultado_general` y `premio_marcador_exacto`, con los ids 4 y 5 de `db/init/` si están libres (si no, el siguiente). No cambia el esquema ni otra fila, y no paga nada por los partidos ya confirmados (no es retroactivo). **Desde C-13 los premios no se pagan** (la polla es solo por puntos): la migración sigue sirviendo para dejar el catálogo igual al de `db/init/`, pero sin ella la aplicación ya no falla. |
+| `C-14-transmision-en-vivo.sql` | La sección «En vivo» (D-043): crea la tabla `transmision_en_vivo` con su única fila (sin transmisión) y los códigos de auditoría `actualizacion_transmision` y `retiro_transmision`, con los ids 35 y 36 de `db/init/` si están libres (si no, los siguientes). No toca ninguna otra fila. Necesita C-08 aplicada antes; sin C-14, la página «En vivo» y la sección del panel responden 500. |
 
 Cómo se comporta cada una (así está escrita `C-05`):
 
@@ -731,6 +745,8 @@ docker compose -f compose.prod.yaml exec -T db \
   < db/migraciones/C-05-estadisticas.sql
 docker compose -f compose.prod.yaml up -d --build
 ```
+
+**C-14** se aplica igual (respaldo primero, como root), con `< db/migraciones/C-14-transmision-en-vivo.sql`, y **antes** del `up -d --build` que lleva el backend nuevo. Imprime la fila (`1`, sin enlace) y los dos códigos; aplicada otra vez se niega con `C-14 ya está aplicada en esta base: no se cambió nada.`, y sin C-08 se niega sin crear nada. Si se cortó después de crear la tabla, reintentar la reutiliza. Volver atrás es restaurar el respaldo y borrar la tabla que el respaldo no conoce (`DROP TABLE transmision_en_vivo`). En la base de desarrollo se aplicó el 2026-09-30, con el respaldo en `../respaldos-la-liga-acp/la_liga_acp-antes-de-C-14-2026-09-30.sql`: `CHECKSUM TABLE` antes y después de cada tabla muestra que solo cambiaron `accion_auditoria` (sus dos filas nuevas) y la tabla nueva.
 
 **C-08** y **C-09** se aplican igual (respaldo primero, como root), cambiando el archivo: `< db/migraciones/C-08-restablecer-contrasena.sql` o `< db/migraciones/C-09-premios-por-acierto.sql`. C-09 imprime el catálogo de movimientos completo, con los dos premios; aplicada otra vez, se niega con `C-09 ya está aplicada en esta base: no se cambió nada.` Como C-08, volver atrás no hace falta: dos filas de catálogo de más no cambian nada del código anterior.
 

@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
+import EnVivo, { loader as enVivoLoader } from '../pages/EnVivo';
 import Home, { loader as homeLoader } from '../pages/Home';
 import { RouteError } from '../pages/NotFound';
 import Plantilla, { loader as plantillaLoader } from '../pages/Plantilla';
@@ -17,6 +18,7 @@ export function renderLeague(initialEntry: string) {
 			{ path: '/', loader: homeLoader, Component: Home, ErrorBoundary: RouteError },
 			{ path: '/posiciones', loader: posicionesLoader, Component: Posiciones, ErrorBoundary: RouteError },
 			{ path: '/plantilla/:id', loader: plantillaLoader, Component: Plantilla, ErrorBoundary: RouteError },
+			{ path: '/en-vivo', loader: enVivoLoader, Component: EnVivo, ErrorBoundary: RouteError },
 		],
 		{ initialEntries: [initialEntry] },
 	);

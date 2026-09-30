@@ -275,6 +275,13 @@ describe('audit log (T-17: NFR-006)', () => {
 			);
 			expect(Number(kept!.n)).toBe(2);
 
+			// C-14: the live stream's link, set and removed (the row is always the id 1).
+			const live = 'https://www.facebook.com/watch/live/?v=42';
+			expect(await audited(api.put('/transmision', { url: live }), 'actualizacion_transmision', () => 1)).toEqual({
+				cambios: { url: { antes: null, despues: live } },
+			});
+			expect(await audited(api.del('/transmision'), 'retiro_transmision', () => 1)).toEqual({ anterior: live });
+
 			// Every code of the catalog was used by this walk, except the participant ones (next test).
 			const used = new Set((await auditRows()).map((r) => r.codigo));
 			const expected = Object.values(ACCIONES_AUDITADAS).map((a) => a.codigo).filter((c) => !['validacion_usuario', 'confirmacion_pago', 'reversion_pago', 'restablecimiento_contrasena', 'creacion_administrador', 'promocion_administrador'].includes(c));

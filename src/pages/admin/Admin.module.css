@@ -273,6 +273,11 @@
 	box-shadow: inset 0 0 0 var(--px) currentColor;
 }
 
+/* «Listo:» / «No se pudo:»: the pixel faces ship one weight, never synthesize bold. */
+.message strong {
+	font-weight: 400;
+}
+
 .message[data-ok] {
 	color: var(--color-accent);
 }

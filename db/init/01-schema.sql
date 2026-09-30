@@ -292,6 +292,24 @@ CREATE TABLE multimedia_partido (
   CONSTRAINT ck_multimedia_video CHECK (video IS NULL OR video LIKE 'https://%')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- C-14 (D-043): la transmisión en vivo de la sección «En vivo», una sola y
+-- general. Una fila, siempre la 1 (ck_transmision_una_fila). url es el enlace
+-- normalizado a un video de Facebook que el admin pega en el panel (el backend
+-- lo valida y nunca lo visita, server/src/lib/facebook-links.ts); NULL = no hay
+-- transmisión. actualizado_en lo pone el backend, en UTC, al poner, cambiar o
+-- quitar el enlace. Quién lo hizo queda en auditoria (actualizacion_transmision,
+-- retiro_transmision), no aquí.
+CREATE TABLE transmision_en_vivo (
+  id             TINYINT UNSIGNED NOT NULL,
+  url            VARCHAR(255)     NULL,
+  actualizado_en DATETIME         NULL COMMENT 'UTC',
+  PRIMARY KEY (id),
+  CONSTRAINT ck_transmision_una_fila CHECK (id = 1),
+  CONSTRAINT ck_transmision_url CHECK (url IS NULL OR url LIKE 'https://www.facebook.com/%')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO transmision_en_vivo (id, url, actualizado_en) VALUES (1, NULL, NULL);
+
 -- ---------------------------------------------------------------------------
 -- Módulo Polla
 -- ---------------------------------------------------------------------------

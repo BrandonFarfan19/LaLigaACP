@@ -213,6 +213,24 @@ body::after {
 	);
 }
 
+/* C-14: a hole in the scanlines where an embedded player is (the «En vivo»
+   video and its preview in the panel), so they never draw over it. The
+   rectangle comes from `useCrtHole` (viewport coordinates, custom properties
+   on <body>): the full layer minus that rectangle. Only while a page asks for
+   it; everywhere else the scanlines cover the whole page as before. */
+body[data-crt-hole]::after {
+	-webkit-mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+	mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+	-webkit-mask-position: var(--crt-hole-x, 0) var(--crt-hole-y, 0), 0 0;
+	mask-position: var(--crt-hole-x, 0) var(--crt-hole-y, 0), 0 0;
+	-webkit-mask-size: var(--crt-hole-w, 0) var(--crt-hole-h, 0), 100% 100%;
+	mask-size: var(--crt-hole-w, 0) var(--crt-hole-h, 0), 100% 100%;
+	-webkit-mask-composite: xor;
+	mask-composite: exclude;
+}
+
 /* Focus ring drawn as a pixel outline, not a rounded glow. */
 :focus-visible {
 	outline: var(--px) solid var(--color-accent);

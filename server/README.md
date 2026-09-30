@@ -1,6 +1,6 @@
 # La Liga ACP — backend
 
-API REST en **Express + TypeScript** sobre el MySQL de `../compose.yaml`, construida tarea por tarea según [../docs/plan-polla.md](../docs/plan-polla.md). Hoy tiene la base (T-02), el registro, login y roles (T-03), la validación de participantes (T-04), el saldo y los movimientos de monedas (T-05, quitados en C-13), la administración del catálogo deportivo (T-06), la de partidos (T-07), la API pública informativa (T-08), las selecciones, los tickets y el historial de apuestas (T-09 a T-11), los resultados (T-12), los goles y la multimedia (T-13), la liquidación de apuestas con sus puntos (T-14), el ranking de la polla con sus estadísticas (T-15), la cancelación de partidos con sus devoluciones (T-16), la auditoría de las acciones del admin (T-17) y la consulta de apuestas del panel (T-21). Es la API completa de la polla: el front la consume entera (cuentas y apuestas desde T-18 a T-21, y las pantallas públicas desde T-22).
+API REST en **Express + TypeScript** sobre el MySQL de `../compose.yaml`, construida tarea por tarea según [../docs/plan-polla.md](../docs/plan-polla.md). Hoy tiene la base (T-02), el registro, login y roles (T-03), la validación de participantes (T-04), el saldo y los movimientos de monedas (T-05, quitados en C-13), la administración del catálogo deportivo (T-06), la de partidos (T-07), la API pública informativa (T-08), las selecciones, los tickets y el historial de apuestas (T-09 a T-11), los resultados (T-12), los goles y la multimedia (T-13), la liquidación de apuestas con sus puntos (T-14), el ranking de la polla con sus estadísticas (T-15), la cancelación de partidos (T-16; sin devoluciones desde C-13), la auditoría de las acciones del admin (T-17), la consulta de apuestas del panel (T-21) y la transmisión en vivo (C-14). Es la API completa de la polla: el front la consume entera (cuentas y apuestas desde T-18 a T-21, y las pantallas públicas desde T-22).
 
 ## Por qué un `package.json` propio, no workspaces de npm
 
@@ -949,6 +949,37 @@ Así, no puede cerrar un ciclo con el orden global.
 - Corrección: el caso del emoji por HTTP (jugador y equipo, alta y edición) y emojis y mitades sueltas en cada posición del corte, validados por MySQL; una edición sin cambios en cada entidad no registra nada (D-004); `admin:create` registra la creación y la promoción, no registra si no hace nada ni si falla, y deshace la creación si el registro falla (D-005); variantes de claves prohibidas; la cota binaria contra MySQL; listas anchas y 150 niveles recortados antes de la base; el plan con 60 000 registros; y que el cambio de imagen de un gol no lleve `archivo`.
 - Segunda corrección: la foto de un jugador y el escudo de un equipo que cambian después del carácter 200 (el caso del tester y cambios en las posiciones 200, 201, 204 y en el final) registran el cambio con `recortado`, y reenviar el mismo valor largo no registra; el mismo marcador registrado de nuevo no registra; postergar un partido registra solo `fechaHora`, y las altas de plantel, partido, gol y multimedia y la confirmación no llevan campos calculados; las dos listas de claves (las que se quitan y las legítimas, con la regla de las banderas); `admin:create` perdiendo una creación contra otra corrida y contra un registro, y una promoción contra otra (`tests/create-admin.test.ts` además corre dos procesos reales a la vez). `tests/catalog-names.test.ts`: surrogates sueltos y caracteres de control o invisibles en `escudo` y `foto`.
 
+## Transmisión en vivo (C-14)
+
+Módulo Informativo (`services/live-stream.service.ts`, `lib/facebook-links.ts`, `routes/live-stream.route.ts`, `schemas/live-stream.schema.ts`), D-043 y BR-058. La sección «En vivo» muestra **una sola transmisión, general**, de Facebook. Se guarda en `transmision_en_vivo`, una tabla de una sola fila (`id = 1`, EsquemaBD D23); `url` NULL es "sin transmisión".
+
+| Ruta | Qué hace |
+|---|---|
+| `GET /admin/transmision` | La transmisión ahora: `{ url, embedUrl, actualizadoEn }`. Sin query. |
+| `PUT /admin/transmision` | `{ url }` estricto: un enlace de Facebook (se normaliza) o `null` para quitarla. Devuelve lo mismo que el `GET`. |
+| `DELETE /admin/transmision` | La quita. |
+| `GET /public/transmision` | Lo mismo, sin sesión, con el `Cache-Control` corto de la API pública. Sin transmisión, `{ url: null, embedUrl: null, actualizadoEn: null }`. |
+
+Sesión de admin y CSRF en las escrituras; ninguna ruta acepta query string.
+
+**Qué enlaces se aceptan** (`parseFacebookVideo`, con la idea de `lib/video-links.ts`):
+
+- Solo `https`, sin usuario, contraseña ni puerto, en `www.facebook.com`, `facebook.com` (sin `www`, desde la corrección de C-14), `m.facebook.com` o `web.facebook.com`. El host se compara entero, nunca por sufijo: `xfacebook.com`, `facebook.com.evil.com` o `business.facebook.com` se rechazan. La forma canónica siempre usa `www.facebook.com`.
+- Formas: `/<página>/videos/<id>` (de una página o de un perfil; letras, números, puntos, guiones y guiones bajos, hasta 100; el id, hasta 25 dígitos), `/watch/?v=<id>`, `/watch/live/?v=<id>` y, desde la segunda corrección de C-14, `/reel/<id>` (Facebook publica todo video como reel). Un `v` repetido o no numérico, un video con un título en el medio (`/videos/titulo/123`, anotado en `docs/pendientes.md`), una publicación, un reel sin id o con más ruta, o el propio plugin no se aceptan.
+- **Forma canónica**, lo que se guarda: `https://www.facebook.com/<página>/videos/<id>/`, `https://www.facebook.com/watch/?v=<id>` o `https://www.facebook.com/watch/live/?v=<id>`. **Un reel se guarda como `https://www.facebook.com/watch/?v=<id>`, con el mismo id**: probado en Chrome con un reel público de NASA, el plugin con `href` = `/watch/?v=<id>` lo reprodujo sin cortes (de 0 a 4,9 s y seguía), y con `href` = `/reel/<id>/` lo cargó (720×1280, 14,5 s) pero se detuvo a los 2 s. Se descartan los demás parámetros (por ejemplo `mibextid` o el `s=fb_shorts_profile` de la pestaña de reels) y el fragmento.
+- **Los links para compartir se rechazan** (`fb.watch/...`, `facebook.com/share/v/...`, `/share/r/...`; problema `short_link`): no llevan el id del video, y resolverlos obligaría al servidor a visitarlos. El mensaje pide abrir el video y copiar el link de la barra de direcciones. **El servidor nunca visita el enlace**: una prueba falla si sale cualquier petición `https` o `fetch`.
+- Largo: lo que pasa de 2048 caracteres se rechaza sin mirarlo, y la forma canónica siempre entra en los 255 de la columna.
+- Un enlace rechazado es 400 `VALIDATION_ERROR` con `details: [{ path: "url", message }]`: un mensaje por motivo (`FACEBOOK_LINK_MESSAGES`).
+- `embedUrl` = `https://www.facebook.com/plugins/video.php?href=<canónico codificado>&show_text=false&width=560` (sin `width` el plugin dibuja un marco vacío; 560 es lo que usa el código de inserción de Facebook, y la página ajusta el iframe a 16:9). Se calcula al leer, nunca se guarda, y el front solo puede poner esa URL en su reproductor (nunca HTML del admin).
+
+**Escritura**: `runAdminAction` (`editar_transmision` o `borrar_transmision`), en una transacción que bloquea la fila (`FOR UPDATE`; si faltara, la crea antes con `INSERT IGNORE`, así el bloqueo nunca cae en un hueco). `actualizado_en` lo pone el backend, en UTC y al segundo. El mismo enlace otra vez no escribe nada, y la auditoría no registra nada (D-004), igual que quitar una transmisión que no está.
+
+**Auditoría**: `actualizacion_transmision` (detalle `{ cambios: { url: { antes, despues } } }`) y `retiro_transmision` (detalle `{ anterior }`), entidad `transmision_en_vivo`, `entidad_id` 1.
+
+**Migración**: `db/migraciones/C-14-transmision-en-vivo.sql` crea la tabla con su fila y los dos códigos (35 y 36 si están libres). Ver el README de la raíz.
+
+**Pruebas**: `tests/live-stream.test.ts` (las formas y su normalización, hosts ajenos, `http`, `fb.watch`, parámetros de más o raros, largo, sin peticiones salientes, auditoría y D-004, acceso, CSRF y query, una sola fila en la base, una auditoría que falla deshace el cambio) y `tests/migration-c14.test.ts` (la migración de verdad sobre una base propia: igual que `db/init/`, se niega si ya está aplicada o falta C-08, reintento tras un corte, tabla con un enlace cargado, ids ocupados).
+
 ## API pública (T-08)
 
 Solo lectura y **sin sesión**, bajo `/public` (se eligió `/public` porque el resto de la API tampoco lleva prefijo `/api`). Es 100 % Módulo Informativo (`services/public.service.ts`, `routes/public.route.ts`): lee deporte, competición, equipo, jugador, plantel, partido, partido_equipo, estado_partido y gol, y nada de usuarios, sesiones, monedas, apuestas ni auditoría. Una prueba revisa sus imports y otra, las claves de cada respuesta.
@@ -963,6 +994,7 @@ Solo lectura y **sin sesión**, bajo `/public` (se eligió `/public` porque el r
 | `GET /public/partidos` | Fixture paginado (BR-049), en orden de proximidad (BR-013, `lib/match-order.ts`). Filtros: `deporteId`, `competicionId`, `equipoId`, `estado`, `jornada`, `desde`, `hasta`. |
 | `GET /public/partidos/:id` | Un partido y `goles: [{ id, minuto, equipoId, jugador: { id, nombre, foto }, imagen, video }]`, por minuto. `null` si no está finalizado. |
 | `GET /public/equipos/:id` | Un equipo con `competicion`, `deporte` y `plantel: [{ jugadorId, nombre, foto, numeroCamiseta }]`, por número. |
+| `GET /public/transmision` | La transmisión en vivo (C-14): `{ url, embedUrl, actualizadoEn }`, los tres en `null` sin transmisión. Ver "Transmisión en vivo (C-14)". |
 
 Formas comunes:
 

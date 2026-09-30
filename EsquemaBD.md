@@ -7,7 +7,7 @@
 | Módulo | Contenido | Depende de |
 |---|---|---|
 | **Acceso** | Usuarios, roles, estado de validación y de pago, sesiones. | — |
-| **Informativo** | Deportes (con su perfil de estadísticas), competiciones, equipos, jugadores y sus estadísticas, partidos y goles. Es el backbone compartido: lo usa tanto la landing/fixture/posiciones como la polla. | Acceso (el admin carga resultados y goles) |
+| **Informativo** | Deportes (con su perfil de estadísticas), competiciones, equipos, jugadores y sus estadísticas, partidos y goles, y desde C-14 la transmisión en vivo. Es el backbone compartido: lo usa tanto la landing/fixture/posiciones como la polla. | Acceso (el admin carga resultados y goles) |
 | **Polla** | Tickets, selecciones y las monedas que mueven. | Acceso, Informativo |
 | **Auditoría** | Registro de operaciones administrativas relevantes (NFR-006). | Acceso (el admin que actúa); referencia libre, sin FK, a la fila afectada de cualquier módulo |
 
@@ -55,6 +55,7 @@ Decisiones que `business-rules.md` no fija y que se tomaron aquí. Las que depen
 | D20 | **Idempotencia del ticket con una clave del cliente** (T-10, BR-054). Al confirmar, el cliente manda un UUID nuevo en el header `Idempotency-Key`, y se guarda en `ticket.clave_idempotencia` con `UNIQUE(usuario_id, clave_idempotencia)`. Un doble clic, un reintento del navegador o un corte de conexión repiten la misma clave: si ya hay un ticket con esa clave y la misma `huella_solicitud` (SHA-256 de las selecciones), se devuelve ese ticket sin crear nada; con otras selecciones es 409 `IDEMPOTENCY_KEY_REUSED`. **La clave dura lo que dura el ticket**, es decir, para siempre: los tickets nunca se borran, y así un reintento tardío tampoco duplica. Se descartó deduplicar "por ventana de tiempo" o por contenido, porque dos tickets idénticos seguidos son legítimos (BR-017). Si la confirmación falla (selección inválida, saldo), no se guarda nada y la misma clave puede volver a usarse. |
 | D21 | **El estado "en curso" se calcula, no lo escribe un proceso** (T-13, decisión del usuario en BR-012). Un partido empieza solo a su `fecha_hora` y dura 60 minutos, pero nada cambia la fila en ese momento: `estado_partido_id` puede seguir en `programado`. El backend usa siempre el **estado efectivo** (`server/src/lib/match-state.ts`): `programado` con `fecha_hora <= ahora` es `en_curso`, en respuestas, filtros y reglas, con la misma condición en SQL. Se descartó un proceso programado que actualice la columna: dependería de que corra a tiempo y dejaría ventanas en las que un partido ya empezado se trate como programado. Las acciones que tocan el partido escriben el estado que implican (cargar el resultado escribe `en_curso`; confirmarlo, `finalizado`). |
 | D22 | **Estadísticas de los jugadores por deporte** (C-05, D-034 de `docs/decisiones.md`). Cada deporte apunta a un catálogo `perfil_estadistico` (`futbol`, `voley`) en vez de adivinar su juego de atributos por el nombre; fútbol y fútbol femenino comparten `futbol`. Los valores (enteros de 0 a 99) van en `plantel_estadistica`, por **inscripción** y no por persona, y se guardan todos los atributos del perfil juntos o ninguno. Sin cascada: un plantel con estadísticas no se borra, y un deporte no cambia de perfil mientras alguna inscripción suya las tenga. Las bases con datos se actualizan con `db/migraciones/C-05-estadisticas.sql`. |
+| D23 | **La transmisión en vivo es una sola fila** (C-14, D-043 de `docs/decisiones.md`). La sección «En vivo» muestra una sola transmisión general, no una por deporte ni por partido: `transmision_en_vivo` tiene exactamente una fila, `id = 1` (`ck_transmision_una_fila`), creada por `01-schema.sql`, y `url` NULL significa que no hay transmisión. Se prefirió a una variable de entorno porque el admin la cambia desde el panel, sin desplegar. El enlace se valida y se normaliza en el backend (`server/src/lib/facebook-links.ts`) y el servidor nunca lo visita; el reproductor se arma solo desde el enlace normalizado. Quién lo cambió queda en `auditoria`, no en la fila. Las bases con datos se actualizan con `db/migraciones/C-14-transmision-en-vivo.sql`. |
 
 **Resueltas el 2026-09-15 (respuesta del usuario, ya reflejada en `business-rules.md`):**
 
@@ -289,6 +290,16 @@ Una sesión iniciada (NFR-005, D18).
 - No cambia el resultado ni los puntos: se agrega o quita desde que el partido empieza, también después de confirmarlo. En un partido cancelado, no. El backend limita la cantidad por partido (20 imágenes y 10 videos).
 - Público solo con el partido finalizado y el marcador completo, como los goles (BR-049).
 
+### transmision_en_vivo — la transmisión de la sección «En vivo» (C-14, D-043)
+| Campo | Tipo | Notas |
+|---|---|---|
+| id | TINYINT UNSIGNED, PK | Siempre 1: `CHECK (id = 1)`. Una sola fila (D23). |
+| url | VARCHAR(255), opcional | El enlace **normalizado** a un video público de Facebook: `https://www.facebook.com/<página>/videos/<id>/`, `https://www.facebook.com/watch/?v=<id>` o `https://www.facebook.com/watch/live/?v=<id>`. NULL = no hay transmisión. `CHECK` de respaldo: empieza con `https://www.facebook.com/`. |
+| actualizado_en | DATETIME, opcional | UTC. Lo pone el backend al poner, cambiar o quitar el enlace; NULL si nunca se cargó. |
+
+- **Backend (C-14):** `services/live-stream.service.ts`. El admin la cambia con `PUT`/`DELETE /admin/transmision` (bloquea la fila `FOR UPDATE`; si faltara, la crea antes con `INSERT IGNORE`), con su auditoría (`actualizacion_transmision`, `retiro_transmision`, entidad `transmision_en_vivo`, `entidad_id` = 1). El mismo enlace otra vez, o quitar lo que no está, no escribe ni audita (D-004). Todos la leen con `GET /public/transmision`, que devuelve también el `embedUrl` del reproductor, calculado y nunca guardado.
+- Sin FK a `usuario`: el autor está en `auditoria`.
+
 ### Calculado, no guardado
 - **Tabla de posiciones:** a partir de `partido_equipo.goles` en partidos `finalizado`, con 3/1/0 (D8). **Backend (T-08):** `GET /public/competiciones/:id/posiciones`; orden y columnas en BR-050. Usa `fk_equipo_competicion`, el índice por equipo de `partido_equipo` y `uq_partido_equipo_lado` (revisado con `EXPLAIN`).
 - **Goleadores:** `COUNT(*)` de `gol` por jugador.
@@ -399,9 +410,9 @@ Solo los eventos de la tabla 28 que efectivamente mueven monedas; "apuesta incor
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
-| codigo | VARCHAR, único | Las 5 de NFR-006: `validacion_usuario`, `modificacion_partido`, `registro_resultado`, `confirmacion_resultado`, `cancelacion_partido`. Desde T-17, además: `confirmacion_pago`, `reversion_pago`, `creacion_administrador` y `promocion_administrador` (el comando `admin:create`, D-005), `alta_partido`, `borrado_partido`, y `alta_*`, `modificacion_*` y `borrado_*` de `deporte`, `competicion`, `equipo`, `jugador`, `plantel` y `gol`, más `alta_multimedia` y `borrado_multimedia`. Desde C-05, `registro_estadisticas_plantel` y `borrado_estadisticas_plantel` (entidad `plantel`: la inscripción sigue existiendo). Desde C-08, `restablecimiento_contrasena` (entidad `usuario`: el admin restablece la contraseña de un participante; el detalle lleva cuántas sesiones se cerraron, nunca la contraseña ni su hash). |
+| codigo | VARCHAR, único | Las 5 de NFR-006: `validacion_usuario`, `modificacion_partido`, `registro_resultado`, `confirmacion_resultado`, `cancelacion_partido`. Desde T-17, además: `confirmacion_pago`, `reversion_pago`, `creacion_administrador` y `promocion_administrador` (el comando `admin:create`, D-005), `alta_partido`, `borrado_partido`, y `alta_*`, `modificacion_*` y `borrado_*` de `deporte`, `competicion`, `equipo`, `jugador`, `plantel` y `gol`, más `alta_multimedia` y `borrado_multimedia`. Desde C-05, `registro_estadisticas_plantel` y `borrado_estadisticas_plantel` (entidad `plantel`: la inscripción sigue existiendo). Desde C-08, `restablecimiento_contrasena` (entidad `usuario`: el admin restablece la contraseña de un participante; el detalle lleva cuántas sesiones se cerraron, nunca la contraseña ni su hash). Desde C-14, `actualizacion_transmision` y `retiro_transmision` (entidad `transmision_en_vivo`, siempre la fila 1; el detalle lleva el enlace antes y después). |
 | nombre | VARCHAR | Etiqueta visible. |
-| entidad | VARCHAR | Qué tabla afecta esta acción (`usuario`, `partido`, `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `gol` o `multimedia_partido`), siempre la misma por código. |
+| entidad | VARCHAR | Qué tabla afecta esta acción (`usuario`, `partido`, `deporte`, `competicion`, `equipo`, `jugador`, `plantel`, `gol`, `multimedia_partido` o, desde C-14, `transmision_en_vivo`), siempre la misma por código. |
 
 El backend mapea cada acción de la aplicación a su código en un solo lugar (`server/src/lib/audit.ts`), y una prueba verifica que el catálogo y ese mapa coincidan.
 
@@ -505,4 +516,10 @@ erDiagram
 
   usuario ||--o{ auditoria : realiza
   accion_auditoria ||--o{ auditoria : clasifica
+
+  transmision_en_vivo {
+    TINYINT id PK "siempre 1"
+    VARCHAR url "NULL sin transmisión"
+    DATETIME actualizado_en
+  }
 ```

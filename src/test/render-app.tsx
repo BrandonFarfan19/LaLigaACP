@@ -26,6 +26,7 @@ export function renderApp(initialEntry: string) {
 					{ path: '/', Component: () => <h1>Página de inicio</h1> },
 					{ path: '/posiciones', Component: () => <h1>Página de posiciones</h1> },
 					{ path: '/plantilla/:id', Component: () => <h1>Página de plantilla</h1> },
+					{ path: '/en-vivo', Component: () => <h1>Página en vivo</h1> },
 					{ path: '/ingresar', loader: ingresarLoader, action: ingresarAction, Component: Ingresar, ErrorBoundary: RouteError },
 					{ path: '/registro', loader: registroLoader, action: registroAction, Component: Registro, ErrorBoundary: RouteError },
 					{ path: '/cuenta', loader: cuentaLoader, Component: Cuenta, ErrorBoundary: RouteError },

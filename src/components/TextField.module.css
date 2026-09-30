@@ -13,11 +13,14 @@
 	color: var(--color-text);
 }
 
+/* A long word or an example link breaks anywhere instead of widening the page
+   (C-14: a Facebook link example took 421 px at 320 px). */
 .hint {
 	margin: 0;
 	font-size: var(--text-sm);
 	line-height: 1.4;
 	color: var(--color-text-muted);
+	overflow-wrap: anywhere;
 }
 
 /* A sunken pixel frame (`.pixel-box`), 44px+ tall. 16px text keeps phones
@@ -57,6 +60,7 @@
 
 .error {
 	margin: 0;
+	overflow-wrap: anywhere;
 	font-size: var(--text-sm);
 	line-height: 1.4;
 	color: var(--color-danger);

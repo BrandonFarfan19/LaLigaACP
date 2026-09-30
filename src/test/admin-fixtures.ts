@@ -20,6 +20,7 @@ import type {
 import type { AuthUser } from '../types/api';
 import { apiRoutes, myBet } from './betting-fixtures';
 import { admin, apostador, type Handler, ok } from './fetch-mock';
+import { noLiveStream } from './live-stream-fixtures';
 
 /** Sample admin API data (T-21 tests). */
 
@@ -195,6 +196,8 @@ export function adminRoutes(extra: Record<string, Handler> = {}, user: AuthUser 
 		'GET /api/admin/polla/ranking': () => ok(pageOf([{ posicion: 1, empatados: 1, participante: { id: 21, nombre: 'Rosa' }, puntos: 6, aciertos: 2 }])),
 		'GET /api/admin/polla/apuestas': () => ok(pageOf([adminBet()])),
 		'GET /api/admin/auditoria': () => ok(pageOf([auditRecord()])),
+		// C-14: no stream by default.
+		'GET /api/admin/transmision': () => ok(noLiveStream()),
 		'GET /api/admin/deportes': () => ok(pageOf([sport, voleyball])),
 		'GET /api/admin/competiciones': () => ok(pageOf([league])),
 		'GET /api/admin/equipos': () => ok(pageOf([home, away])),

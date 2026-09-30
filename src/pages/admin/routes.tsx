@@ -31,6 +31,8 @@ export const adminRoute: RouteObject = {
 		{ path: 'apuestas', lazy: page(() => import('./ApuestasAdmin')), ErrorBoundary: RouteError },
 		{ path: 'ranking', lazy: page(() => import('./RankingAdmin')), ErrorBoundary: RouteError },
 		{ path: 'auditoria', lazy: page(() => import('./Auditoria')), ErrorBoundary: RouteError },
+		// C-14 (D-043): the link of the site's live stream.
+		{ path: 'transmision', lazy: page(() => import('./Transmision')), ErrorBoundary: RouteError },
 		...CATALOG.map((resource) => ({
 			path: resource,
 			lazy: async () => (await import('./Catalogo')).catalogRoutes[resource],

@@ -7,8 +7,8 @@ import Navbar from './Navbar';
 import SessionBar from './SessionBar';
 
 /**
- * C-02: in the navbar, **only the landing's sections** (Inicio, Fixture,
- * Posiciones) keep the site's normal colour. Everything that belongs to the
+ * C-02: in the navbar, **only the site's sections** (Inicio, Fixture,
+ * Posiciones and, since C-14, En vivo) keep the site's normal colour. Everything that belongs to the
  * pool or to the account — Polla and its links, Mi cuenta, Salir, Ingresar,
  * Crear cuenta, Admin — is gold, so the two groups never read as the same
  * thing.
@@ -40,10 +40,10 @@ describe('what is gold in the navbar (C-02)', () => {
 	it('the landing sections and the pool or account links never share a class', () => {
 		const { sections, account } = renderNavbar(apostador);
 
-		const sectionClasses = ['Inicio', 'Fixture', 'Posiciones'].map((name) => classOf(sections.getByRole('link', { name })));
+		const sectionClasses = ['Inicio', 'Fixture', 'Posiciones', 'En vivo'].map((name) => classOf(sections.getByRole('link', { name })));
 		const accountClasses = [account.getByRole('button', { name: /Polla/ }), account.getByRole('link', { name: 'Mi cuenta' }), account.getByRole('button', { name: 'Salir' })].map(classOf);
 
-		// The three sections are styled the same way as each other…
+		// The four sections are styled the same way as each other…
 		expect(new Set(sectionClasses).size).toBe(1);
 		// …the account ones too…
 		expect(new Set(accountClasses).size).toBe(1);
@@ -80,3 +80,26 @@ describe('what is gold in the navbar (C-02)', () => {
 function cleanupDom() {
 	document.body.innerHTML = '';
 }
+
+describe('«En vivo» in the site sections (C-14)', () => {
+	it('links to /en-vivo and is marked as the current page there, and only there', () => {
+		render(
+			<MemoryRouter initialEntries={['/en-vivo']}>
+				<Navbar session={bar(null)} />
+			</MemoryRouter>,
+		);
+		const sections = within(screen.getByRole('navigation', { name: 'Principal' }));
+		const live = sections.getByRole('link', { name: 'En vivo' });
+		expect(live.getAttribute('href')).toBe('/en-vivo');
+		expect(live.getAttribute('aria-current')).toBe('page');
+		expect(sections.getByRole('link', { name: 'Posiciones' }).getAttribute('aria-current')).toBeNull();
+		cleanupDom();
+
+		render(
+			<MemoryRouter initialEntries={['/posiciones']}>
+				<Navbar session={bar(null)} />
+			</MemoryRouter>,
+		);
+		expect(screen.getByRole('link', { name: 'En vivo' }).getAttribute('aria-current')).toBeNull();
+	});
+});

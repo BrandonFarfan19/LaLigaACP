@@ -14,6 +14,7 @@ export const ADMIN_SECTIONS = [
 	{ to: '/admin/equipos', label: 'Equipos' },
 	{ to: '/admin/jugadores', label: 'Jugadores' },
 	{ to: '/admin/planteles', label: 'Planteles' },
+	{ to: '/admin/transmision', label: 'Transmisión' },
 	{ to: '/admin/auditoria', label: 'Auditoría' },
 ] as const;
 

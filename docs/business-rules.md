@@ -1081,6 +1081,22 @@ Definición (T-08):
 
 ---
 
+## BR-058 – Transmisión en vivo
+
+Agregada por C-14 (D-043). La parte informativa tiene una sección **«En vivo»** en el menú, con las demás secciones del sitio, para seguir la transmisión en vivo de los partidos. Es pública: no pide sesión.
+
+* Hay **una sola transmisión, general**: no depende del deporte ni del partido.
+* La transmisión se hace por **Facebook**. El administrador pega en el panel el enlace del video en vivo, y lo puede cambiar o quitar. Cada transmisión tiene su propio enlace, así que se pega en cada transmisión.
+* La publicación del video tiene que ser **pública**, de una página o de un perfil.
+* Solo se aceptan enlaces `https` a un video de Facebook (`www.facebook.com`, `facebook.com`, `m.facebook.com` o `web.facebook.com`; se guardan con `www.`), en las formas `/<página>/videos/<id>`, `/watch/?v=<id>`, `/watch/live/?v=<id>` y `/reel/<id>` (un reel se guarda como `/watch/?v=<id>`, la forma con la que el reproductor lo pasa). El sistema los guarda en una forma única y **nunca los visita**. Los links para compartir (`fb.watch`, `facebook.com/share/...`) no llevan el número del video: se rechazan con un mensaje que pide abrir el video y copiar el link de la barra de direcciones.
+* La página muestra el reproductor de Facebook armado solo a partir del enlace guardado, nunca con código pegado por el administrador, y un enlace para abrir el video en Facebook. Sin transmisión, dice: «No hay transmisión en vivo en este momento».
+* Poner, cambiar o quitar el enlace queda en la auditoría (NFR-006). Guardar el mismo enlace otra vez, o quitar uno que no está, no registra nada.
+* En celulares el video no arranca solo, y quien mira carga contenido de Facebook.
+
+La validación se hace en el backend.
+
+---
+
 # 20. Interfaz de apuestas
 
 ## BR-051 – Filtros
@@ -1265,7 +1281,7 @@ Como mínimo:
 
 Precisiones (T-17):
 
-* Además de las cinco mínimas, se registran la creación y la promoción de administradores con el comando del servidor (D-005) y todas las escrituras del administrador: confirmar y revertir un pago; alta, modificación y borrado de partidos, deportes, competiciones, equipos, jugadores e inscripciones en planteles; alta, modificación y borrado de goles (poner o quitar la imagen o el video de un gol es una modificación), y alta y borrado de imágenes y videos del partido. Desde C-05 (D-034), también el registro y el borrado de las estadísticas de un jugador en su inscripción; guardar las mismas estadísticas otra vez no deja registro.
+* Además de las cinco mínimas, se registran la creación y la promoción de administradores con el comando del servidor (D-005) y todas las escrituras del administrador: confirmar y revertir un pago; alta, modificación y borrado de partidos, deportes, competiciones, equipos, jugadores e inscripciones en planteles; alta, modificación y borrado de goles (poner o quitar la imagen o el video de un gol es una modificación), y alta y borrado de imágenes y videos del partido. Desde C-05 (D-034), también el registro y el borrado de las estadísticas de un jugador en su inscripción; guardar las mismas estadísticas otra vez no deja registro. Desde C-14 (D-043, BR-058), poner, cambiar y quitar el enlace de la transmisión en vivo; guardar el mismo enlace otra vez no deja registro.
 * Cada registro guarda el administrador, la acción, la fecha y hora (UTC), el registro afectado y un detalle breve: los datos que cambiaron con su valor anterior y el nuevo, lo creado o lo borrado, el marcador registrado o confirmado, o las cifras de la cancelación.
 * El detalle nunca guarda contraseñas, claves, tokens, correos ni saldos, y tiene un tamaño máximo; si no entra, se guardan solo los nombres de los datos.
 * El registro se hace en la misma operación que la acción: una acción rechazada o fallida no deja registro, y si no se puede registrar, la acción no se aplica.

@@ -65,3 +65,18 @@ export interface LoginResponse extends MeResponse {
 export interface RegisterResponse {
 	user: AuthUser;
 }
+
+/**
+ * C-14 (D-043): the one live stream of the site, a public Facebook video.
+ * `GET /public/transmision`, and the admin's `GET`/`PUT`/`DELETE
+ * /admin/transmision`. With no stream every field is `null`. `embedUrl` is
+ * the only address a player may load (the backend builds it from the
+ * canonical `url`); the front never builds one.
+ */
+export interface LiveStream {
+	/** The canonical link of the Facebook video, to open it there. */
+	url: string | null;
+	embedUrl: string | null;
+	/** When the admin set it, UTC. */
+	actualizadoEn: string | null;
+}

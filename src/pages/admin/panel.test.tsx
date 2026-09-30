@@ -64,6 +64,7 @@ describe('admin panel: access and navigation (T-21)', () => {
 			'Equipos',
 			'Jugadores',
 			'Planteles',
+			'Transmisión',
 			'Auditoría',
 		]);
 		expect(within(nav).getByRole('link', { name: 'Resumen' }).getAttribute('aria-current')).toBe('page');

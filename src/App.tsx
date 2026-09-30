@@ -4,6 +4,7 @@ import Base from './layouts/Base';
 import Apuestas, { action as apuestasAction, loader as apuestasLoader, shouldRevalidate as apuestasShouldRevalidate } from './pages/Apuestas';
 import ApuestasDeTodos, { loader as apuestasDeTodosLoader, shouldRevalidate as apuestasDeTodosShouldRevalidate } from './pages/ApuestasDeTodos';
 import Cuenta, { loader as cuentaLoader } from './pages/Cuenta';
+import EnVivo, { loader as enVivoLoader } from './pages/EnVivo';
 import Home, { loader as homeLoader } from './pages/Home';
 import MisApuestas, { loader as misApuestasLoader, shouldRevalidate as misApuestasShouldRevalidate } from './pages/MisApuestas';
 import Ingresar, { action as ingresarAction, loader as ingresarLoader } from './pages/Ingresar';
@@ -35,6 +36,8 @@ export const routes: RouteObject[] = [
 			// never by the router's own bare page (T-23).
 			{ path: '/', loader: homeLoader, Component: Home, ErrorBoundary: RouteError },
 			{ path: '/posiciones', loader: posicionesLoader, Component: Posiciones, ErrorBoundary: RouteError },
+			// C-14 (D-043): the site's live stream, public.
+			{ path: '/en-vivo', loader: enVivoLoader, Component: EnVivo, ErrorBoundary: RouteError },
 			{
 				path: '/plantilla/:id',
 				loader: plantillaLoader,

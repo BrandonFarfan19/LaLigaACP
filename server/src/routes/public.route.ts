@@ -7,6 +7,7 @@ import { idParamsSchema } from '../schemas/common.schema.js';
 import { listFixtureQuery, listPublicCompetitionsQuery, noQuery } from '../schemas/public.schema.js';
 import * as publicData from '../services/public.service.js';
 import type { MediaStore } from '../services/media-storage.js';
+import { getLiveStream } from '../services/live-stream.service.js';
 import { serveImage } from '../controllers/media.controller.js';
 
 /**
@@ -21,6 +22,7 @@ import { serveImage } from '../controllers/media.controller.js';
  *   GET /public/partidos/:id                        (with goals once finalizado)
  *   GET /public/equipos/:id                         (with squad)
  *   GET /public/archivos/:nombre                    an image of a match with its official result (T-13)
+ *   GET /public/transmision                         the live stream (C-14): { url, embedUrl, actualizadoEn }, all null without one
  *
  * Its own rate limit, and `Cache-Control: public, max-age=30` on success:
  * the answers are the same for everyone and nothing in them is private.
@@ -53,6 +55,7 @@ export function createPublicRouter(pool: Pool, env: Env, store: MediaStore): Rou
 	router.get('/partidos', handler(listFixtureQuery, (q) => publicData.listFixture(pool, q)));
 	router.get('/partidos/:id', handler(noQuery, (_q, id) => publicData.getPublicMatch(pool, id)));
 	router.get('/equipos/:id', handler(noQuery, (_q, id) => publicData.getPublicTeam(pool, id)));
+	router.get('/transmision', handler(noQuery, () => getLiveStream(pool)));
 	// T-13: images of matches with an official result (the handler sets its own headers).
 	router.get('/archivos/:nombre', (req, _res, next) => {
 		noQuery.parse(req.query);

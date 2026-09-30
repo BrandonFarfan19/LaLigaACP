@@ -16,6 +16,8 @@ import spaRewrites from './vite-plugins/spa-rewrites.ts';
  */
 const SPA_ROUTES = [
 	'/posiciones',
+	// C-14: the live stream.
+	'/en-vivo',
 	'/plantilla/:id',
 	'/ingresar',
 	'/registro',
@@ -33,6 +35,8 @@ const SPA_ROUTES = [
 	'/admin/equipos',
 	'/admin/jugadores',
 	'/admin/planteles',
+	// C-14: the live stream's link.
+	'/admin/transmision',
 	'/apuestas',
 	'/apuestas/tickets/:id',
 	'/mis-apuestas',
