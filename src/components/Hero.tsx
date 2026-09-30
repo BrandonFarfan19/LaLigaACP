@@ -46,7 +46,7 @@ export default function Hero({ teams, competition }: Props) {
 					    page's notice read as if the tournament had no clubs (T-22 fix). */}
 					{teams.length > 0 && (
 						<p className={styles.lead}>
-							{teams.length === 1 ? 'El club que disputa' : `Los ${teams.length} clubes que disputan`} {competition ? `la ${competition}` : 'el torneo'}.
+							{teams.length === 1 ? 'El club que disputa' : `Los ${teams.length} clubes que disputan`} {competition ? `el ${competition}` : 'el torneo'}.
 						</p>
 					)}
 				</header>
