@@ -115,6 +115,14 @@ describe('one match (T-21)', () => {
 		expect(calls.some((c) => c.url.includes('/partidos/abc'))).toBe(false);
 	});
 
+	it('C-12: the betting close says its lead time from the API dates, never a fixed number', async () => {
+		mockFetch(adminRoutes());
+		renderApp('/admin/partidos/42');
+		const note = await screen.findByText('1 hora antes del inicio.');
+		expect(note.closest('div')!.textContent).toMatch(/Cierre de apuestas/);
+		expect(screen.queryByText(/24 horas/)).toBeNull();
+	});
+
 	it('loads and corrects the score; confirming waits for the 60 minutes and says why', async () => {
 		const { calls } = mockFetch(
 			adminRoutes({

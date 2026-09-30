@@ -11,6 +11,7 @@ import {
 	HORAS_CIERRE_APUESTAS,
 	MAX_GOLES_PRONOSTICO,
 	MAX_SELECCIONES_POR_TICKET,
+	PLAZO_CIERRE_APUESTAS,
 	resultOfScore,
 } from '../src/lib/betting.js';
 import { COSTO_POR_SELECCION } from '../src/lib/coins.js';
@@ -25,6 +26,8 @@ import { canInspectLocks, locksHeldBy } from './helpers/locks.js';
 const SECOND = 1000;
 const HOUR = 60 * 60 * SECOND;
 const DAY = 24 * HOUR;
+/** BR-014: how long before its kick-off a match stops taking bets. */
+const CLOSE = HORAS_CIERRE_APUESTAS * HOUR;
 const wholeSeconds = (ms: number) => new Date(Math.floor(ms / SECOND) * SECOND);
 
 type Session = Awaited<ReturnType<typeof signedInUser>>;
@@ -84,10 +87,13 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 		s.match.open = await insertMatch(pool, s.liga, A, B, 'programado', at(3 * DAY));
 		s.match.later = await insertMatch(pool, s.liga, B, A, 'programado', at(10 * DAY));
 		s.match.voley = await insertMatch(pool, s.ligaVoley, s.team.P!, s.team.Q!, 'programado', at(2 * DAY));
-		// Margins of five minutes around the close, for the HTTP tests (the exact edge is tested on the service).
-		s.match.justOpen = await insertMatch(pool, s.liga, A, B, 'programado', at(DAY + 5 * 60 * SECOND));
-		s.match.justClosed = await insertMatch(pool, s.liga, B, A, 'programado', at(DAY - 5 * 60 * SECOND));
-		s.match.soon = await insertMatch(pool, s.liga, A, B, 'programado', at(2 * HOUR));
+		// Margins of a few minutes around the close, for the HTTP tests (the exact edge is tested on the service).
+		s.match.justOpen = await insertMatch(pool, s.liga, A, B, 'programado', at(CLOSE + 5 * 60 * SECOND));
+		// C-12: 59 minutes before its kick-off, one minute past its close.
+		s.match.justClosed = await insertMatch(pool, s.liga, B, A, 'programado', at(CLOSE - 60 * SECOND));
+		s.match.soon = await insertMatch(pool, s.liga, A, B, 'programado', at(CLOSE / 2));
+		// C-12: 23 hours ahead was closed under the old 24-hour close; now it takes bets.
+		s.match.wasClosed = await insertMatch(pool, s.liga, B, A, 'programado', at(23 * HOUR));
 		s.match.live = await insertMatch(pool, s.liga, A, B, 'en_curso', at(-HOUR));
 		s.match.finished = await insertMatch(pool, s.liga, B, A, 'finalizado', at(-3 * DAY));
 		await pool.query('UPDATE partido_equipo SET goles = IF(es_visita, 1, 2) WHERE partido_id = ?', [s.match.finished]);
@@ -188,6 +194,7 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 				later: 'disponible',
 				voley: 'disponible',
 				justOpen: 'disponible',
+				wasClosed: 'disponible',
 				justClosed: 'cerrada',
 				soon: 'cerrada',
 				live: 'en_curso',
@@ -202,7 +209,7 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 			expect(list[0]!.id).toBe(s.match.soon);
 		});
 
-		it('each match carries its close (fechaHora - 24 h) and the forecasts its sport admits', async () => {
+		it('each match carries its close (fechaHora - HORAS_CIERRE_APUESTAS) and the forecasts its sport admits', async () => {
 			const byId = new Map((await items('?pageSize=100')).map((m) => [m.id, m]));
 			for (const m of byId.values()) {
 				expect(new Date(m.apuesta.cierre).getTime()).toBe(new Date(m.fechaHora).getTime() - HORAS_CIERRE_APUESTAS * HOUR);
@@ -227,8 +234,8 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 
 			expect(await ids(`?deporteId=${s.voley}`)).toEqual([s.match.voley]);
 			expect(await ids(`?competicionId=${s.ligaVoley}`)).toEqual([s.match.voley]);
-			expect(await ids('?estadoApuesta=disponible')).toEqual(sorted(s.match.open, s.match.later, s.match.voley, s.match.justOpen));
-			expect(await ids(`?estadoApuesta=disponible&deporteId=${s.futbol}`)).toEqual(sorted(s.match.open, s.match.later, s.match.justOpen));
+			expect(await ids('?estadoApuesta=disponible')).toEqual(sorted(s.match.open, s.match.later, s.match.voley, s.match.justOpen, s.match.wasClosed));
+			expect(await ids(`?estadoApuesta=disponible&deporteId=${s.futbol}`)).toEqual(sorted(s.match.open, s.match.later, s.match.justOpen, s.match.wasClosed));
 			expect(await ids('?estadoApuesta=cerrada')).toEqual(sorted(s.match.justClosed, s.match.soon));
 			expect(await ids('?estadoApuesta=en_curso')).toEqual([s.match.live]);
 			expect(await ids('?estadoApuesta=finalizado')).toEqual([s.match.finished]);
@@ -422,7 +429,8 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 			const [error] = res.body.data.selecciones[0].errores;
 			expect(error).toEqual({ code: 'BETTING_CLOSED', message: expect.any(String), cierre: res.body.data.selecciones[0].partido.apuesta.cierre });
 			expect(error.message).not.toMatch(/\d{4}-\d{2}-\d{2}|T\d{2}:\d{2}/);
-			expect(error.message).toContain('24 horas');
+			expect(error.message).toContain(PLAZO_CIERRE_APUESTAS);
+			expect(PLAZO_CIERRE_APUESTAS).toBe('1 hora');
 		});
 
 		it('reports every problem of a selection at once', async () => {
@@ -536,6 +544,38 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 			expect(await at(close - 1)).toEqual([]);
 			expect(await at(close)).toEqual(['BETTING_CLOSED']);
 			expect(await at(close + 1)).toEqual(['BETTING_CLOSED']);
+		});
+
+		it('C-12: the close is 1 hour before the kick-off, on the service and in the list', async () => {
+			expect(HORAS_CIERRE_APUESTAS).toBe(1);
+			const [[row]] = await pool.query<RowDataPacket[]>('SELECT fecha_hora FROM partido WHERE id = ?', [s.match.open]);
+			const kickoff = (row!.fecha_hora as Date).getTime();
+			expect(bettingCloseTime(new Date(kickoff)).getTime()).toBe(kickoff - HOUR);
+			const pick = [{ partidoId: s.match.open!, tipo: 'resultado_general' as const, pronostico: 'local_gana' as const }];
+			const codesAt = async (now: number) => (await previewTicket(pool, bettor.user.id, pick, new Date(now))).selecciones[0]!.errores.map((x) => x.code);
+			const stateAt = async (now: number) =>
+				(await listBettingMatches(pool, { page: 1, pageSize: 100 }, new Date(now))).items.find((m) => m.id === s.match.open)!.apuesta.estado;
+
+			// 1 hour and 1 second before: open.
+			expect(await codesAt(kickoff - HOUR - SECOND)).toEqual([]);
+			expect(await stateAt(kickoff - HOUR - SECOND)).toBe('disponible');
+			// Exactly 1 hour before: the close itself is already closed.
+			expect(await codesAt(kickoff - HOUR)).toEqual(['BETTING_CLOSED']);
+			expect(await stateAt(kickoff - HOUR)).toBe('cerrada');
+			// 23 hours before (closed under the old 24 hours) and 59 minutes before.
+			expect(await codesAt(kickoff - 23 * HOUR)).toEqual([]);
+			expect(await stateAt(kickoff - 23 * HOUR)).toBe('disponible');
+			expect(await codesAt(kickoff - 59 * 60 * SECOND)).toEqual(['BETTING_CLOSED']);
+		});
+
+		it('C-12: a match 59 minutes ahead is BETTING_CLOSED with its close; one 23 hours ahead takes the bet', async () => {
+			const res = await preview([general(s.match.justClosed!, 'local_gana'), general(s.match.wasClosed!, 'local_gana')]);
+			expect(res.status).toBe(200);
+			const [closed, open] = res.body.data.selecciones;
+			const kickoff = new Date(closed.partido.fechaHora).getTime();
+			expect(closed.errores).toEqual([{ code: 'BETTING_CLOSED', message: expect.any(String), cierre: new Date(kickoff - HOUR).toISOString() }]);
+			expect(open.errores).toEqual([]);
+			expect(open.partido.apuesta.estado).toBe('disponible');
 		});
 	});
 

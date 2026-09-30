@@ -1,0 +1,47 @@
+Create a polished Spanish infographic for participants of LA LIGA ACP sports prediction pool. Use case infographic-diagram. Tall portrait 1024x1792 or similar, readable on a phone, one vertical reading flow, generous spacing, concise copy. Entire visual is authentic 1990s 16-bit pixel art: crisp bitmap typography resembling Press Start 2P headings and Silkscreen body, square stepped borders, hard pixel shadows, small pixel sprites (account, coin, ticket, trophy). NO rounded shapes, blur, smooth gradients, realistic money, modern UI, fake screenshots, QR codes or invented URLs. Palette exactly navy #0b0c1a, panels #161832 and #232752, borders #4d53a6, white #f4f4fc, muted lavender #9aa0d8, green #3cf281 and gold #ffd23f. Gold for coins, green for actions. Restrained decoration, large legible text. Output a finished standalone infographic, not a photo of a poster.
+
+Content verbatim below. Organize four numbered stages, then compact extras footer. Navigation labels drawn like rectangular pixel buttons connected with arrow. Rewards as clear 3-row table with columns ACIERTO / PUNTOS / MONEDAS. Stage 3 can be larger. Keep all text accurate with accents. No additional copy.
+
+Header:
+LA LIGA ACP
+CÓMO JUGAR LA POLLA
+Tu guía para empezar
+
+01  CREA TU CUENTA
+Crear cuenta
+Regístrate con tu nombre, correo y contraseña.
+
+02  ESPERA LA APROBACIÓN
+Mi cuenta
+Coordina el pago con el organizador.
+El administrador confirma tu pago y valida tu cuenta.
+¡Recibes 10 monedas para empezar!
+
+03  HAZ TU PRONÓSTICO
+Polla → Apostar
+Elige un partido y apuesta al resultado general o al marcador exacto.
+Revisa «Tu ticket» y pulsa «Confirmar».
+1 selección = 1 moneda
+Consulta el cierre de apuestas de cada partido.
+
+04  SUMA CON CADA ACIERTO
+ACIERTО | PUNTOS | MONEDAS
+Ganador (resultado general) | +3 | +1
+Empate (resultado general) | +1 | +1
+Marcador exacto | +3 | +2
+Si fallas: 0 puntos y 0 monedas de premio.
+Se abonan al confirmarse el resultado.
+Puntos para el ranking · Monedas para apostar
+
+EXPLORA EL SISTEMA
+Polla → Mis apuestas
+Consulta tus tickets y premios.
+Polla → Ranking
+Mira tu posición.
+Polla → Apuestas de todos
+Ve los pronósticos tras confirmarse el resultado.
+Mi cuenta
+Revisa tu saldo y movimientos.
+
+Footer small but readable:
+¿Cancelan un partido? Se devuelve la moneda de cada selección pendiente.

@@ -406,7 +406,7 @@ Bajo `/admin/partidos`, con el mismo CRUD que el catálogo. Las lecturas públic
 | `fechaHora` | ISO 8601 con segundos y zona: `2026-10-01T18:00:00Z` o `2026-10-01T13:00:00-05:00`. Sin zona o con una fecha imposible da 400. Se guarda en UTC, al segundo, y tiene que ser futura. |
 | `sede` | Texto de hasta 150 caracteres, con las mismas reglas que los nombres. |
 
-La respuesta trae `{ id, competicionId, deporteId, estado, jornada, fechaHora, cierreApuestas, sede, local: { equipoId, nombre, goles }, visita: {...} }`. `cierreApuestas` es `fechaHora − 24 h` (BR-014, `lib/betting.ts`).
+La respuesta trae `{ id, competicionId, deporteId, estado, jornada, fechaHora, cierreApuestas, sede, local: { equipoId, nombre, goles }, visita: {...} }`. `cierreApuestas` es `fechaHora − HORAS_CIERRE_APUESTAS` (1 h desde C-12; eran 24 h. BR-014, `lib/betting.ts`).
 
 **Listado** (`GET /admin/partidos`):
 
@@ -725,7 +725,7 @@ Con 5000 selecciones pendientes son 8 sentencias. En la máquina de prueba, esa 
 
 **Bloqueos** (ver "Orden de bloqueo y concurrencia")
 
-- El partido ya está en `FOR UPDATE`. Un ticket nuevo lo pide en `FOR SHARE` antes de insertar sus selecciones, así que ninguna selección de este partido puede aparecer mientras tanto. Además, el partido ya no admite apuestas desde 24 h antes de su inicio.
+- El partido ya está en `FOR UPDATE`. Un ticket nuevo lo pide en `FOR SHARE` antes de insertar sus selecciones, así que ninguna selección de este partido puede aparecer mientras tanto. Además, el partido ya no admite apuestas desde 1 hora antes de su inicio (`HORAS_CIERRE_APUESTAS`).
 - Los ids se leen **sin bloqueo**. Todas las selecciones del partido se confirmaron antes de que se concediera el bloqueo del partido, y la foto de la transacción se toma después (su primera lectura común es la del partido, tras el `FOR UPDATE`).
 - El `UPDATE` va por clave primaria y vuelve a exigir `pendiente`. Solo bloquea esas filas, sin rangos de índices secundarios ni huecos. Una prueba lo revisa en `performance_schema.data_locks`, y mientras tanto otra transacción agrega una selección al mismo ticket, en otro partido, sin esperar.
 - Actualizar `estado_seleccion_id` toma un bloqueo compartido sobre la fila del catálogo (`acertada`, `no_acertada`), por la clave foránea. Los tickets toman el mismo tipo de bloqueo sobre `pendiente`, así que no chocan.
@@ -952,7 +952,7 @@ Las cinco de NFR-006 están incluidas. Una prueba verifica que `02-catalogos.sql
 - Registro de resultado: `{ marcador, anterior }`; confirmación: `{ marcador }`; cancelación: `{ estadoAnterior, selecciones, monedasDevueltas, seleccionesSinDevolucion, usuarios, tickets, ticketsAnulados }`.
 - Participantes: el estado de pago o de validación antes y después, y en la validación, las monedas asignadas y el id del movimiento. En el restablecimiento de la contraseña (C-08), solo `{ accesosCerrados }`, cuántas sesiones se cerraron: nunca la contraseña ni su hash. Nada personal: el participante es `entidad_id`.
 - **Solo campos guardados** (`soloGuardados`, segunda corrección de T-17): las filas del detalle llevan lo que la tabla guarda, nunca valores calculados ni traídos por JOIN.
-  - Partido: `id`, `competicionId`, `estado`, `jornada`, `fechaHora`, `sede` y `local`/`visita` con `equipoId` y `goles`. Sin `cierreApuestas` (es `fechaHora − 24 h`), `deporteId` ni nombres de equipos: postergar un partido deja solo `fechaHora` en `cambios`. `estado` es el efectivo (BR-012); en las filas que se registran (alta, edición, borrado) no se distingue del guardado.
+  - Partido: `id`, `competicionId`, `estado`, `jornada`, `fechaHora`, `sede` y `local`/`visita` con `equipoId` y `goles`. Sin `cierreApuestas` (es `fechaHora − HORAS_CIERRE_APUESTAS`), `deporteId` ni nombres de equipos: postergar un partido deja solo `fechaHora` en `cambios`. `estado` es el efectivo (BR-012); en las filas que se registran (alta, edición, borrado) no se distingue del guardado.
   - Gol: `id`, `partidoId`, `equipoId`, `plantelId`, `minuto`, `imagen` (la ruta de la API, nunca el nombre interno `archivo`) y `video` (el enlace guardado). Sin `lado`, sin el nombre del jugador y sin `embedUrl` ni `plataforma`.
   - Multimedia: `id`, `imagen` o `video` (el enlace guardado) y `creadoEn`. Plantel: sin `jugadorNombre`.
   - La confirmación ya no guarda `resultado`: se deriva del marcador (BR-029) y nunca se guarda.
@@ -1096,7 +1096,7 @@ Sin sesión, las dos rutas dan 401. La vista previa usa `requireAuth, requireBet
 
 **Estado de apuesta (BR-052, `lib/betting.ts` `bettingState`)**: `disponible` (programado y antes del cierre), `cerrada` (programado y con el cierre ya pasado), `en_curso`, `finalizado` o `cancelado`. Solo `disponible` acepta selecciones.
 
-**Cierre (BR-014)**: `cierre = fechaHora - HORAS_CIERRE_APUESTAS`. `isBeforeBettingClose(fechaHora, ahora)` (`ahora < cierre`) es la única comparación, y la usan T-07 (para pasar a `en_curso`) y T-09. El instante exacto del cierre ya está cerrado. En SQL, el filtro `estadoApuesta` usa `fecha_hora > openKickoffsAfter(ahora)`, que trunca al segundo para dar exactamente el mismo resultado (las fechas se guardan en segundos enteros).
+**Cierre (BR-014)**: `cierre = fechaHora - HORAS_CIERRE_APUESTAS` (1 hora desde C-12; eran 24). `isBeforeBettingClose(fechaHora, ahora)` (`ahora < cierre`) es la única comparación, y la usan T-07 (para pasar a `en_curso`) y T-09. El instante exacto del cierre ya está cerrado. En SQL, el filtro `estadoApuesta` usa `fecha_hora > openKickoffsAfter(ahora)`, que trunca al segundo para dar exactamente el mismo resultado (las fechas se guardan en segundos enteros).
 
 **`pronosticosAdmitidos`** (según el deporte, aunque el partido ya no esté disponible):
 

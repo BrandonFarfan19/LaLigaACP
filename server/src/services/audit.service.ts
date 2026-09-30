@@ -110,7 +110,7 @@ const valuesOf = (value: unknown) => ((value as { valores?: Record<string, numbe
 
 /**
  * Only the fields each row stores (second fix of T-17): no calculated or
- * joined values such as a match's `cierreApuestas` (fechaHora − 24 h), its
+ * joined values such as a match's `cierreApuestas` (fechaHora − HORAS_CIERRE_APUESTAS), its
  * `deporteId` or team names, a goal's `lado` or player name, or a video's
  * `embedUrl`. A match's `estado` is the effective one (BR-012); in every
  * snapshot that is recorded (created, edited, deleted) it can't differ from

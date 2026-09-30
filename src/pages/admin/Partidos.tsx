@@ -277,7 +277,7 @@ export function MatchFields({
 					type="datetime-local"
 					defaultValue={initial?.fecha ?? ''}
 					error={errors.fechaHora}
-					hint="Tiene que ser futura. Las apuestas cierran 24 horas antes."
+					hint="Tiene que ser futura. Las apuestas cierran antes del inicio: el partido muestra su hora de cierre."
 				/>
 			)}
 			<TextField label="Sede" name="sede" defaultValue={initial?.sede ?? ''} error={errors.sede} hint="Hasta 150 caracteres." autoComplete="off" />

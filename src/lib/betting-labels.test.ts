@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { coinsText, forecastLabel, forecastValue } from './betting-labels';
+import { BETTING_STATE_HINT, closeLeadNote, coinsText, forecastLabel, forecastValue } from './betting-labels';
 
 describe('betting labels', () => {
 	it('coins in singular or plural, negative balances included', () => {
@@ -13,5 +13,18 @@ describe('betting labels', () => {
 		expect(forecastLabel(score, 'A', 'B')).toBe('Marcador 3 - 1');
 		expect(forecastValue(win, 'A', 'B')).toBe('Gana B');
 		expect(forecastLabel(win, 'A', 'B')).toBe('Gana B');
+	});
+
+	it('C-12: the close lead time comes from the API dates, never a fixed number', () => {
+		const kickoff = '2026-10-01T20:00:00.000Z';
+		expect(closeLeadNote(kickoff, '2026-10-01T19:00:00.000Z')).toBe('1 hora antes del inicio.');
+		expect(closeLeadNote(kickoff, '2026-09-30T20:00:00.000Z')).toBe('24 horas antes del inicio.');
+		expect(closeLeadNote(kickoff, '2026-10-01T19:30:00.000Z')).toBe('30 minutos antes del inicio.');
+		expect(closeLeadNote(kickoff, kickoff)).toBeUndefined();
+		expect(closeLeadNote(kickoff, 'x')).toBeUndefined();
+	});
+
+	it('C-12: no state hint repeats the close lead time', () => {
+		for (const hint of Object.values(BETTING_STATE_HINT)) expect(hint).not.toMatch(/\d+ horas?/);
 	});
 });

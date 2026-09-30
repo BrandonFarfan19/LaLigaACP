@@ -4,7 +4,7 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { transactionStats } from '../src/db/transaction.js';
-import { bettingCloseTime, ticketState } from '../src/lib/betting.js';
+import { bettingCloseTime, HORAS_CIERRE_APUESTAS, ticketState } from '../src/lib/betting.js';
 import { COSTO_POR_SELECCION, MONEDAS_POR_VALIDACION } from '../src/lib/coins.js';
 import { applyCoinMovementsInTransaction } from '../src/services/coins.service.js';
 import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
@@ -84,7 +84,8 @@ describe('ticket confirmation (T-10: BR-019 to BR-025, BR-053, BR-054)', () => {
 			open: await insertMatch(pool, liga, A, B, 'programado', wholeSeconds(now + 3 * DAY)),
 			later: await insertMatch(pool, liga, B, A, 'programado', wholeSeconds(now + 5 * DAY)),
 			voley: await insertMatch(pool, ligaVoley, P, Q, 'programado', wholeSeconds(now + 2 * DAY)),
-			closed: await insertMatch(pool, liga, A, B, 'programado', wholeSeconds(now + 2 * HOUR)),
+			// C-12: 59 minutes before its kick-off, a minute past its close.
+			closed: await insertMatch(pool, liga, A, B, 'programado', wholeSeconds(now + HORAS_CIERRE_APUESTAS * HOUR - 60 * 1000)),
 			live: await insertMatch(pool, liga, B, A, 'en_curso', wholeSeconds(now - HOUR)),
 			cancelled: await insertMatch(pool, liga, A, B, 'cancelado', wholeSeconds(now + 4 * DAY)),
 		};

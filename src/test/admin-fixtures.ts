@@ -98,7 +98,7 @@ export const adminMatch = (overrides: Partial<AdminMatch> = {}): AdminMatch => (
 	estado: 'en_curso',
 	jornada: 3,
 	fechaHora: '2026-09-17T15:00:00.000Z',
-	cierreApuestas: '2026-09-16T15:00:00.000Z',
+	cierreApuestas: '2026-09-17T14:00:00.000Z',
 	sede: 'Estadio Norte',
 	local: { equipoId: 100, nombre: 'Halcones', goles: null },
 	visita: { equipoId: 101, nombre: 'Pumas', goles: null },

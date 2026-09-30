@@ -631,7 +631,7 @@ docker compose exec server npm run seed:dev -- --yes-dev-data   # (y seed:dev:cl
 3. La bandera `--yes-dev-data` en la línea de comandos.
 
 
-- Carga 3 deportes ficticios (Fútbol con empate, Vóley y Básquet sin empate), sus competiciones, 8 equipos con 3 jugadores cada uno y 14 partidos en todos los estados de apuesta: disponibles, cerrados (a menos de 24 h), en curso, finalizados con resultado y cancelados (desde T-21, uno empezó hace 2 horas y espera que el admin confirme su resultado). Desde T-20 carga también 7 tickets con selecciones pendientes, acertadas, no acertadas y una anulada con su devolución (con los movimientos de monedas reales), y un ranking con empates: Ana y Carla comparten el primer puesto. Las fechas se calculan desde el momento en que se corre: si pasaron horas, conviene volver a correrlo.
+- Carga 3 deportes ficticios (Fútbol con empate, Vóley y Básquet sin empate), sus competiciones, 8 equipos con 3 jugadores cada uno y 14 partidos en todos los estados de apuesta: disponibles, cerrados (a menos de 1 h, el plazo de cierre, y sin empezar), en curso, finalizados con resultado y cancelados (desde T-21, uno empezó hace 2 horas y espera que el admin confirme su resultado). Desde T-20 carga también 7 tickets con selecciones pendientes, acertadas, no acertadas y una anulada con su devolución (con los movimientos de monedas reales), y un ranking con empates: Ana y Carla comparten el primer puesto. Las fechas se calculan desde el momento en que se corre: si pasaron horas, conviene volver a correrlo.
 - **Cuentas de ejemplo, solo para desarrollo** (nunca en otro ambiente):
 
   | Correo | Contraseña | Cuenta |

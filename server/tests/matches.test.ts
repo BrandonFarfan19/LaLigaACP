@@ -5,7 +5,9 @@ import type { Express } from 'express';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { HORAS_CIERRE_APUESTAS } from '../src/lib/betting.js';
 import { compareByProximity } from '../src/lib/match-order.js';
+import { listBettingMatches } from '../src/services/betting.service.js';
 import { createTestApp } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertDrawBet, insertGoal, insertMatch, teamBody } from './helpers/catalog.js';
@@ -89,7 +91,7 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 				estado: 'programado',
 				jornada: 1,
 				fechaHora: new Date(fechaHora).toISOString(),
-				cierreApuestas: new Date(Date.parse(fechaHora) - DAY).toISOString(),
+				cierreApuestas: new Date(Date.parse(fechaHora) - HORAS_CIERRE_APUESTAS * HOUR).toISOString(),
 				sede: 'Estadio Nacional',
 				local: { equipoId: ids.a, nombre: 'Alianza', goles: null },
 				visita: { equipoId: ids.b, nombre: 'Boca', goles: null },
@@ -98,6 +100,16 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 				{ equipoId: ids.a, competicionId: ids.comp, visita: false, goles: null },
 				{ equipoId: ids.b, competicionId: ids.comp, visita: true, goles: null },
 			]);
+		});
+
+		it('C-12: a match created less than 1 hour ahead is born closed; one created 2 hours ahead takes bets', async () => {
+			const soon = await createMatch({ fechaHora: inMs(HORAS_CIERRE_APUESTAS * HOUR - 10 * 60 * 1000) });
+			const later = await createMatch({ fechaHora: inMs(2 * HOUR), localId: ids.b, visitaId: ids.c });
+			const list = await listBettingMatches(pool, { page: 1, pageSize: 100 }, new Date());
+			const state = (id: number) => list.items.find((m) => m.id === id)!.apuesta.estado;
+
+			expect(state(soon.id)).toBe('cerrada');
+			expect(state(later.id)).toBe('disponible');
 		});
 
 		it('stores the instant in UTC, whatever the offset sent, to the second', async () => {
@@ -362,7 +374,7 @@ describe('admin: partidos (BR-011 to BR-014)', () => {
 				const res = await api.patch(`/partidos/${id}`, { fechaHora: later });
 				expect(res.status).toBe(200);
 				// The betting close moves with it.
-				expect(res.body.data.cierreApuestas).toBe(new Date(Date.parse(later) - DAY).toISOString());
+				expect(res.body.data.cierreApuestas).toBe(new Date(Date.parse(later) - HORAS_CIERRE_APUESTAS * HOUR).toISOString());
 			});
 
 			it('venue and jornada still change; without bets, bringing the date forward is fine', async () => {

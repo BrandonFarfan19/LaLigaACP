@@ -13,7 +13,7 @@ export const BETTING_STATE_LABEL: Record<BettingState, string> = {
 /** A longer explanation, read with the state. */
 export const BETTING_STATE_HINT: Record<BettingState, string> = {
 	disponible: 'Puedes apostar hasta el cierre.',
-	cerrada: 'Las apuestas cerraron 24 horas antes del inicio.',
+	cerrada: 'Ya pasó el cierre de apuestas de este partido.',
 	en_curso: 'El partido ya empezó: no recibe apuestas.',
 	finalizado: 'El partido terminó.',
 	cancelado: 'El partido fue cancelado: sus apuestas se anularon y se devolvieron sus monedas.',
@@ -64,3 +64,16 @@ export function forecastLabel(input: Forecast, local: string, visita: string): s
 }
 
 export const coinsText = (n: number) => `${n} ${Math.abs(n) === 1 ? 'moneda' : 'monedas'}`;
+
+/**
+ * How long before the kick-off bets close, in words, read from the API's own
+ * dates (BR-014, C-12): the front never writes the number itself. `undefined`
+ * when the dates don't give a whole number of minutes ahead.
+ */
+export function closeLeadNote(fechaHora: string, cierre: string): string | undefined {
+	const minutes = (Date.parse(fechaHora) - Date.parse(cierre)) / 60_000;
+	if (!Number.isInteger(minutes) || minutes <= 0) return undefined;
+	const hours = minutes / 60;
+	const amount = Number.isInteger(hours) ? `${hours} ${hours === 1 ? 'hora' : 'horas'}` : `${minutes} minutos`;
+	return `${amount} antes del inicio.`;
+}

@@ -349,7 +349,7 @@ Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general
 | puntos_obtenidos | SMALLINT UNSIGNED, opcional | Vacío hasta liquidar. Ver D13. |
 
 - `CHECK`: exactamente una de las dos formas de pronóstico tiene valor (igual patrón que la vieja `ck_mercado_objetivo`, sin depender de otra tabla).
-- **Backend:** que la forma usada corresponda al `tipo_apuesta` (por `codigo`), que el partido esté `programado` y dentro del plazo (BR-014, `fecha_hora − 24h`), y que el costo de 1 moneda (D11) no supere el saldo (BR-021).
+- **Backend:** que la forma usada corresponda al `tipo_apuesta` (por `codigo`), que el partido esté `programado` y dentro del plazo (BR-014, `fecha_hora − 1h` desde C-12; eran 24 h), y que el costo de 1 moneda (D11) no supere el saldo (BR-021).
 - `CHECK (puntos_obtenidos IN (0, 1, 3))`: son los únicos valores que produce la tabla de puntuación (BR-035 a BR-038).
 - Índice `idx_seleccion_ticket_estado (ticket_id, estado_seleccion_id, puntos_obtenidos)` (T-11): calcula el estado, las monedas y los puntos de cada ticket leyendo solo el índice. También es el índice de la FK a `ticket`, que antes tenía uno propio. Con 1000 tickets y 3000 selecciones de un usuario, la página de "Mis apuestas" pasó de unos 28 ms a 16 ms, y el resumen de 21 ms a 12 ms.
 - Índice `idx_seleccion_partido_estado (partido_id, estado_seleccion_id)` (T-14): las selecciones pendientes de un partido, que se liquidan al confirmar su resultado y que cuenta su vista previa. También es el índice de la FK a `partido`, que antes tenía uno propio (`fk_seleccion_partido`). Con 5000 selecciones pendientes en un partido, la liquidación hace 8 sentencias.
@@ -414,7 +414,7 @@ El backend mapea cada acción de la aplicación a su código en un solo lugar (`
 
 ## Reglas del backend
 
-**Cierre de apuestas a un partido (BR-014).** Se aceptan selecciones nuevas mientras `ahora < partido.fecha_hora − 24h` y `partido.estado_partido = programado` (BR-012).
+**Cierre de apuestas a un partido (BR-014).** Se aceptan selecciones nuevas mientras `ahora < partido.fecha_hora − 1h` (C-12; eran 24 h, el número vive solo en `HORAS_CIERRE_APUESTAS`) y `partido.estado_partido = programado` (BR-012).
 
 **Puntos de una selección (BR-035 a BR-038), evaluados por separado al confirmar el resultado:**
 

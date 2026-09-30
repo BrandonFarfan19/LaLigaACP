@@ -1,0 +1,11 @@
+Edit the referenced Spanish pixel art infographic. Preserve the design, colors, pixel typography, header, sections 01,02,03 and EXPLORA EL SISTEMA exactly. Make ONLY these content edits:
+In section 04 SUMA CON CADA ACIERTO, replace the table with TWO columns ACIERTO and PUNTOS and only TWO rows:
+Resultado general | +3 si aciertas ganador / +1 si aciertas empate
+Marcador exacto | +3
+The first row must have a single label Resultado general; the points cell can use two lines to clearly distinguish the points. Do not falsely imply a correct draw yields 3 points.
+Remove every mention of monedas from section 04 only, including column and explanatory text. Below the table put precisely:
+"Si fallas: 0 puntos."
+"Se suman al confirmarse el resultado."
+"Puntos para el ranking"
+Keep trophy illustration, make this revised table clean, spacious, legible.
+Completely remove the bottom strip beginning ¿Cancelan un partido? and its icon and explanation. Finish the poster directly after EXPLORA EL SISTEMA with a neat pixel border, no empty footer space. All other content stays the same, including the 10 monedas in section 02, 1 selección = 1 moneda in section 03, and all four navigation tiles in EXPLORA EL SISTEMA.

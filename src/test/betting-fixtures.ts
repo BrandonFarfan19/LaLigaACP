@@ -29,7 +29,7 @@ export function bettingMatch(overrides: { estado?: BettingState; sport?: ApiSpor
 	// A score is public only with the official result: finished and both sides loaded.
 	const official = matchState === 'finalizado' && overrides.goles ? overrides.goles : null;
 	const fechaHora = started ? '2026-09-16T01:00:00.000Z' : '2026-10-03T01:00:00.000Z';
-	const cierre = started ? '2026-09-15T01:00:00.000Z' : '2026-10-02T01:00:00.000Z';
+	const cierre = started ? '2026-09-16T00:00:00.000Z' : '2026-10-03T00:00:00.000Z';
 	return {
 		id,
 		competicion: { id: 10, nombre: sport === voley ? 'Copa Vóley' : 'Liga', slug: 'liga' },
@@ -82,7 +82,7 @@ export function evaluationFor(selecciones: unknown[], saldo: number, errores: Re
 				costo: 1,
 				valida: !(indice in errores),
 				// The backend's own message and its `cierre` (`services/betting.service.ts`).
-				errores: indice in errores ? [{ code: 'BETTING_CLOSED', message: errores[indice]!, cierre: partidos.find((m) => m.id === input.partidoId)?.apuesta.cierre ?? '2026-10-02T01:00:00.000Z' }] : [],
+				errores: indice in errores ? [{ code: 'BETTING_CLOSED', message: errores[indice]!, cierre: partidos.find((m) => m.id === input.partidoId)?.apuesta.cierre ?? '2026-10-03T00:00:00.000Z' }] : [],
 				repiteA: null,
 				partido: partidos.find((match) => match.id === input.partidoId) ?? bettingMatch({ id: input.partidoId }),
 			};

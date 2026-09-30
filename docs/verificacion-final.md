@@ -47,7 +47,7 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
-| **BR-014** Fecha límite (24 h) | `lib/betting.ts` (`bettingCloseTime`, `isBeforeBettingClose`), comprobado en la vista previa y en la confirmación con el partido bloqueado | `betting.test.ts`, `tickets.test.ts`, `match-state.test.ts` | Cumplida |
+| **BR-014** Fecha límite (1 h desde C-12) | `lib/betting.ts` (`HORAS_CIERRE_APUESTAS`, `bettingCloseTime`, `isBeforeBettingClose`), comprobado en la vista previa y en la confirmación con el partido bloqueado | `betting.test.ts` (bordes de 1 h, 1 h y 1 s, 59 min y 23 h), `tickets.test.ts`, `matches.test.ts` (nace cerrado), `match-state.test.ts` | Cumplida |
 | **BR-015** Resultado general | `resultado_general` (`local_gana`, `empate`, `visitante_gana`); el empate solo con `deporte.permite_empate`, leído con bloqueo en la misma transacción | `betting.test.ts`, `catalog-sports.test.ts` | Cumplida |
 | **BR-016** Marcador exacto | `tipo_apuesta = marcador_exacto`, goles enteros de 0 a 999 (`MAX_GOLES_PRONOSTICO`) | `betting.test.ts` | Cumplida |
 | **BR-017** Varias apuestas por partido | Sin `UNIQUE` que las agrupe; repetidas permitidas y marcadas con `repiteA` | `betting.test.ts`, `tickets.test.ts` | Cumplida |

@@ -113,7 +113,7 @@ export interface AdminMatch {
 	estado: MatchState;
 	jornada: number;
 	fechaHora: string;
-	/** `fechaHora − 24 h` (BR-014). */
+	/** `fechaHora −` the backend's `HORAS_CIERRE_APUESTAS` (1 h since C-12, BR-014). */
 	cierreApuestas: string;
 	sede: string;
 	local: AdminMatchSide;

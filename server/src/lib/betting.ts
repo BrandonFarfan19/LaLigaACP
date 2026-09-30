@@ -6,12 +6,19 @@ import type { MatchState } from './match-state.js';
  * defined once. Services import them; tests assert against them.
  */
 
-/** BR-014: bets on a match close this many hours before its scheduled start. */
-export const HORAS_CIERRE_APUESTAS = 24;
+/**
+ * BR-014: bets on a match close this many hours before its scheduled start
+ * (1 since C-12, D-041; it was 24). The only place with the number: every
+ * close, SQL filter and message comes from it.
+ */
+export const HORAS_CIERRE_APUESTAS = 1;
 
 const MS_CIERRE = HORAS_CIERRE_APUESTAS * 60 * 60 * 1000;
 
-/** `fecha_cierre = fecha_inicio_partido - 24 horas` (BR-014). */
+/** The close's lead time in words, for messages: `1 hora`, `2 horas`. */
+export const PLAZO_CIERRE_APUESTAS = `${HORAS_CIERRE_APUESTAS} ${HORAS_CIERRE_APUESTAS === 1 ? 'hora' : 'horas'}`;
+
+/** `fecha_cierre = fecha_inicio_partido - HORAS_CIERRE_APUESTAS` (BR-014). */
 export function bettingCloseTime(fechaHora: Date): Date {
 	return new Date(fechaHora.getTime() - MS_CIERRE);
 }
@@ -29,7 +36,8 @@ export function isBeforeBettingClose(fechaHora: Date, now: Date): boolean {
  * The same test in SQL: a match (whose `fecha_hora` is stored in whole
  * seconds) is before its close exactly when `fecha_hora > <this value>`.
  * Truncated to the second so MySQL never has to round a fraction: for a
- * whole-second F, `now + 24 h < F` holds exactly when `floor(now + 24 h) < F`.
+ * whole-second F, `now + cierre < F` holds exactly when `floor(now + cierre) < F`,
+ * where `cierre` is `HORAS_CIERRE_APUESTAS`.
  */
 export function openKickoffsAfter(now: Date): Date {
 	return new Date(Math.floor((now.getTime() + MS_CIERRE) / 1000) * 1000);

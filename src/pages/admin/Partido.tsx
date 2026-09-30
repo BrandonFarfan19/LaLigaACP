@@ -54,7 +54,7 @@ import {
 import { useRememberedNavigate } from '../../hooks/useRequestedPath';
 import { fixedSource } from '../../lib/admin-choices';
 import { loadAdmin } from '../../lib/admin-load';
-import { resultLabel } from '../../lib/betting-labels';
+import { closeLeadNote, resultLabel } from '../../lib/betting-labels';
 import { positiveInt } from '../../lib/betting';
 import type { AdminEnrollment, AdminGoal, AdminMatch, CancellationPreview, MatchMedia, PrizesPaid, ResultPreview, VideoLink } from '../../types/admin';
 import shared from '../Apuestas.module.css';
@@ -357,7 +357,7 @@ function MatchData({ data }: { data: Data }) {
 					}
 				/>
 				<Stat label="Inicio (Lima)" value={leagueDateTime(partido.fechaHora)} />
-				<Stat label="Cierre de apuestas" value={leagueDateTime(partido.cierreApuestas)} note="24 horas antes del inicio." />
+				<Stat label="Cierre de apuestas" value={leagueDateTime(partido.cierreApuestas)} note={closeLeadNote(partido.fechaHora, partido.cierreApuestas)} />
 			</dl>
 			<p className={styles.muted}>{STATE_NOTE[partido.estado]}</p>
 

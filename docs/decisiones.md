@@ -474,3 +474,14 @@ Formato de cada entrada:
   - **Posiciones:** cada grupo numera desde 1, respetando el orden que ya envía la API (BR-050). No se recalcula nada.
   - **Qué no cambia:** la API, el esquema y el cálculo de la tabla. Es un agrupamiento de presentación. Si algún día los grupos tienen que ser datos que el admin pueda cambiar, hará falta una columna en el esquema; queda anotado en `docs/pendientes.md`.
 - **Dónde quedó aplicada:** C-11.
+
+## D-041 · 2026-09-29 · C-12 — Las apuestas cierran 1 hora antes del partido, no 24
+
+- **Qué pidió el usuario:** que el tiempo máximo para apostar sea **una hora** antes del comienzo del partido, en lugar de las 24 horas de BR-014. El cambio se aplica aunque ya existan apuestas, porque todavía no empezó ningún partido. El usuario pidió asumir la opción recomendada en cualquier duda.
+- **Lo que decidió el coordinador, con la opción recomendada en cada punto:**
+  - **La regla:** `cierre = fecha_hora del partido − 1 hora`. El instante del cierre ya está cerrado, como hoy (`isBeforeBettingClose`). Solo se admite apostar mientras el partido está `programado` (BR-014 no cambia en eso).
+  - **Apuestas existentes:** no se tocan. El cierre se calcula al leer y nunca se guarda, así que no hay nada que migrar. Los partidos que hoy están a menos de 24 horas y a más de 1 hora **se vuelven a abrir** para apostar; es la consecuencia buscada.
+  - **Partidos creados con poca anticipación:** un partido creado a menos de 1 hora de su inicio nace cerrado (antes era a menos de 24).
+  - **Dónde vive el número:** solo en `HORAS_CIERRE_APUESTAS` de `server/src/lib/betting.ts`. El front no repite el número en ningún texto: lo toma de la API o lo dice de forma general.
+  - **Reglas de negocio:** se actualizan BR-014 y todo texto o tabla de `docs/business-rules.md`, `docs/verificacion-final.md` y la documentación que diga 24 horas.
+- **Dónde quedó aplicada:** C-12.

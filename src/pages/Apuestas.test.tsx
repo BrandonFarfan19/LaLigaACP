@@ -59,7 +59,7 @@ describe('betting screen (T-19)', () => {
 		// The finished match shows its score; kick-off and close in Lima time.
 		expect(within(card(/Linces/)).getByText('2 - 1')).toBeTruthy();
 		expect(within(card(/Halcones/)).getByText('02 oct · 20:00')).toBeTruthy();
-		expect(within(card(/Halcones/)).getByText('01 oct · 20:00')).toBeTruthy();
+		expect(within(card(/Halcones/)).getByText('02 oct · 19:00')).toBeTruthy();
 		// Crests only as small <img>, pixelated, from the site root.
 		const img = card(/Halcones/).querySelector('img')!;
 		expect(img.getAttribute('src')).toBe('/favicon.png');
@@ -238,7 +238,7 @@ describe('betting screen (T-19)', () => {
 	it('409 TICKET_REJECTED shows each selection problem next to it and keeps the ticket', async () => {
 		const { calls } = bettorApi({
 			'POST /api/apuestas/tickets': ({ body }) =>
-				fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, 10, { 1: 'Las apuestas para este partido ya cerraron (cierran 24 horas antes del inicio).' }, ALL)),
+				fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, 10, { 1: 'Las apuestas para este partido ya cerraron (cierran 1 hora antes del inicio).' }, ALL)),
 		});
 		renderApp('/apuestas');
 		const user = userEvent.setup();
@@ -454,7 +454,7 @@ describe('betting screen, T-19 fixes', () => {
 			'GET /api/apuestas/partidos': () => (listFails ? fail(429, 'RATE_LIMITED', 'x', { limite: 'general' }, { 'Retry-After': '120' }) : ok(page(ALL))),
 			'POST /api/apuestas/tickets': ({ body }) => {
 				listFails = true;
-				return fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, 10, { 0: 'Las apuestas para este partido ya cerraron (cierran 24 horas antes del inicio).' }, ALL));
+				return fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, 10, { 0: 'Las apuestas para este partido ya cerraron (cierran 1 hora antes del inicio).' }, ALL));
 			},
 		});
 		renderApp('/apuestas');

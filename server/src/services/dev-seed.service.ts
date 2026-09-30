@@ -224,6 +224,8 @@ interface MatchSeed {
 
 const HOUR = 60;
 const DAY = 24 * HOUR;
+/** Minutes from now to the betting close (BR-014): a match starting sooner is closed but not started yet. */
+const CLOSED_IN = HORAS_CIERRE_APUESTAS * HOUR;
 
 /** One match per betting state (BR-052) and then some, in the three sports. */
 const MATCHES: MatchSeed[] = [
@@ -232,13 +234,13 @@ const MATCHES: MatchSeed[] = [
 	{ sport: 0, local: 2, visita: 3, jornada: 1, minutes: -3 * DAY + 2 * HOUR, estado: 'finalizado', goles: [1, 1], sede: 'Estadio Demo Sur' },
 	{ sport: 0, local: 1, visita: 2, jornada: 2, minutes: -30, estado: 'programado', sede: 'Estadio Demo Norte' },
 	{ sport: 0, local: 3, visita: 0, jornada: 2, minutes: 2 * DAY, estado: 'cancelado', sede: 'Estadio Demo Sur' },
-	{ sport: 0, local: 0, visita: 2, jornada: 3, minutes: 6 * HOUR, estado: 'programado', sede: 'Estadio Demo Norte' },
+	{ sport: 0, local: 0, visita: 2, jornada: 3, minutes: CLOSED_IN - 20, estado: 'programado', sede: 'Estadio Demo Norte' },
 	{ sport: 0, local: 1, visita: 3, jornada: 3, minutes: 2 * DAY + 3 * HOUR, estado: 'programado', sede: 'Estadio Demo Sur' },
 	{ sport: 0, local: 2, visita: 0, jornada: 4, minutes: 4 * DAY, estado: 'programado', sede: 'Estadio Demo Norte' },
 	{ sport: 0, local: 3, visita: 1, jornada: 4, minutes: 7 * DAY, estado: 'programado', sede: 'Estadio Demo Sur' },
 	// Vóley (no draws): finished, closed, open.
 	{ sport: 1, local: 0, visita: 1, jornada: 1, minutes: -2 * DAY, estado: 'finalizado', goles: [3, 1], sede: 'Coliseo Demo' },
-	{ sport: 1, local: 1, visita: 0, jornada: 2, minutes: 12 * HOUR, estado: 'programado', sede: 'Coliseo Demo' },
+	{ sport: 1, local: 1, visita: 0, jornada: 2, minutes: CLOSED_IN - 15, estado: 'programado', sede: 'Coliseo Demo' },
 	{ sport: 1, local: 0, visita: 1, jornada: 3, minutes: 3 * DAY, estado: 'programado', sede: 'Coliseo Demo' },
 	// Básquet (no draws): in progress, open.
 	{ sport: 2, local: 0, visita: 1, jornada: 1, minutes: -20, estado: 'programado', sede: 'Arena Demo' },
@@ -415,7 +417,8 @@ async function collisions(conn: TransactionConnection): Promise<string[]> {
 /**
  * Loads the sample data, replacing any earlier sample data (repeatable).
  * `now` anchors the match dates, so every betting state exists right after
- * seeding (open matches start at least 2 days later, closed ones within 24 h).
+ * seeding (open matches start at least 2 days later, closed ones within
+ * `HORAS_CIERRE_APUESTAS`, not started yet).
  */
 export async function seedDevData(pool: Pool, now: Date = new Date()): Promise<SeedSummary> {
 	// Hashing is slow: done before the transaction.

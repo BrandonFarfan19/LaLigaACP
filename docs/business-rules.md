@@ -302,11 +302,11 @@ Definición precisa (T-07), la misma en todas esas vistas:
 
 ## BR-014 – Fecha límite
 
-Las apuestas estarán disponibles únicamente hasta 24 horas antes del inicio programado del partido.
+Las apuestas estarán disponibles únicamente hasta 1 hora antes del inicio programado del partido.
 
 Regla:
 
-`fecha_cierre = fecha_inicio_partido - 24 horas`
+`fecha_cierre = fecha_inicio_partido - 1 hora`
 
 Una vez alcanzado el cierre:
 
@@ -316,7 +316,9 @@ Una vez alcanzado el cierre:
 
 La validación deberá realizarse obligatoriamente en backend.
 
-Precisión (T-08): un partido creado a menos de 24 horas de su inicio nace con las apuestas ya cerradas, porque su cierre ya pasó.
+Precisión (T-08): un partido creado a menos de 1 hora de su inicio nace con las apuestas ya cerradas, porque su cierre ya pasó.
+
+Precisión (C-12, D-041): el plazo era de 24 horas y pasó a 1 hora. El cierre se calcula al leer y nunca se guarda, así que el cambio vale también para los partidos y las apuestas que ya existían: un partido que estaba a menos de 24 horas y a más de 1 hora de su inicio vuelve a recibir apuestas, y las apuestas ya hechas no cambian.
 
 Precisión (T-13): entre el cierre y la hora de inicio el partido sigue programado, con las apuestas cerradas. Desde la hora de inicio está en curso (BR-012), y ya no puede postergarse.
 

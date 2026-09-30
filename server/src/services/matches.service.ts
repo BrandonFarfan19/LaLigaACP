@@ -36,7 +36,7 @@ export interface Match {
 	jornada: number;
 	/** UTC. */
 	fechaHora: Date;
-	/** `fechaHora - 24 h` (BR-014): no new bets from this moment on. */
+	/** `fechaHora - HORAS_CIERRE_APUESTAS` (BR-014): no new bets from this moment on. */
 	cierreApuestas: Date;
 	sede: string;
 	local: MatchSide;

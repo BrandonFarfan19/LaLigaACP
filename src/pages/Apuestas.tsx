@@ -509,7 +509,7 @@ function BettingScreen({ userId, validated, balance }: { userId: number; validat
 				<h1 className={styles.title} id="bets-title">
 					Apuestas
 				</h1>
-				<p className={styles.lead}>Cada selección cuesta 1 moneda. Las apuestas cierran 24 horas antes del inicio de cada partido.</p>
+				<p className={styles.lead}>Cada selección cuesta 1 moneda. Las apuestas de cada partido cierran antes de su inicio, a la hora que indica su «Cierre».</p>
 			</header>
 
 			{dropNotice && (

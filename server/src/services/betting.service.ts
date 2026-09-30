@@ -7,6 +7,7 @@ import {
 	type EstadoApuesta,
 	MAX_GOLES_PRONOSTICO,
 	openKickoffsAfter,
+	PLAZO_CIERRE_APUESTAS,
 	type ResultadoGeneralCodigo,
 	resultOfScore,
 	type TipoApuestaCodigo,
@@ -40,7 +41,7 @@ export interface AdmittedForecasts {
 export interface BettingInfo {
 	/** BR-052. Only `disponible` takes selections. */
 	estado: EstadoApuesta;
-	/** BR-014: `fechaHora - 24 h`. */
+	/** BR-014: `fechaHora - HORAS_CIERRE_APUESTAS`. */
 	cierre: Date;
 	/** By the sport's rule; they only apply while `estado` is `disponible`. */
 	pronosticosAdmitidos: AdmittedForecasts;
@@ -167,7 +168,7 @@ export interface TicketEvaluation {
 
 const MESSAGES = {
 	notFound: 'No existe ese partido.',
-	closed: 'Las apuestas para este partido ya cerraron (cierran 24 horas antes del inicio).',
+	closed: `Las apuestas para este partido ya cerraron (cierran ${PLAZO_CIERRE_APUESTAS} antes del inicio).`,
 	notProgrammed: (estado: string) => `El partido está ${estado.replace('_', ' ')}: ya no recibe apuestas.`,
 	draw: 'Este deporte no admite empate.',
 	drawScore: 'Este deporte no admite empate: el marcador exacto no puede ser un empate.',

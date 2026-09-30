@@ -65,7 +65,7 @@ export interface ApiMatch {
 
 export interface BettingInfo {
 	estado: BettingState;
-	/** When bets close (kick-off − 24 h, BR-014), UTC. */
+	/** When bets close (kick-off − the backend's `HORAS_CIERRE_APUESTAS`, 1 h since C-12, BR-014), UTC. */
 	cierre: string;
 	pronosticosAdmitidos: {
 		resultadoGeneral: GeneralResult[];
