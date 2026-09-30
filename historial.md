@@ -2065,3 +2065,95 @@ Con T-23, el plan de [docs/plan-polla.md](docs/plan-polla.md) queda **completo: 
   - **Teclado:** las dos regiones están en el orden de tabulación después del selector y tienen su contorno `:focus-visible`. Pixel art: el título del grupo usa una sombra dura; la única transición ya tenía `steps()` y su regla de movimiento reducido.
   - **Observación, sin bloquear:** las dos tablas calculan el ancho de sus columnas por separado, así que las columnas del Grupo A y del Grupo B no quedan alineadas entre sí.
   - **Entorno:** la base de desarrollo solo se leyó (sigue con 2 usuarios, 1 ticket y 1 partido del usuario). Los datos de prueba de `la_liga_acp_test_2` se borraron al terminar. El `.env` no se tocó.
+
+## 2026-09-30 — C-12 · Las apuestas cierran 1 hora antes del partido, no 24 (cambio posterior al plan)
+
+- **De dónde salió:** el usuario pidió que el tiempo máximo para apostar sea 1 hora antes del comienzo del partido, en lugar de las 24 horas de BR-014, y que en cualquier duda se asumiera la opción recomendada ([D-041](docs/decisiones.md)). El cierre se calcula al leer y nunca se guarda, así que no hay migración: las apuestas existentes no se tocan, y los partidos que estaban a menos de 24 horas y a más de 1 hora se vuelven a abrir. Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **El cambio:**
+  - `HORAS_CIERRE_APUESTAS` pasa de 24 a 1 en `server/src/lib/betting.ts`, el único lugar con el número. De ahí salen `bettingCloseTime`, `isBeforeBettingClose` y `openKickoffsAfter` (el SQL de los filtros). El mensaje de `BETTING_CLOSED` sale de `PLAZO_CIERRE_APUESTAS` («1 hora»).
+  - El seed de desarrollo deja 2 partidos cerrados, a 40 y 45 minutos, derivados de la constante.
+  - El front ya no repite el número: los textos remiten al cierre de cada partido, que envía la API, y en el panel la nota del cierre sale de `fechaHora` menos `cierreApuestas` (`closeLeadNote`).
+  - Se actualizaron los comentarios, BR-014 (con su precisión de C-12), `docs/verificacion-final.md`, `CLAUDE.md`, `AGENTS.md`, `EsquemaBD.md`, `README.md` y `server/README.md`.
+- **Commit:** el cambio ya estaba confirmado en `47ec9e0` («mejora de logica», del usuario) cuando se revisó; se revisó ese diff.
+- **Archivos:**
+  - **Backend:** `server/src/lib/betting.ts`, `server/src/services/{betting,matches,audit,dev-seed}.service.ts`.
+  - **Pruebas del backend:** `server/tests/{betting,matches,tickets}.test.ts`.
+  - **Front:** `src/lib/betting-labels.ts` y su prueba, `src/pages/Apuestas.tsx` y su prueba, `src/pages/admin/{Partido,Partidos}.tsx`, `src/pages/admin/partidos.test.tsx`, `src/types/{admin,betting}.ts` y `src/test/{admin,betting}-fixtures.ts`.
+  - **Docs:** `docs/business-rules.md`, `docs/verificacion-final.md`, `docs/decisiones.md` (D-041), `CLAUDE.md`, `AGENTS.md`, `EsquemaBD.md`, `README.md` y `server/README.md`.
+- **Verificación, repartida entre los dos testers.**
+  - **Entorno:** el `.env` de la raíz no se tocó. Las pruebas del backend recibieron por el entorno del proceso DB_PORT=3307, las credenciales actuales de los contenedores (leídas en el momento, sin copiarlas a archivos) y TRUST_PROXY vacío. La base de desarrollo, que el usuario usa con datos reales, no se tocó.
+  - **`tester_liga`: backend y reglas.**
+    - **Pruebas:** `npm run server:test` **1244/1244** (51 archivos, 8,5 min), incluido `coins-service.test.ts`: los 2 timeouts del ejecutor eran lentitud de su corrida de 23 minutos.
+    - **Ningún 24 sobrevive:** grep en `server/src` y `src`. Los «24» que quedan son ajenos al cierre: el máximo de las ventanas de límite, los megapíxeles de subida, el tamaño de los escudos, el reloj de 24 horas y la duración de un día en el seed. No hay `INTERVAL` ni horas fijas en el SQL. En los documentos, «24 horas» solo aparece como antecedente histórico.
+    - **El borde exacto:** lo fijan las pruebas nuevas de `betting.test.ts`. El instante del cierre es `BETTING_CLOSED`, 1 s antes está abierto, 59 min antes está cerrado y 23 h antes está abierto.
+    - **Con el reloj real, por HTTP, en una sonda propia (borrada):**
+      - Cada partido creado trae `cierreApuestas` = inicio − 60 min.
+      - A 30 y 59 min: `cerrada` en el listado, y la vista previa da `BETTING_CLOSED`. Confirmar a 59 min da 409 `TICKET_REJECTED` con `BETTING_CLOSED`, el mensaje «cierran 1 hora antes del inicio» y su `cierre`.
+      - A 61 min, 23 h y 25 h: `disponible`, vista previa válida, y la confirmación da 201 a 61 min y a 23 h.
+      - **Filtros:** `estadoApuesta=disponible` devuelve exactamente los de 61 min, 23 h y 25 h; `cerrada`, los de 30 y 59 min.
+    - **Fecha de un partido:**
+      - Sin apuestas, mover uno a 40 min lo deja `cerrada` (200).
+      - Con apuestas, postergar da 200 y `disponible`, y adelantar da 409 `MATCH_HAS_BETS`.
+      - Un partido creado a menos de 1 hora nace cerrado.
+    - **Docs:** BR-014, su precisión de T-08 (1 hora), la precisión nueva de C-12, `verificacion-final.md` y el resto de la documentación están en paso con el código.
+  - **`tester_liga_2`: frontend y navegador**, a 320, 390 y 1280 px, con su backend y su base de prueba (partidos a 30, 59 y 61 min y a 23 h).
+    - Estados correctos en `/apuestas`, con el cierre (inicio − 1 h) en cada tarjeta, y `BETTING_CLOSED` 1 s después del cierre con su mensaje de 1 hora.
+    - La nota del admin dice 1 hora antes del inicio, y ningún «24» queda en el front. `npm test` **389/389** y build limpio. Aprobó en la primera ronda.
+
+## 2026-09-30 — C-13 · Se quitan las monedas: la polla es solo por puntos (cambio posterior al plan)
+
+- **De dónde salió:** el usuario pidió que la polla se mida solo con puntos y que se quite el sistema de monedas: un participante validado apuesta sin saldo. Las tablas y columnas de monedas se dejan en el esquema ([D-042](docs/decisiones.md)). Eligió también un límite: como máximo **una apuesta de resultado general y una de marcador exacto** por participante y partido. Cambio posterior al plan: no se marca nada en [docs/plan-polla.md](docs/plan-polla.md).
+- **Backend:**
+  - **Nada escribe más en `movimiento_moneda` ni en `usuario.saldo_monedas`:** ni la validación, ni el ticket (sin débito ni `INSUFFICIENT_BALANCE`), ni la cancelación (sigue anulando, sin devolver), ni la confirmación del resultado (sin premios).
+  - **Se quitaron** `coins.service`, `lib/coins`, `coin-history`, `coins-consistency`, `db/locks`, las rutas `/monedas/...` y `/admin/monedas/consistencia`, y el comando `coins:check`. También todos los campos de monedas de las respuestas.
+  - **Bloqueos:** la confirmación y la cancelación ya no bloquean usuarios (sin `lockPrizeWinners`, `SettlementRestart` ni reinicios).
+  - **El límite nuevo** (`BET_LIMIT_REACHED`, por selección, en la vista previa y en la confirmación) cuenta las selecciones del participante en ese partido, sin las anuladas, y las del mismo ticket, estas con `repiteA`. Se serializa con el bloqueo del usuario que el ticket ya toma.
+  - **Sin migración:** el esquema no cambió. Las tablas de monedas quedan sin uso, con sus datos, anotadas en EsquemaBD y en `docs/pendientes.md`.
+- **Frontend:** no queda ninguna moneda en pantalla. Se eliminaron `CoinIcon`, `CoinAmount` y `coin-history`, y el token `--color-coin-light` pasa a llamarse `--color-accent-alt-light`. El ticket y su vista previa muestran el error del límite en cada selección. «Mi cuenta» muestra la etiqueta Pendiente.
+- **Reglas:**
+  - Quedan marcadas **«Derogada por C-13»**, sin borrarse, BR-008 a BR-010, BR-020 a BR-022, BR-046, BR-055, BR-057, NFR-004 y la tabla 28.
+  - BR-045 y BR-047 tienen su precisión sin devolución, y BR-039 la suya.
+  - BR-017 y BR-018 se reescribieron con el límite.
+  - Se actualizaron `docs/verificacion-final.md`, EsquemaBD, CLAUDE.md, AGENTS.md y los README.
+- **Archivos (los principales):**
+  - **Backend:** `server/src/services/{betting,tickets,match-cancellation,bets-settlement,results,participant-validation,admin-bootstrap,audit,bet-history,ranking,dev-seed,users,auth}.service.ts`, `server/src/routes/*`, `server/src/lib/{error-codes,points,plural}.ts`, `server/src/middleware/auth.ts` y `server/src/db/transaction.ts`.
+  - **Pruebas del backend:** se ajustaron las de `server/tests/`.
+  - **Eliminados del backend:** `coins.service.ts`, `coin-history.service.ts`, `coins-consistency.service.ts`, `coins.controller.ts`, `coins.route.ts`, `lib/coins.ts`, `db/locks.ts`, `cli/coins-check.ts`, `coins-routes.test.ts`, `coins-service.test.ts` y `prizes.test.ts`.
+  - **Front:** `src/components/{SessionBar,TicketPanel,BetMatchCard,PixelIcon}` y las páginas y pruebas que mostraban monedas; se eliminaron `CoinIcon`, `CoinAmount` y `coin-history`.
+  - **Configuración y docs:** `package.json`, `server/package.json`, `server/Dockerfile.prod`, `docs/business-rules.md`, `docs/verificacion-final.md`, `docs/pendientes.md`, `EsquemaBD.md`, `CLAUDE.md`, `AGENTS.md`, `README.md` y `server/README.md`.
+- **Verificación, repartida entre los dos testers.**
+  - **Entorno:** el `.env` de la raíz no se tocó. Las pruebas del backend recibieron por el entorno del proceso DB_PORT=3307, las credenciales actuales de los contenedores (leídas en el momento, sin copiarlas a archivos) y TRUST_PROXY vacío. La base de desarrollo, con datos reales del usuario, solo se leyó.
+  - **`tester_liga`: reglas, backend y concurrencia.**
+    - **Pruebas:** `npm run server:test` **1166/1166** (48 archivos) y `server:typecheck` limpio.
+      - Una primera corrida completa tuvo un timeout de un *hook* en `migration-c09.test.ts` (43 s contra 20 s). Solo, ese archivo pasa 4/4 en 10 s dos veces, y la corrida completa repetida pasó entera: fue lentitud del entorno.
+      - `concurrency-stress`, `cancellation`, `settlement`, `ranking` y `tickets` pasaron en **tres corridas seguidas** (107/107 cada una), con cero deadlocks.
+    - **Ningún camino escribe monedas.** En `server/src` lo único que queda sobre esas tablas es el `DELETE` del seed al limpiar sus propias cuentas y el comentario del 0 por defecto al crear un usuario.
+    - **Recorrido real, con una sonda propia (borrada):**
+      - Validar deja el saldo en 0.
+      - Con 0 monedas se apuestan los dos tipos en dos partidos (201).
+      - Cancelar anula las 2 selecciones del partido, sin devolución.
+      - Confirmar un resultado liquida con sus puntos (3 y 3).
+      - `movimiento_moneda` y la suma de saldos quedan **iguales antes y después** (0 → 0).
+    - **La API no trae campos de monedas.** Revisé las claves de `/auth/me`, el ticket, su recibo, la vista previa, mis apuestas y su resumen, el listado de partidos, el ranking y «Apuestas de todos». También las del panel: inscritos, conteos, estadísticas, apuestas y ranking de la polla, las vistas previas y respuestas de la cancelación y del resultado, y la auditoría. Tampoco hay monedas en el texto de la auditoría de la validación.
+    - **Rutas quitadas:** `/monedas`, `/monedas/saldo`, `/monedas/movimientos` y `/admin/monedas/consistencia` dan 404.
+    - **El límite:**
+      - La vista previa marca `BET_LIMIT_REACHED` en la apuesta ya hecha («Ya tienes una apuesta de resultado general en este partido…») y en la repetida del ticket, con `repiteA` y «la selección N».
+      - La confirmación responde 409 `TICKET_REJECTED` en los dos casos.
+      - Una selección anulada no cuenta: se vuelve a apostar ese tipo (201).
+      - Los dos tipos juntos se admiten, y la reproducción idempotente sigue funcionando.
+      - **12 tickets simultáneos con la misma selección: entra 1**, y los otros 11 dan 409.
+    - **Puntos y ranking iguales:** sus pruebas pasan sin cambios en los valores.
+    - **Decisiones del ejecutor:**
+      - **1, reglas derogadas:** correcta. BR-021 (validación de saldo), BR-022 (descuento) y NFR-004 son solo de monedas; NFR-004 es el indicador de monedas del navbar.
+      - **3, el límite por tipo:** correcto, es la regla del usuario. Que solo cuente en partidos existentes es correcto: uno inexistente ya es `MATCH_NOT_FOUND`.
+      - **4, `admin:create` sin chequeo de monedas:** segura. Una cuenta `pendiente` nunca tuvo monedas, porque llegaban con la validación, que no se revierte. Promover sigue exigiendo `pendiente`, pago `pendiente` y ningún ticket.
+      - **6, auditoría y etiquetas viejas:** correcta. Los registros viejos nunca se modifican, así que el front necesita esas etiquetas para mostrarlos.
+      - **8, conservar la migración C-09 y su prueba:** correcta. `db/init` sigue cargando esos tipos de movimiento, y la migración mantiene alineadas las bases anteriores.
+    - **Base de desarrollo (solo lectura):** 1 ticket, 2 selecciones, 0 apuestas repetidas; sus 3 movimientos anteriores siguen intactos.
+    - **Docs:** las reglas derogadas están marcadas y conservadas, BR-017 y BR-018 reescritas, y `verificacion-final.md` y EsquemaBD en paso. `docs/pendientes.md` anota que las tablas de monedas quedan sin uso y podrían quitarse con una migración.
+  - **`tester_liga_2`: frontend y navegador**, a 320, 390 y 1280 px.
+    - Sin monedas en pantalla ni en `src` (solo las etiquetas de auditoría vieja).
+    - Apuesta con saldo 0, y el límite por tipo en el mismo ticket (Repetida + error) y en otro ticket («Ya tienes una apuesta…»).
+    - Etiqueta Pendiente en «Mi cuenta» y token renombrado.
+    - `npm test` **382/382** y build limpio. El panel del admin lo revisó por código y pruebas, porque el navegador se desconectó. Aprobó en la primera ronda.
+    - **Después del cierre:** `tester_liga_2` revisó también el panel del admin en el navegador, a 320 y 1280 px: el inicio, Inscritos con validar y restablecer la contraseña, la consulta de apuestas, el partido con su confirmación y su cancelación, el ranking y la auditoría. No hay monedas, ni columnas vacías, ni desborde. Su parte queda aprobada completa.

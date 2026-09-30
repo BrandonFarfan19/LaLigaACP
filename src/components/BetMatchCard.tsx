@@ -31,7 +31,8 @@ const clampGoals = (value: number) => Math.min(MAX_GOALS, Math.max(0, Number.isF
  * betting close in the league's time, and its betting state (BR-052) with an
  * icon and a label. Only an open match shows the forecast controls: general
  * result (no draw where the sport has none, BR-015) and exact score (0 to
- * 999 per side, BR-016). Every choice adds one selection; repeats are allowed.
+ * 999 per side, BR-016). Every choice adds one selection; one of each type
+ * per match counts (BR-017, C-13): the ticket's preview marks a second one.
  */
 export default function BetMatchCard({ match, onAdd, disabledReason, inTicket, ticketFull }: BetMatchCardProps) {
 	const titleId = useId();

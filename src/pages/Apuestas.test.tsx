@@ -19,17 +19,24 @@ const finished = bettingMatch({ id: 5, estado: 'finalizado', local: 'Linces', vi
 const cancelled = bettingMatch({ id: 6, estado: 'cancelado', local: 'Tigres', visita: 'Zorros' });
 const ALL = [open, openVoley, closed, live, finished, cancelled];
 
-/** The standard fake API for a validated bettor with 10 coins. */
+/** The standard fake API for a validated bettor. */
 function bettorApi(extra: Record<string, Parameters<typeof apiRoutes>[0][string]> = {}, user: AuthUser = apostador) {
 	return mockFetch(
 		apiRoutes({
 			'GET /api/auth/me': me(user),
 			'GET /api/public/deportes': () => ok([open.deporte, voley]),
 			'GET /api/apuestas/partidos': () => ok(page(ALL)),
-			'POST /api/apuestas/vista-previa': ({ body }) => ok(evaluationFor((body as { selecciones: unknown[] }).selecciones, user.saldoMonedas, {}, ALL)),
+			'POST /api/apuestas/vista-previa': ({ body }) => ok(evaluationFor((body as { selecciones: unknown[] }).selecciones, {}, ALL)),
 			...extra,
 		}),
 	);
+}
+
+/** The confirm button once the preview has come back and allows it (it shows before, disabled). */
+async function enabledConfirm() {
+	const button = await screen.findByRole('button', { name: 'Confirmar' });
+	await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+	return button;
 }
 
 async function addWin(user: ReturnType<typeof userEvent.setup>, team = 'Halcones') {
@@ -143,7 +150,7 @@ describe('betting screen (T-19)', () => {
 		expect(new URL(list.url, 'http://x').searchParams.get('estadoApuesta')).toBe('disponible');
 	});
 
-	it('builds the ticket: adds, marks repeats, previews, removes and empties, and keeps it in sessionStorage', async () => {
+	it('builds the ticket: adds, marks a second bet of a type (C-13 limit), previews, removes and empties, and keeps it in sessionStorage', async () => {
 		const { calls } = bettorApi();
 		const router = renderApp('/apuestas');
 		const user = userEvent.setup();
@@ -157,12 +164,16 @@ describe('betting screen (T-19)', () => {
 
 		const ticket = screen.getByRole('complementary', { name: 'Tu ticket' });
 		expect(within(ticket).getAllByRole('listitem')).toHaveLength(3);
-		expect(within(ticket).getByText('Repetida (igual a la 1)')).toBeTruthy();
+		expect(within(ticket).getByText('Repetida: resultado general como la 1')).toBeTruthy();
 		expect(screen.getByText(/Agregado: Halcones vs Pumas, Marcador 0 - 1\. Tu ticket tiene 3 selecciones\./)).toBeTruthy();
 		expect(within(card(/Halcones/)).getByText('En tu ticket: 3 selecciones')).toBeTruthy();
 
-		// BR-023: the preview of exactly these selections, with totals and balances.
-		await waitFor(() => expect(within(ticket).getByText('3 monedas', { selector: 'dd' })).toBeTruthy());
+		// BR-023: the preview of exactly these selections; the backend refuses the second general result (BR-017, C-13).
+		await waitFor(() =>
+			expect(
+				within(ticket).getByText('Este ticket ya tiene una apuesta de resultado general para este partido (la selección 1): se admite una sola de cada tipo por partido.', { exact: false }),
+			).toBeTruthy(),
+		);
 		const preview = posts(calls, '/api/apuestas/vista-previa').at(-1)!;
 		expect(preview.body).toEqual({
 			selecciones: [
@@ -171,8 +182,10 @@ describe('betting screen (T-19)', () => {
 				{ partidoId: 1, tipo: 'marcador_exacto', golesLocal: 0, golesVisitante: 1 },
 			],
 		});
-		expect(within(ticket).getByText('10 monedas')).toBeTruthy();
-		expect(within(ticket).getByText('7 monedas')).toBeTruthy();
+		const rows = within(ticket).getAllByRole('listitem');
+		expect(rows.map((row) => row.getAttribute('data-invalid'))).toEqual([null, 'true', null]);
+		expect((within(ticket).getByRole('button', { name: 'Confirmar' }) as HTMLButtonElement).disabled).toBe(true);
+		expect(ticket.textContent).not.toMatch(/moneda|saldo|costo/i);
 		// A preview doesn't reload the match list.
 		expect(calls.filter((c) => c.url.startsWith('/api/apuestas/partidos'))).toHaveLength(1);
 
@@ -194,24 +207,21 @@ describe('betting screen (T-19)', () => {
 		expect(sessionStorage.getItem(`la-liga-acp:ticket:${apostador.id}`)).toBeNull();
 	});
 
-	it('confirms with an Idempotency-Key, reuses it after a network error and a double click, then opens the receipt with the new balance', async () => {
-		let balance = 10;
+	it('confirms with an Idempotency-Key, reuses it after a network error and a double click, then opens the receipt', async () => {
 		let attempts = 0;
 		const { calls } = bettorApi({
-			'GET /api/auth/me': () => ok({ user: { ...apostador, saldoMonedas: balance }, csrfToken: 't' }),
 			'POST /api/apuestas/tickets': () => {
 				attempts++;
 				if (attempts === 1) return Promise.reject(new TypeError('Failed to fetch'));
-				balance = 9;
-				return ok(receipt(55, apostador.id, { cantidadSelecciones: 1, monedasUtilizadas: 1 }), 201);
+				return ok(receipt(55, apostador.id, { cantidadSelecciones: 1 }), 201);
 			},
-			'GET /api/apuestas/tickets/55': () => ok(receipt(55, apostador.id, { cantidadSelecciones: 1, monedasUtilizadas: 1 })),
+			'GET /api/apuestas/tickets/55': () => ok(receipt(55, apostador.id, { cantidadSelecciones: 1 })),
 		});
 		const router = renderApp('/apuestas');
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
-		const confirm = await screen.findByRole('button', { name: 'Confirmar (1 moneda)' });
+		const confirm = await enabledConfirm();
 
 		await user.click(confirm);
 		const alert = await screen.findByRole('alert');
@@ -219,7 +229,7 @@ describe('betting screen (T-19)', () => {
 		expect(screen.getAllByRole('listitem').length).toBeGreaterThan(0);
 
 		// Retry with a double click: one request, the same key.
-		const retry = screen.getByRole('button', { name: 'Confirmar (1 moneda)' });
+		const retry = screen.getByRole('button', { name: 'Confirmar' });
 		await user.dblClick(retry);
 		await waitFor(() => expect(where(router)).toBe('/apuestas/tickets/55'));
 		const confirmations = posts(calls, '/api/apuestas/tickets');
@@ -229,25 +239,25 @@ describe('betting screen (T-19)', () => {
 		expect(second).toBe(first);
 		expect(confirmations[1]!.headers['x-csrf-token']).toBe('t');
 
-		// The receipt, the emptied draft and the coin counter at once.
+		// The receipt and the emptied draft; no coin counter (C-13).
 		expect(await screen.findByRole('heading', { name: 'Ticket #55' })).toBeTruthy();
 		expect(sessionStorage.getItem(`la-liga-acp:ticket:${apostador.id}`)).toBeNull();
-		expect(screen.getByTestId('coin-counter').getAttribute('aria-label')).toBe('Saldo: 9 monedas');
+		expect(screen.queryByTestId('coin-counter')).toBeNull();
 	});
 
 	it('409 TICKET_REJECTED shows each selection problem next to it and keeps the ticket', async () => {
 		const { calls } = bettorApi({
 			'POST /api/apuestas/tickets': ({ body }) =>
-				fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, 10, { 1: 'Las apuestas para este partido ya cerraron (cierran 1 hora antes del inicio).' }, ALL)),
+				fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, { 1: 'Las apuestas para este partido ya cerraron (cierran 1 hora antes del inicio).' }, ALL)),
 		});
 		renderApp('/apuestas');
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
 		await addWin(user, 'Águilas');
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (2 monedas)' }));
+		await user.click(await enabledConfirm());
 
-		expect((await screen.findByRole('alert')).textContent).toMatch(/no se confirmó y no se descontó nada/);
+		expect((await screen.findByRole('alert')).textContent).toMatch(/El ticket no se confirmó: corrige las selecciones marcadas./);
 		const items = within(screen.getByRole('complementary', { name: 'Tu ticket' })).getAllByRole('listitem');
 		expect(items).toHaveLength(2);
 		expect(within(items[0]!).queryByText(/ya cerraron/)).toBeNull();
@@ -266,9 +276,9 @@ describe('betting screen (T-19)', () => {
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (1 moneda)' }));
+		await user.click(await enabledConfirm());
 		expect((await screen.findByRole('alert')).textContent).toMatch(/Se preparó una nueva/);
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (1 moneda)' }));
+		await user.click(await enabledConfirm());
 		await waitFor(() => expect(where(router)).toBe('/apuestas/tickets/56'));
 		const keys = posts(calls, '/api/apuestas/tickets').map((c) => c.headers['idempotency-key']);
 		expect(keys).toHaveLength(2);
@@ -281,7 +291,7 @@ describe('betting screen (T-19)', () => {
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (1 moneda)' }));
+		await user.click(await enabledConfirm());
 		expect((await screen.findByRole('alert')).textContent).toBe(
 			'Demasiadas solicitudes desde esta conexión. Espera 1 minuto y vuelve a confirmar: no se cobrará dos veces.',
 		);
@@ -300,7 +310,7 @@ describe('betting screen (T-19)', () => {
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (1 moneda)' }));
+		await user.click(await enabledConfirm());
 		await waitFor(() => expect(where(router)).toBe('/ingresar?next=%2Fapuestas'));
 		expect(JSON.parse(sessionStorage.getItem(`la-liga-acp:ticket:${apostador.id}`)!).items).toHaveLength(1);
 	});
@@ -385,7 +395,7 @@ describe('betting screen, T-19 fixes', () => {
 
 		// Confirming sends the clean selections and the renewed key.
 		const user = userEvent.setup();
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (2 monedas)' }));
+		await user.click(await enabledConfirm());
 		await waitFor(() => expect(posts(calls, '/api/apuestas/tickets')).toHaveLength(1));
 		const sent = posts(calls, '/api/apuestas/tickets')[0]!;
 		expect(sent.body).toEqual({ selecciones: [win, { partidoId: 1, tipo: 'marcador_exacto', golesLocal: 3, golesVisitante: 1 }] });
@@ -433,7 +443,7 @@ describe('betting screen, T-19 fixes', () => {
 			const user = userEvent.setup();
 			await screen.findByRole('heading', { name: 'Apuestas' });
 			await addWin(user);
-			await user.click(await screen.findByRole('button', { name: 'Confirmar (1 moneda)' }));
+			await user.click(await enabledConfirm());
 			const alert = await screen.findByRole('alert');
 			expect(alert.textContent).toMatch(message);
 			// Give a reload the chance to happen: it must not.
@@ -444,7 +454,7 @@ describe('betting screen, T-19 fixes', () => {
 			expect(screen.getByRole('alert').textContent).toMatch(message);
 			// "Confirmando…" doesn't stay next to the error.
 			expect(screen.queryByText('Confirmando el ticket…')).toBeNull();
-			expect(screen.getByRole('button', { name: 'Confirmar (1 moneda)' })).toBeTruthy();
+			expect(screen.getByRole('button', { name: 'Confirmar' })).toBeTruthy();
 		});
 	}
 
@@ -454,21 +464,21 @@ describe('betting screen, T-19 fixes', () => {
 			'GET /api/apuestas/partidos': () => (listFails ? fail(429, 'RATE_LIMITED', 'x', { limite: 'general' }, { 'Retry-After': '120' }) : ok(page(ALL))),
 			'POST /api/apuestas/tickets': ({ body }) => {
 				listFails = true;
-				return fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, 10, { 0: 'Las apuestas para este partido ya cerraron (cierran 1 hora antes del inicio).' }, ALL));
+				return fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, { 0: 'Las apuestas para este partido ya cerraron (cierran 1 hora antes del inicio).' }, ALL));
 			},
 		});
 		renderApp('/apuestas');
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (1 moneda)' }));
+		await user.click(await enabledConfirm());
 		await waitFor(() => expect(listCalls(calls)).toHaveLength(2));
 		expect(await screen.findByText(/No se pudo actualizar la lista de partidos: demasiadas solicitudes\. Espera 2 minutos/)).toBeTruthy();
 		// The page, its last list and the ticket with its problem are all still there.
 		expect(screen.getByRole('heading', { name: 'Apuestas' })).toBeTruthy();
 		expect(card(/Halcones/)).toBeTruthy();
 		expect(within(panel()).getByText(/ya cerraron/)).toBeTruthy();
-		expect(screen.getByText(/no se confirmó y no se descontó nada/)).toBeTruthy();
+		expect(screen.getByText(/El ticket no se confirmó: corrige las selecciones marcadas./)).toBeTruthy();
 
 		listFails = false;
 		await user.click(screen.getByRole('button', { name: 'Reintentar' }));
@@ -476,7 +486,7 @@ describe('betting screen, T-19 fixes', () => {
 		expect(listCalls(calls)).toHaveLength(3);
 		expect(within(panel()).getAllByRole('listitem')).toHaveLength(1);
 		// A successful retry also clears the old confirmation error, and the summary is asked again.
-		expect(screen.queryByText(/no se confirmó y no se descontó nada/)).toBeNull();
+		expect(screen.queryByText(/El ticket no se confirmó: corrige las selecciones marcadas./)).toBeNull();
 		await waitFor(() => expect(within(panel()).queryByText(/ya cerraron/)).toBeNull());
 		expect(posts(calls, '/api/apuestas/vista-previa').length).toBeGreaterThanOrEqual(2);
 	});
@@ -493,13 +503,13 @@ describe('betting screen, T-19 fixes', () => {
 			'POST /api/apuestas/vista-previa': ({ body }) =>
 				moved
 					? new Promise<Response>(() => undefined)
-					: ok({ ...evaluationFor((body as { selecciones: unknown[] }).selecciones, 10), selecciones: [{ ...evaluationFor((body as { selecciones: unknown[] }).selecciones, 10).selecciones[0]!, partido: open }] }),
+					: ok({ ...evaluationFor((body as { selecciones: unknown[] }).selecciones), selecciones: [{ ...evaluationFor((body as { selecciones: unknown[] }).selecciones).selecciones[0]!, partido: open }] }),
 		});
 		const router = renderApp('/apuestas');
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
-		await screen.findByRole('button', { name: 'Confirmar (1 moneda)' });
+		await enabledConfirm();
 		expect(within(panel()).getByRole('listitem').textContent).toMatch(/02 oct 20:00/);
 
 		// The admin postpones the match; the user changes a filter and the list reloads.
@@ -522,20 +532,20 @@ describe('betting screen, T-19 fixes', () => {
 			'POST /api/apuestas/vista-previa': ({ body }) =>
 				moved
 					? new Promise<Response>(() => undefined)
-					: ok({ ...evaluationFor((body as { selecciones: unknown[] }).selecciones, 10), selecciones: [{ ...evaluationFor((body as { selecciones: unknown[] }).selecciones, 10).selecciones[0]!, partido: open }] }),
+					: ok({ ...evaluationFor((body as { selecciones: unknown[] }).selecciones), selecciones: [{ ...evaluationFor((body as { selecciones: unknown[] }).selecciones).selecciones[0]!, partido: open }] }),
 			'POST /api/apuestas/tickets': ({ body }) => {
 				moved = true;
-				return fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, 10, { 0: 'El partido cambió.' }, ALL));
+				return fail(409, 'TICKET_REJECTED', 'x', evaluationFor((body as { selecciones: unknown[] }).selecciones, { 0: 'El partido cambió.' }, ALL));
 			},
 		});
 		renderApp('/apuestas');
 		const user = userEvent.setup();
 		await screen.findByRole('heading', { name: 'Apuestas' });
 		await addWin(user);
-		await user.click(await screen.findByRole('button', { name: 'Confirmar (1 moneda)' }));
+		await user.click(await enabledConfirm());
 		await waitFor(() => expect(listCalls(calls)).toHaveLength(2));
 		await waitFor(() => expect(within(panel()).getByRole('listitem').textContent).toMatch(/04 oct 20:00/));
-		expect(screen.getByText(/no se confirmó y no se descontó nada/)).toBeTruthy();
+		expect(screen.getByText(/El ticket no se confirmó: corrige las selecciones marcadas./)).toBeTruthy();
 	});
 
 	it('tells the user how many stored selections were dropped and why', async () => {
@@ -619,7 +629,7 @@ describe('betting screen, T-19 fixes', () => {
 			for (const [selecciones, invalid, text] of bad) {
 				const result = (await post({ intent: 'confirm', selecciones, idempotencyKey: KEY })) as ConfirmFailure;
 				expect(result).toMatchObject({ intent: 'confirm', code: 'INVALID_SELECTIONS', transient: true, signature: JSON.stringify(selecciones), invalid });
-				expect(result.message).toBe(`${text}, así que no se confirmó nada ni se descontaron monedas. Quita las marcadas y vuelve a confirmar.`);
+				expect(result.message).toBe(`${text}, así que no se confirmó nada. Quita las marcadas y vuelve a confirmar.`);
 				const preview = (await post({ intent: 'preview', selecciones })) as PreviewResult;
 				expect(preview).toMatchObject({ intent: 'preview', evaluation: null, invalid });
 				expect(preview.error).toBe(`${text}: quita las marcadas para ver el resumen.`);
@@ -734,14 +744,14 @@ describe('betting screen, T-19 fixes', () => {
 });
 
 describe('ticket receipt (BR-025)', () => {
-	it('shows the ticket, its selections, their states and the real result', async () => {
-		bettorApi({ 'GET /api/apuestas/tickets/55': () => ok(receipt(55, apostador.id, { monedasDevueltas: 1, estado: 'finalizado' })) });
+	it('shows the ticket, its selections, their states, points and the real result, and no coins (C-13)', async () => {
+		bettorApi({ 'GET /api/apuestas/tickets/55': () => ok(receipt(55, apostador.id, { estado: 'finalizado' })) });
 		renderApp('/apuestas/tickets/55');
 		expect(await screen.findByRole('heading', { name: 'Ticket #55' })).toBeTruthy();
 		expect(screen.getByText('18 sept 10:30').closest('p')!.textContent).toBe('Confirmado el 18 sept 10:30 por Ana.');
-		const summary = screen.getByText('Monedas utilizadas').parentElement!;
-		expect(summary.textContent).toMatch(/2 monedas/);
-		expect(screen.getByText('Monedas devueltas').parentElement!.textContent).toMatch(/1 moneda$/);
+		expect(screen.getByText('Selecciones').parentElement!.textContent).toMatch(/2$/);
+		expect(screen.getAllByText('Puntos')[0]!.parentElement!.textContent).toMatch(/3$/);
+		expect(screen.getByRole('main').textContent).not.toMatch(/moneda|costo|saldo/i);
 		const items = within(screen.getByRole('list', { name: 'Selecciones del ticket' })).getAllByRole('listitem');
 		expect(items).toHaveLength(2);
 		expect(items[0]!.textContent).toMatch(/Gana Halcones/);

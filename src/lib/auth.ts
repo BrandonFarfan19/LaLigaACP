@@ -1,10 +1,10 @@
-import type { AuthUser, CoinBalance, LoginResponse, MeResponse, RegisterResponse } from '../types/api';
+import type { AuthUser, LoginResponse, MeResponse, RegisterResponse } from '../types/api';
 import { api, ApiError, onUnauthorized, setCsrfRefresher, setCsrfToken } from './api';
 
 /**
  * The session as the frontend knows it (T-18), read through the backend's
  * `/auth` routes. One in-memory store shared by the route loaders (protected
- * routes) and the layout (navbar, coin counter), with a subscription for
+ * routes) and the layout (navbar), with a subscription for
  * `useSyncExternalStore` (`src/hooks/useSession.ts`).
  *
  * When `/auth/me` is read (D-009 in `docs/decisiones.md`):
@@ -13,7 +13,6 @@ import { api, ApiError, onUnauthorized, setCsrfRefresher, setCsrfToken } from '.
  * - on public pages, only if the copy in memory is older than
  *   `SESSION_CACHE_MS` (`cachedSession`): browsing the site doesn't spend
  *   the backend's limits;
- * - after anything that spends coins (T-19 calls `refreshSession`).
  * Any 401 from the API empties the store at once.
  */
 
@@ -119,15 +118,6 @@ export async function logout(): Promise<void> {
 		if (!(error instanceof ApiError && error.status === 401)) throw error;
 	}
 	setSessionUser(null);
-}
-
-/** `GET /monedas/saldo` (participants only), also updating the known user's balance. */
-export async function refreshCoinBalance(): Promise<number> {
-	const { saldoMonedas } = await api.get<CoinBalance>('/monedas/saldo');
-	if (state.user && state.user.saldoMonedas !== saldoMonedas) {
-		setState({ status: state.status, user: { ...state.user, saldoMonedas } });
-	}
-	return saldoMonedas;
 }
 
 // A 401 anywhere means the session is over; a refused CSRF token is renewed through /auth/me.

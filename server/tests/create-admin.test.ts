@@ -49,7 +49,6 @@ describe('first admin (BR-001)', () => {
 				email: 'jefa@liga.test',
 				rol: 'admin',
 				estadoValidacion: 'pendiente',
-				saldoMonedas: 0,
 			});
 			const { cookie } = await login(app, 'jefa@liga.test');
 			expect((await request(app).get('/admin/sesion').set('Cookie', cookie)).status).toBe(200);
@@ -91,13 +90,13 @@ describe('first admin (BR-001)', () => {
 				expect(await roleOf(pool, email)).toBe('apostador');
 			}
 
-			it('refuses a validated account with coins and a movement', async () => {
+			it('refuses a validated account, saying every reason', async () => {
 				const user = await registered();
 				const actor = await ensureAdmin(pool, { email: 'actor@liga.test', nombre: 'Actor', password: PASSWORD });
 				await setPayment(pool, user.id, 'confirmado');
 				await validateParticipant(pool, { actorId: actor.user.id, userId: user.id });
 
-				await expectRefused(user.email, /está validada, tiene el pago confirmado, tiene 10 monedas, tiene 1 movimiento/);
+				await expectRefused(user.email, /está validada, tiene el pago confirmado./);
 			});
 
 			it('refuses an account whose payment is confirmed', async () => {
@@ -107,13 +106,6 @@ describe('first admin (BR-001)', () => {
 				await expectRefused(user.email, /tiene el pago confirmado/);
 			});
 
-			it('refuses an account with coins', async () => {
-				const user = await registered();
-				await pool.query('UPDATE usuario SET saldo_monedas = 3 WHERE id = ?', [user.id]);
-
-				await expectRefused(user.email, /tiene 3 monedas/);
-			});
-
 			it('refuses an account with a ticket', async () => {
 				const user = await registered();
 				await addSettledSelections(pool, user.id, [null]);
@@ -121,7 +113,7 @@ describe('first admin (BR-001)', () => {
 				await expectRefused(user.email, /tiene 1 ticket/);
 			});
 
-			it('refuses a validated account even without coins', async () => {
+			it('refuses a validated account whatever its payment says', async () => {
 				const user = await registered();
 				await setUserState(pool, user.id, { estado: 'validado' });
 

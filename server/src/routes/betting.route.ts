@@ -24,7 +24,7 @@ import { rejectQueryParams } from '../middleware/no-query.js';
  * any ticket that isn't the caller's (an admin has none), so ticket ids of
  * other users can't be probed. The history is for any `apostador`
  * (`requireParticipant`): a `pendiente` user just has none yet, and an admin
- * gets 403 `NOT_A_PARTICIPANT`, as in `/monedas`. Everyone's bets (C-07) are
+ * gets 403 `NOT_A_PARTICIPANT`. Everyone's bets (C-07) are
  * for a validated `apostador` only (`requireBettor`, D-036: the ones really
  * enrolled in the pool). POSTs go through CSRF like every other one.
  */

@@ -4,7 +4,7 @@ import { ticketStateCondition } from '../lib/betting.js';
 import { MAX_FILAS_TOP, POSICIONES_TOP } from '../lib/ranking.js';
 import { type Page, type PaginationQuery, toPage } from '../schemas/common.schema.js';
 import { stateId } from './bet-history.service.js';
-import { prizeTypeFor, REFUND_TYPE, ticketTotals } from './tickets.service.js';
+import { ticketTotals } from './tickets.service.js';
 
 /**
  * Módulo Polla, T-15: the pool ranking (BR-041 to BR-044) and the pool's
@@ -163,12 +163,6 @@ export interface PoolStats {
 	participantes: { inscritos: number; validados: number; pendientes: number };
 	tickets: { total: number } & Record<EstadoTicket, number>;
 	selecciones: { total: number } & Record<EstadoSeleccion, number>;
-	monedasUtilizadas: number;
-	monedasDevueltas: number;
-	/** BR-057, C-09: the coins the participants' right selections actually won (their prize movements). */
-	monedasGanadas: number;
-	/** `SUM(saldo_monedas)` of the participants: the coins still to spend. */
-	monedasDisponibles: number;
 	puntos: number;
 	aciertos: number;
 }
@@ -184,7 +178,6 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 			(SELECT COUNT(*) FROM usuario u WHERE u.rol_id = ap.id) AS inscritos,
 			(SELECT COUNT(*) FROM usuario u
 				WHERE u.rol_id = ap.id AND u.estado_usuario_id = (SELECT id FROM estado_usuario WHERE codigo = 'validado')) AS validados,
-			(SELECT COALESCE(SUM(u.saldo_monedas), 0) FROM usuario u WHERE u.rol_id = ap.id) AS disponibles,
 			COUNT(agg.ticket_id) AS tickets,
 			COALESCE(SUM(${ticketStateCondition('pendiente', 'agg')}), 0) AS t_pendiente,
 			COALESCE(SUM(${ticketStateCondition('finalizado', 'agg')}), 0) AS t_finalizado,
@@ -194,9 +187,7 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 			COALESCE(SUM(agg.anuladas), 0) AS anuladas,
 			COALESCE(SUM(agg.acertadas), 0) AS acertadas,
 			COALESCE(SUM(agg.no_acertadas), 0) AS no_acertadas,
-			COALESCE(SUM(agg.puntos), 0) AS puntos,
-			COALESCE(SUM(agg.devueltas), 0) AS devueltas,
-			COALESCE(SUM(agg.ganadas), 0) AS ganadas
+			COALESCE(SUM(agg.puntos), 0) AS puntos
 		FROM (SELECT id FROM rol WHERE codigo = 'apostador') ap
 		LEFT JOIN (
 			SELECT s.ticket_id, u.rol_id,
@@ -205,14 +196,10 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 				SUM(s.estado_seleccion_id = ${stateId('anulada')}) AS anuladas,
 				SUM(s.estado_seleccion_id = ${stateId('acertada')}) AS acertadas,
 				SUM(s.estado_seleccion_id = ${stateId('no_acertada')}) AS no_acertadas,
-				COALESCE(SUM(s.puntos_obtenidos), 0) AS puntos,
-				COALESCE(SUM(m.cantidad), 0) AS devueltas,
-				COALESCE(SUM(mg.cantidad), 0) AS ganadas
+				COALESCE(SUM(s.puntos_obtenidos), 0) AS puntos
 			FROM ticket t
 			JOIN usuario u ON u.id = t.usuario_id
 			JOIN seleccion s ON s.ticket_id = t.id
-			LEFT JOIN movimiento_moneda m ON m.seleccion_id = s.id AND m.tipo_movimiento_id = ${REFUND_TYPE}
-			LEFT JOIN movimiento_moneda mg ON mg.seleccion_id = s.id AND mg.tipo_movimiento_id = ${prizeTypeFor('s')}
 			GROUP BY s.ticket_id, u.rol_id
 		) agg ON agg.rol_id = ap.id
 		GROUP BY ap.id`,
@@ -222,8 +209,6 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 		pendientes: Number(row!.pendientes),
 		anuladas: Number(row!.anuladas),
 		puntos: Number(row!.puntos),
-		devueltas: Number(row!.devueltas),
-		ganadas: Number(row!.ganadas),
 	});
 	const inscritos = Number(row!.inscritos);
 	const validados = Number(row!.validados);
@@ -243,10 +228,6 @@ export async function getPoolStats(pool: Pool): Promise<PoolStats> {
 			no_acertada: Number(row!.no_acertadas),
 			anulada: Number(row!.anuladas),
 		},
-		monedasUtilizadas: totals.monedasUtilizadas,
-		monedasDevueltas: totals.monedasDevueltas,
-		monedasGanadas: totals.monedasGanadas,
-		monedasDisponibles: Number(row!.disponibles),
 		puntos: totals.puntosObtenidos,
 		aciertos: acertadas,
 	};

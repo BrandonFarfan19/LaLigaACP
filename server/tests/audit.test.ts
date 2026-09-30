@@ -217,7 +217,7 @@ describe('audit log (T-17: NFR-006)', () => {
 					matchIdOf,
 				),
 			// C-09: what the confirmation paid, as counts only (no bets on this match: nothing).
-			).toEqual({ marcador: { golesLocal: 2, golesVisitante: 1 }, premios: { selecciones: 0, monedas: 0, participantes: 0 } });
+			).toEqual({ marcador: { golesLocal: 2, golesVisitante: 1 } });
 
 			// Cancellation (T-16). NFR-006: "Cancelación de partido".
 			let otherId = 0;
@@ -226,8 +226,6 @@ describe('audit log (T-17: NFR-006)', () => {
 			expect(cancelled).toEqual({
 				estadoAnterior: 'programado',
 				selecciones: 0,
-				monedasDevueltas: 0,
-				seleccionesSinDevolucion: { total: 0, sinDebito: 0, cuentaAdministrador: 0 },
 				usuarios: 0,
 				tickets: 0,
 				ticketsAnulados: 0,
@@ -294,7 +292,8 @@ describe('audit log (T-17: NFR-006)', () => {
 			});
 			await audited(api.post(`/participantes/${who.user.id}/pago/confirmar`, {}), 'confirmacion_pago', id);
 			const validated = await audited(api.post(`/participantes/${who.user.id}/validar`, {}), 'validacion_usuario', id);
-			expect(validated).toMatchObject({ estadoValidacion: { antes: 'pendiente', despues: 'validado' }, monedasAsignadas: 10 });
+			// C-13: validating grants no coins, so the detail is the state change alone.
+			expect(validated).toEqual({ estadoValidacion: { antes: 'pendiente', despues: 'validado' } });
 			// C-08: how many sessions were closed (the participant had one), never the password.
 			expect(await audited(api.put(`/participantes/${who.user.id}/contrasena`, { contrasena: 'nueva-clave' }), 'restablecimiento_contrasena', id)).toEqual({
 				accesosCerrados: 1,
@@ -636,7 +635,7 @@ describe('audit log (T-17: NFR-006)', () => {
 			expect(details.modificacion_gol).toEqual({ cambios: { video: { antes: null, despues: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' } } });
 			expect(details.alta_multimedia).toMatchObject({ nuevo: { imagen: null, video: 'https://vimeo.com/1234' } });
 			expect(Object.keys((details.alta_multimedia as { nuevo: object }).nuevo).sort()).toEqual(['creadoEn', 'id', 'imagen', 'video']);
-			expect(details.confirmacion_resultado).toEqual({ marcador: { golesLocal: 1, golesVisitante: 0 }, premios: { selecciones: 0, monedas: 0, participantes: 0 } });
+			expect(details.confirmacion_resultado).toEqual({ marcador: { golesLocal: 1, golesVisitante: 0 } });
 			const text = JSON.stringify(details);
 			for (const computed of ['cierreApuestas', 'deporteId', 'Alianza', 'Boca', '"Ana"', 'lado', 'embedUrl', 'plataforma', '"resultado"', 'jugadorNombre', 'equipoNombre', 'competicionNombre', 'deporteNombre']) {
 				expect(text, computed).not.toContain(computed);

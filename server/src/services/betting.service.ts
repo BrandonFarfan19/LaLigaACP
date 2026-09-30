@@ -12,7 +12,6 @@ import {
 	resultOfScore,
 	type TipoApuestaCodigo,
 } from '../lib/betting.js';
-import { COSTO_POR_SELECCION } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { proximityOrderBy } from '../lib/match-order.js';
 import { effectiveStateCondition } from '../lib/match-state.js';
@@ -20,7 +19,6 @@ import type { SelectionInput } from '../schemas/betting.schema.js';
 import type { Page } from '../schemas/common.schema.js';
 import { pageOf, Where } from './catalog-query.js';
 import { MATCH_COLUMNS, MATCH_FROM, matchFrom, type PublicMatch } from './public.service.js';
-import { plural } from '../lib/plural.js';
 
 /**
  * Módulo Polla, T-09: which matches take bets and whether a proposed list of
@@ -123,6 +121,8 @@ export interface SelectionError {
 	message: string;
 	/** `BETTING_CLOSED` only: when betting closed (UTC), for the UI to format. Kept out of `message`. */
 	cierre?: Date;
+	/** `BET_LIMIT_REACHED` for a repeat inside the same ticket: the index of the earlier selection of that type and match. */
+	repiteA?: number;
 }
 
 export interface EvaluatedSelection {
@@ -135,35 +135,17 @@ export interface EvaluatedSelection {
 	/** `marcador_exacto` only. */
 	golesLocal: number | null;
 	golesVisitante: number | null;
-	/** BR-020. */
-	costo: number;
 	valida: boolean;
 	errores: SelectionError[];
-	/**
-	 * Index of an earlier selection identical to this one, or `null`. Repeating
-	 * is allowed (T-09 decision: no rule forbids it, and each one costs its
-	 * coin); the frontend can use this to ask "¿seguro?".
-	 */
-	repiteA: number | null;
 	/** The match as the betting list shows it; `null` if it doesn't exist. */
 	partido: BettingMatch | null;
 }
 
 export interface TicketEvaluation {
-	/** Every selection valid and enough balance: T-10 would accept it. */
+	/** Every selection valid: T-10 would accept it. Since C-13 there is no balance or cost. */
 	valido: boolean;
 	selecciones: EvaluatedSelection[];
 	cantidadSelecciones: number;
-	costoPorSeleccion: number;
-	/** BR-020: `cantidadSelecciones × costoPorSeleccion`, valid or not. */
-	costoTotal: number;
-	saldoActual: number;
-	/** `saldoActual - costoTotal`; negative when the balance falls short. */
-	saldoPosterior: number;
-	/** BR-021. */
-	saldoSuficiente: boolean;
-	/** Ticket-level problems (today only `INSUFFICIENT_BALANCE`). */
-	errores: SelectionError[];
 }
 
 const MESSAGES = {
@@ -172,7 +154,13 @@ const MESSAGES = {
 	notProgrammed: (estado: string) => `El partido está ${estado.replace('_', ' ')}: ya no recibe apuestas.`,
 	draw: 'Este deporte no admite empate.',
 	drawScore: 'Este deporte no admite empate: el marcador exacto no puede ser un empate.',
+	alreadyPlaced: (tipo: TipoApuestaCodigo) =>
+		`Ya tienes una apuesta de ${TIPO_TEXTO[tipo]} en este partido: se admite una sola de cada tipo por partido.`,
+	repeated: (tipo: TipoApuestaCodigo, repiteA: number) =>
+		`Este ticket ya tiene una apuesta de ${TIPO_TEXTO[tipo]} para este partido (la selección ${repiteA + 1}): se admite una sola de cada tipo por partido.`,
 } as const;
+
+const TIPO_TEXTO: Record<TipoApuestaCodigo, string> = { resultado_general: 'resultado general', marcador_exacto: 'marcador exacto' };
 
 function selectionErrors(selection: SelectionInput, match: BettingMatch | undefined): SelectionError[] {
 	if (!match) return [{ code: ErrorCode.MATCH_NOT_FOUND, message: MESSAGES.notFound }];
@@ -194,18 +182,40 @@ function selectionErrors(selection: SelectionInput, match: BettingMatch | undefi
 	return errors;
 }
 
-const selectionKey = (s: SelectionInput) =>
-	s.tipo === 'resultado_general' ? `${s.partidoId}:r:${s.pronostico}` : `${s.partidoId}:m:${s.golesLocal}-${s.golesVisitante}`;
+/** BR-017/BR-018 (C-13): what the limit counts, one per participant, match and bet type. */
+const limitKey = (partidoId: number, tipo: TipoApuestaCodigo) => `${partidoId}:${tipo}`;
 
 interface Loaded {
 	matches: RowDataPacket[];
-	saldo: number;
+	/** `limitKey`s of the user's selections already placed on these matches, voided ones excluded. */
+	placed: Set<string>;
+}
+
+/**
+ * The user's selections already on these matches, by type, except `anulada`
+ * ones (C-13, D-042). A plain read: inside the ticket it runs after the user
+ * row is locked `FOR UPDATE`, and every ticket of that user takes the same
+ * lock first, so under READ COMMITTED it sees every selection another ticket
+ * of the same user committed, and none can appear until this one ends.
+ * Served by `idx_seleccion_partido_estado` and the ticket's primary key.
+ */
+async function placedSelections(db: Pool | PoolConnection, userId: number, ids: readonly number[]): Promise<Set<string>> {
+	if (ids.length === 0) return new Set();
+	const [rows] = await db.query<RowDataPacket[]>(
+		`SELECT DISTINCT s.partido_id, tap.codigo AS tipo
+		FROM seleccion s
+		JOIN ticket t ON t.id = s.ticket_id
+		JOIN tipo_apuesta tap ON tap.id = s.tipo_apuesta_id
+		WHERE s.partido_id IN (?) AND t.usuario_id = ?
+			AND s.estado_seleccion_id <> (SELECT id FROM estado_seleccion WHERE codigo = 'anulada')`,
+		[ids, userId],
+	);
+	return new Set(rows.map((row) => limitKey(Number(row.partido_id), row.tipo as TipoApuestaCodigo)));
 }
 
 async function readMatches(pool: Pool, userId: number, ids: readonly number[]): Promise<Loaded> {
-	const [[user]] = await pool.query<RowDataPacket[]>('SELECT saldo_monedas FROM usuario WHERE id = ?', [userId]);
 	const [matches] = await pool.query<RowDataPacket[]>(`SELECT ${MATCH_COLUMNS} ${MATCH_FROM} WHERE p.id IN (?)`, [ids]);
-	return { matches, saldo: Number(user?.saldo_monedas ?? 0) };
+	return { matches, placed: await placedSelections(pool, userId, ids) };
 }
 
 /** `SELECT id FROM <table> WHERE id IN (...) ORDER BY id FOR <mode>` by primary key only: the rows, and nothing else, in id order. */
@@ -248,8 +258,9 @@ async function readMatchesLocked(conn: PoolConnection, locked: readonly RowDataP
  * through `estado_partido` and took next-key locks on `fk_partido_estado`,
  * which deadlocked with `changeMatchState`'s UPDATE (T-09 stress test).
  *
- * - usuario `FOR UPDATE`: T-10's debit takes that lock next; taking a shared
- *   one first and upgrading later would deadlock two tickets.
+ * - usuario `FOR UPDATE`: it serializes the tickets of one user, so the limit
+ *   of one bet per type and match (C-13) is checked against every selection
+ *   that user already committed, and two tickets can't both pass it.
  * - partido, competicion, deporte `FOR SHARE`: `updateMatch` /
  *   `changeMatchState` (partido), `updateCompetition` (its sport) and
  *   `updateSport` (`permite_empate`) wait until the ticket commits, and two
@@ -261,8 +272,9 @@ async function readMatchesLocked(conn: PoolConnection, locked: readonly RowDataP
  * that committed while this transaction waited for a lock.
  */
 async function lockAndReadMatches(conn: PoolConnection, userId: number, ids: readonly number[]): Promise<Loaded> {
-	const [user] = await lockByPrimaryKey(conn, 'usuario', [userId], 'UPDATE', 'id, saldo_monedas');
-	const saldo = Number(user?.saldo_monedas ?? 0);
+	await lockByPrimaryKey(conn, 'usuario', [userId], 'UPDATE');
+	// After the user lock: see placedSelections.
+	const placed = await placedSelections(conn, userId, ids);
 	// Only ids that exist: locking a missing id takes a gap lock on partido's
 	// PRIMARY (up to the supremum for an id past the last one), which would
 	// block createMatch until this transaction ends. A match deleted between
@@ -275,7 +287,7 @@ async function lockAndReadMatches(conn: PoolConnection, userId: number, ids: rea
 	const competitions = await lockByPrimaryKey(conn, 'competicion', competitionIds, 'SHARE', 'id, deporte_id');
 	const sportIds = [...new Set(competitions.map((c) => Number(c.deporte_id)))].sort((a, b) => a - b);
 	const sports = await lockByPrimaryKey(conn, 'deporte', sportIds, 'SHARE', 'id, permite_empate');
-	if (matches.length === 0) return { matches: [], saldo };
+	if (matches.length === 0) return { matches: [], placed };
 
 	const rows = await readMatchesLocked(conn, matches);
 	// What the rules depend on comes from the locked rows above (current by
@@ -287,17 +299,17 @@ async function lockAndReadMatches(conn: PoolConnection, userId: number, ids: rea
 		row.d_id = sportId;
 		row.d_permite_empate = drawAllowed.get(sportId);
 	}
-	return { matches: rows, saldo };
+	return { matches: rows, placed };
 }
 
 async function evaluate(
 	selections: readonly SelectionInput[],
 	now: Date,
-	/** Reads the balance and the matches (locking them first, in a transaction). */
+	/** Reads the matches and the user's placed selections (locking first, in a transaction). */
 	load: (ids: readonly number[]) => Promise<Loaded>,
 ): Promise<TicketEvaluation> {
 	const ids = [...new Set(selections.map((s) => s.partidoId))].sort((a, b) => a - b);
-	const { matches: rows, saldo: saldoActual } = await load(ids);
+	const { matches: rows, placed } = await load(ids);
 
 	const matches = new Map(rows.map((row) => [Number(row.id), bettingMatchFrom(row, now)]));
 
@@ -305,9 +317,17 @@ async function evaluate(
 	const evaluated = selections.map((selection, indice): EvaluatedSelection => {
 		const match = matches.get(selection.partidoId);
 		const errores = selectionErrors(selection, match);
-		const key = selectionKey(selection);
-		const repiteA = firstSeen.get(key) ?? null;
-		if (repiteA === null) firstSeen.set(key, indice);
+		if (match) {
+			// BR-017/BR-018 (C-13): one bet per type and match, counting the ones already placed and the earlier ones in this ticket.
+			const key = limitKey(selection.partidoId, selection.tipo);
+			const repiteA = firstSeen.get(key);
+			if (placed.has(key)) {
+				errores.push({ code: ErrorCode.BET_LIMIT_REACHED, message: MESSAGES.alreadyPlaced(selection.tipo) });
+			} else if (repiteA !== undefined) {
+				errores.push({ code: ErrorCode.BET_LIMIT_REACHED, message: MESSAGES.repeated(selection.tipo, repiteA), repiteA });
+			}
+			if (repiteA === undefined) firstSeen.set(key, indice);
+		}
 		return {
 			indice,
 			partidoId: selection.partidoId,
@@ -315,34 +335,16 @@ async function evaluate(
 			pronostico: selection.tipo === 'resultado_general' ? selection.pronostico : null,
 			golesLocal: selection.tipo === 'marcador_exacto' ? selection.golesLocal : null,
 			golesVisitante: selection.tipo === 'marcador_exacto' ? selection.golesVisitante : null,
-			costo: COSTO_POR_SELECCION,
 			valida: errores.length === 0,
 			errores,
-			repiteA,
 			partido: match ?? null,
 		};
 	});
 
-	const costoTotal = selections.length * COSTO_POR_SELECCION;
-	const saldoSuficiente = saldoActual >= costoTotal;
-	const errores: SelectionError[] = saldoSuficiente
-		? []
-		: [
-				{
-					code: ErrorCode.INSUFFICIENT_BALANCE,
-					message: `El ticket cuesta ${plural(costoTotal, 'moneda', 'monedas')} y tu saldo es de ${plural(saldoActual, 'moneda', 'monedas')}.`,
-				},
-			];
 	return {
-		valido: saldoSuficiente && evaluated.every((s) => s.valida),
+		valido: evaluated.every((s) => s.valida),
 		selecciones: evaluated,
 		cantidadSelecciones: selections.length,
-		costoPorSeleccion: COSTO_POR_SELECCION,
-		costoTotal,
-		saldoActual,
-		saldoPosterior: saldoActual - costoTotal,
-		saldoSuficiente,
-		errores,
 	};
 }
 
@@ -362,7 +364,7 @@ export function previewTicket(
 
 /**
  * The same checks for T-10, inside its `withTransaction`: locks the user row
- * (`FOR UPDATE`, like the debit that follows) and every match, competition
+ * (`FOR UPDATE`, which serializes the user's tickets for the C-13 limit) and every match, competition
  * and sport row involved (`FOR SHARE`), in the app's lock order (see
  * `lockAndReadMatches`), so what was checked still holds at commit. Call it
  * before anything else in the transaction. The caller refuses the ticket
@@ -374,7 +376,7 @@ export async function evaluateTicketInTransaction(
 	selections: readonly SelectionInput[],
 	now: Date = new Date(),
 ): Promise<TicketEvaluation> {
-	// Inside the async function, so a wrong connection rejects the promise (like the coin functions).
+	// Inside the async function, so a wrong connection rejects the promise (like every function that needs a transaction).
 	assertInTransaction(conn);
 	return evaluate(selections, now, (ids) => lockAndReadMatches(conn, userId, ids));
 }

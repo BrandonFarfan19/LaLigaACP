@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { BET_TYPE_LABEL, coinsText, forecastLabel, forecastValue } from '../lib/betting-labels';
+import { BET_TYPE_LABEL, forecastLabel, forecastValue } from '../lib/betting-labels';
 import { MAX_SELECTIONS } from '../lib/betting';
 import { type DraftSelection, repeatOf } from '../lib/ticket-draft';
 import type { SelectionProblem, TicketEvaluation } from '../types/betting';
@@ -17,8 +17,6 @@ export interface TicketPanelProps {
 	previewError: string | null;
 	/** Positions (from 0) of selections that aren't valid, so nothing was sent. */
 	invalidItems?: readonly number[];
-	/** The balance known from the session, until the preview says. */
-	balance: number;
 	confirming: boolean;
 	/** The last confirmation's failure, for the whole ticket. */
 	confirmError: string | null;
@@ -45,14 +43,14 @@ const problemsOf = (evaluation: TicketEvaluation | null, index: number, invalid:
 	invalid.includes(index) ? [INVALID_PROBLEM] : (evaluation?.selecciones[index]?.errores ?? []);
 
 /**
- * The ticket being built (BR-019, BR-023, BR-024): its selections, what it
- * costs and the balance before and after, with the problems of each
- * selection. Remove one (modify), empty it (cancel) or confirm it. On phones
+ * The ticket being built (BR-019, BR-023, BR-024): its selections with the
+ * problems of each one (a closed match, a draw not admitted, a second bet of
+ * the same type on a match: BET_LIMIT_REACHED). Free since C-13 (D-042). Remove one (modify), empty it (cancel) or confirm it. On phones
  * it is a bar at the bottom that opens into a panel; from 64rem it sits next
  * to the matches.
  */
 export default function TicketPanel(props: TicketPanelProps) {
-	const { items, evaluation, previewing, previewError, invalidItems = [], balance, confirming, confirmError, announcement, onRemove, onClear, onConfirm } = props;
+	const { items, evaluation, previewing, previewError, invalidItems = [], confirming, confirmError, announcement, onRemove, onClear, onConfirm } = props;
 	const titleId = useId();
 	const panelId = useId();
 	const [open, setOpen] = useState(false);
@@ -70,10 +68,6 @@ export default function TicketPanel(props: TicketPanelProps) {
 		}
 	}, [confirmError]);
 
-	const cost = evaluation?.costoTotal ?? null;
-	const after = evaluation?.saldoPosterior ?? null;
-	const current = evaluation?.saldoActual ?? balance;
-	const ticketProblems = evaluation?.errores ?? [];
 	const invalid = evaluation ? !evaluation.valido : false;
 	const canConfirm = count > 0 && !!evaluation && evaluation.valido && !previewing && !confirming;
 	const blockedReason =
@@ -84,9 +78,7 @@ export default function TicketPanel(props: TicketPanelProps) {
 				: previewError
 					? previewError
 					: invalid
-						? evaluation!.selecciones.every((selection) => selection.valida)
-							? 'Tu saldo no alcanza: quita selecciones para confirmar.'
-							: 'Corrige las selecciones marcadas antes de confirmar.'
+						? 'Corrige las selecciones marcadas antes de confirmar.'
 						: null;
 
 	return (
@@ -102,7 +94,6 @@ export default function TicketPanel(props: TicketPanelProps) {
 				</h2>
 				<p className={styles.summary}>
 					{count} {count === 1 ? 'selección' : 'selecciones'}
-					{cost !== null && ` · ${coinsText(cost)}`}
 				</p>
 				<button
 					type="button"
@@ -137,8 +128,11 @@ export default function TicketPanel(props: TicketPanelProps) {
 										<p>
 											{BET_TYPE_LABEL[item.input.tipo]}: <strong>{forecastValue(item.input, item.match.local, item.match.visita)}</strong>
 										</p>
-										<p className={styles.small}>{coinsText(evaluation?.selecciones[index]?.costo ?? evaluation?.costoPorSeleccion ?? 1)}</p>
-										{repeated !== null && <p className={styles.tag}>Repetida (igual a la {repeated + 1})</p>}
+										{repeated !== null && (
+											<p className={styles.tag}>
+												Repetida: {BET_TYPE_LABEL[item.input.tipo].toLowerCase()} como la {repeated + 1}
+											</p>
+										)}
 										{problems.map((problem, i) => (
 											<p key={`${problem.code}-${i}`} className={styles.problem}>
 												<PixelIcon name="alerta" /> {problem.message}
@@ -166,25 +160,7 @@ export default function TicketPanel(props: TicketPanelProps) {
 							{count} de {MAX_SELECTIONS}
 						</dd>
 					</div>
-					<div>
-						<dt>Costo total</dt>
-						<dd>{cost === null ? (count ? '…' : coinsText(0)) : coinsText(cost)}</dd>
-					</div>
-					<div>
-						<dt>Saldo actual</dt>
-						<dd>{coinsText(current)}</dd>
-					</div>
-					<div>
-						<dt>Saldo después</dt>
-						<dd data-negative={after !== null && after < 0 ? true : undefined}>{after === null ? (count ? '…' : coinsText(current)) : coinsText(after)}</dd>
-					</div>
 				</dl>
-
-				{ticketProblems.map((problem, i) => (
-					<p key={`${problem.code}-${i}`} className={styles.problem}>
-						<PixelIcon name="alerta" /> {problem.message}
-					</p>
-				))}
 
 				{confirmError && (
 					<div className={`${styles.alert} pixel-box`} role="alert" tabIndex={-1} ref={errorRef}>
@@ -199,10 +175,10 @@ export default function TicketPanel(props: TicketPanelProps) {
 						Vaciar ticket
 					</button>
 					<button type="button" className={styles.primary} onClick={onConfirm} disabled={!canConfirm} aria-busy={confirming || undefined}>
-						{confirming ? 'Confirmando…' : `Confirmar${cost !== null ? ` (${coinsText(cost)})` : ''}`}
+						{confirming ? 'Confirmando…' : 'Confirmar'}
 					</button>
 				</div>
-				<p className={styles.small}>Confirmar descuenta las monedas y crea el ticket. Un ticket confirmado no se puede modificar.</p>
+				<p className={styles.small}>Confirmar crea el ticket. Un ticket confirmado no se puede modificar.</p>
 			</div>
 		</aside>
 	);

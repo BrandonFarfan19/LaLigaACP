@@ -26,7 +26,7 @@ COPY tsconfig.json ./
 COPY src ./src
 
 # `tsc -b`, which also compiles src/cli: dist/cli/create-admin.js,
-# dist/cli/coins-check.js and dist/cli/seed-dev.js all exist afterwards. That
+# dist/cli/seed-dev.js and the other CLIs all exist afterwards. That
 # is what lets the final image go without devDependencies — the admin is
 # created with `node dist/cli/create-admin.js`, not with `tsx`, which is a
 # devDependency and is not installed there. Those CLIs import only internal

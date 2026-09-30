@@ -24,8 +24,8 @@ import styles from './Base.module.css';
  * served at its native size and without `pixelated`: shrinking it and
  * upscaling it again doubled its pixels and blurred the crowd.
  *
- * It also keeps the session current (T-18, D-009) for the coin counter and
- * the account corner (BR-010): on a page change or when the tab becomes
+ * It also keeps the session current (T-18, D-009) for
+ * the account corner: on a page change or when the tab becomes
  * visible again it uses the session copy while it is fresh
  * (`SESSION_CACHE_MS`) and reads `/auth/me` otherwise. Protected pages read
  * it themselves in their loader. If the session ends while a protected page

@@ -75,3 +75,39 @@ export async function addSettledSelections(pool: Pool, userId: number, puntos: A
 		);
 	}
 }
+
+/**
+ * C-13: one selection of `userId` on `matchId`, in its own ticket, loaded by
+ * hand in the given state (a bet placed earlier, settled or voided), for the
+ * limit of one bet per type and match.
+ */
+export async function placeSelection(
+	pool: Pool,
+	userId: number,
+	matchId: number,
+	tipo: 'resultado_general' | 'marcador_exacto',
+	estado: 'pendiente' | 'acertada' | 'no_acertada' | 'anulada' = 'pendiente',
+): Promise<number> {
+	const [ticket] = await pool.query<ResultSetHeader>(
+		'INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES (?, UTC_TIMESTAMP(), UUID(), SHA2(UUID(), 256))',
+		[userId],
+	);
+	const general = tipo === 'resultado_general';
+	const [row] = await pool.query<ResultSetHeader>(
+		`INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id, pronostico_goles_local,
+			pronostico_goles_visitante, estado_seleccion_id, puntos_obtenidos)
+		SELECT ?, ?, ta.id, ?, ?, ?, es.id, ?
+		FROM tipo_apuesta ta, estado_seleccion es WHERE ta.codigo = ? AND es.codigo = ?`,
+		[
+			ticket.insertId,
+			matchId,
+			general ? (await pool.query<RowDataPacket[]>("SELECT id FROM resultado_general WHERE codigo = 'local_gana'"))[0][0]!.id : null,
+			general ? null : 1,
+			general ? null : 0,
+			estado === 'acertada' ? 3 : estado === 'no_acertada' ? 0 : null,
+			tipo,
+			estado,
+		],
+	);
+	return row.insertId;
+}

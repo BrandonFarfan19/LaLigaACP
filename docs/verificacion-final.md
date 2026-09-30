@@ -15,25 +15,27 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
 | **BR-001** Rol administrador | `/admin/*` (sesión + `requireRole('admin')`, `routes/admin.route.ts`); panel `/admin` con participantes (desde C-08, también el restablecimiento de su contraseña), catálogo (desde C-05, con el perfil de estadísticas de cada deporte y las estadísticas de cada inscripción), partidos, resultado, goles, multimedia, apuestas, ranking, estadísticas y auditoría (`src/pages/admin/`). El admin **no participa**: `requireBettor` lo rechaza, las acciones de participante responden 404 `NOT_A_PARTICIPANT` y toda consulta de la polla filtra `rol = 'apostador'`. Los roles no se cambian desde la app (solo `npm run admin:create`). | `authorization.test.ts`, `participants-actions.test.ts`, `admin-bets.test.ts`, `ranking.test.ts`, `create-admin.test.ts`; front `panel.test.tsx`, `partidos.test.tsx` | Cumplida |
-| **BR-002** Rol usuario | `/apuestas/*`, `/monedas/*`, `/ranking` con `requireBettor`/`requireParticipant`; pantallas `/apuestas`, `/mis-apuestas`, `/ranking`, `/cuenta` | `authorization.test.ts`, `betting.test.ts`, `bet-history.test.ts`; front `Apuestas.test.tsx`, `MisApuestas.test.tsx`, `Ranking.test.tsx` | Cumplida |
+| **BR-002** Rol usuario | `/apuestas/*`, `/ranking` (`/monedas/*` se quitó en C-13) con `requireBettor`/`requireParticipant`; pantallas `/apuestas`, `/mis-apuestas`, `/ranking`, `/cuenta` | `authorization.test.ts`, `betting.test.ts`, `bet-history.test.ts`; front `Apuestas.test.tsx`, `MisApuestas.test.tsx`, `Ranking.test.tsx` | Cumplida |
 
 ## Registro, autenticación y validación
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
-| **BR-003** Registro | `POST /auth/register` (`services/auth.service.ts`): correo único, nombre a mostrar (`displayName`, D-011), contraseña argon2id, id, estado y rol. Nace `apostador` + `pendiente` + pago `pendiente` + 0 monedas. **Contraseña de 6 a 20 caracteres y nada más** (C-01): `newPasswordSchema`, con los números solo en `lib/password.ts`, usada también por `admin:create` | `auth-register.test.ts` (5, 6, 20 y 21 caracteres, y sin exigencias de composición), `create-admin.test.ts`, `catalog-names.test.ts`; front `auth-rules.test.ts`, `auth-pages.test.tsx` | Cumplida (precisión: se entra con el correo, D17) |
+| **BR-003** Registro | `POST /auth/register` (`services/auth.service.ts`): correo único, nombre a mostrar (`displayName`, D-011), contraseña argon2id, id, estado y rol. Nace `apostador` + `pendiente` + pago `pendiente` (sin monedas desde C-13; `saldo_monedas` queda en 0 por su valor por defecto). **Contraseña de 6 a 20 caracteres y nada más** (C-01): `newPasswordSchema`, con los números solo en `lib/password.ts`, usada también por `admin:create` | `auth-register.test.ts` (5, 6, 20 y 21 caracteres, y sin exigencias de composición), `create-admin.test.ts`, `catalog-names.test.ts`; front `auth-rules.test.ts`, `auth-pages.test.tsx` | Cumplida (precisión: se entra con el correo, D17) |
 | **BR-004** Autenticación | `POST /auth/login`: argon2id, mismo 401 `INVALID_CREDENTIALS` para correo inexistente y contraseña incorrecta, con verificación de relleno. **El límite de 6 a 20 no se aplica al ingresar** (D-024): solo hay un tope técnico (`PASSWORD_VERIFY_MAX_LENGTH`, 128) que no cambia la respuesta ni el tiempo. **El admin restablece la contraseña de un participante** (C-08, D-037): `PUT /admin/participantes/:id/contrasena` (`resetParticipantPassword` en `services/participant-validation.service.ts`), con `newPasswordSchema` (6 a 20), argon2id y, en una transacción, el hash nuevo, el cierre de **todas** las sesiones del participante y la auditoría (`restablecimiento_contrasena`, sin la contraseña ni el hash); una cuenta admin es 404 `NOT_A_PARTICIPANT` | `auth-session.test.ts` (cuenta con contraseña larga previa, intento demasiado largo y su tiempo), `auth-rate-limits.test.ts`, `participant-password.test.ts`, `migration-c08.test.ts`; front `auth-rules.test.ts`, `participant-password.test.tsx` | Cumplida (precisiones D-024 y D-037) |
 | **BR-005** Estados del usuario | `estado_usuario` (`pendiente`/`validado`); un pendiente entra y navega, `requireBettor` le da 403 `USER_NOT_VALIDATED`; `/apuestas` le muestra los partidos y le explica por qué no puede apostar | `authorization.test.ts`, `betting.test.ts`; front `Apuestas.test.tsx` | Cumplida |
-| **BR-006** Validación para participar | `POST /admin/participantes/:id/pago/confirmar` y `/validar` (`services/participant-validation.service.ts`): primero el pago, después la validación; +10 monedas en la misma transacción | `participants-actions.test.ts`; front `panel.test.tsx` | Cumplida |
-| **BR-007** Administración de inscritos | `GET /admin/participantes` y `/conteos`: usuario, fecha de inscripción, estado de pago, estado de validación, saldo y puntos; filtros, búsqueda y orden. Solo apostadores | `participants-list.test.ts`; front `panel.test.tsx` | Cumplida |
+| **BR-006** Validación para participar | `POST /admin/participantes/:id/pago/confirmar` y `/validar` (`services/participant-validation.service.ts`): primero el pago, después la validación; desde C-13 validar no asigna monedas (no escribe `movimiento_moneda` ni `saldo_monedas`) | `participants-actions.test.ts`; front `panel.test.tsx` | Cumplida |
+| **BR-007** Administración de inscritos | `GET /admin/participantes` y `/conteos`: usuario, fecha de inscripción, estado de pago, estado de validación y puntos (sin saldo desde C-13); filtros, búsqueda y orden. Solo apostadores | `participants-list.test.ts`; front `panel.test.tsx` | Cumplida |
 
 ## Monedas
 
+Desde C-13 (D-042) no hay monedas: estas reglas quedan derogadas y se conservan para que la numeración siga teniendo sentido.
+
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
-| **BR-008** Asignación inicial | `grantValidationCoins` (+10, `lib/coins.ts`), una sola vez: `UPDATE` condicionado al estado y barrera D19 en la base (`uq_movimiento_sin_seleccion`) | `participants-actions.test.ts`, `coins-service.test.ts` | Cumplida |
-| **BR-009** Saldo | `services/coins.service.ts` es el único que escribe `saldo_monedas` y `movimiento_moneda`; bloquea la fila, rechaza saldo negativo (409 `INSUFFICIENT_BALANCE`) y escribe todo en una transacción | `coins-service.test.ts` (incluida concurrencia), `coins-routes.test.ts`, `npm run coins:check` | Cumplida |
-| **BR-010** Visualización del saldo | `SessionBar.tsx` + `CoinIcon.tsx`: contador siempre visible para el apostador (pendiente incluido, con su marca); el admin no lo ve | front `SessionBar.test.tsx`, `Base.test.tsx` | Cumplida |
+| **BR-008** Asignación inicial | Derogada por C-13 (D-042): validar no asigna monedas. `grantValidationCoins` y `lib/coins.ts` se eliminaron | `participants-actions.test.ts` (validar deja saldo 0 y ningún movimiento; los datos anteriores no se tocan) | Derogada |
+| **BR-009** Saldo | Derogada por C-13 (D-042): nada escribe `saldo_monedas` ni `movimiento_moneda` (`services/coins.service.ts` se eliminó; las tablas quedan sin uso) | `tickets.test.ts`, `cancellation.test.ts`, `settlement.test.ts`, `concurrency-stress.test.ts` (ningún movimiento, saldos intactos) | Derogada |
+| **BR-010** Visualización del saldo | Derogada por C-13 (D-042): el navbar no muestra monedas (`CoinIcon` se eliminó) | front `SessionBar.test.tsx` (sin contador para el apostador) | Derogada |
 
 ## Partidos
 
@@ -50,20 +52,20 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | **BR-014** Fecha límite (1 h desde C-12) | `lib/betting.ts` (`HORAS_CIERRE_APUESTAS`, `bettingCloseTime`, `isBeforeBettingClose`), comprobado en la vista previa y en la confirmación con el partido bloqueado | `betting.test.ts` (bordes de 1 h, 1 h y 1 s, 59 min y 23 h), `tickets.test.ts`, `matches.test.ts` (nace cerrado), `match-state.test.ts` | Cumplida |
 | **BR-015** Resultado general | `resultado_general` (`local_gana`, `empate`, `visitante_gana`); el empate solo con `deporte.permite_empate`, leído con bloqueo en la misma transacción | `betting.test.ts`, `catalog-sports.test.ts` | Cumplida |
 | **BR-016** Marcador exacto | `tipo_apuesta = marcador_exacto`, goles enteros de 0 a 999 (`MAX_GOLES_PRONOSTICO`) | `betting.test.ts` | Cumplida |
-| **BR-017** Varias apuestas por partido | Sin `UNIQUE` que las agrupe; repetidas permitidas y marcadas con `repiteA` | `betting.test.ts`, `tickets.test.ts` | Cumplida |
-| **BR-018** Combinación de tipos | Cada selección es independiente, con su tipo y su pronóstico | `betting.test.ts`, `settlement.test.ts` | Cumplida |
+| **BR-017** Varias apuestas por partido | Reescrita por C-13: como máximo una de resultado general y una de marcador exacto por participante y partido, contando las ya hechas (sin las anuladas) y las del mismo ticket. `services/betting.service.ts` (`placedSelections`, error por selección `BET_LIMIT_REACHED`, `repiteA` en el error), serializado por el bloqueo del usuario que ya toma el ticket | `betting.test.ts`, `tickets.test.ts` (mismo ticket, tickets distintos, anuladas, 12 tickets a la vez: entra uno), `concurrency-stress.test.ts`; front `Apuestas.test.tsx` | Cumplida (C-13) |
+| **BR-018** Combinación de tipos | Cada selección es independiente, con su tipo y su pronóstico; una de cada tipo por partido (C-13) | `betting.test.ts`, `tickets.test.ts`, `settlement.test.ts` | Cumplida |
 
 ## Tickets y costo
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
 | **BR-019** Ticket múltiple | `ticket` + `seleccion`, de 1 a 50 selecciones (`MAX_SELECCIONES_POR_TICKET`) | `tickets.test.ts` | Cumplida |
-| **BR-020** Costo por selección | `COSTO_POR_SELECCION` = 1 por selección (`lib/coins.ts`, el único lugar con los montos), nunca por partido | `betting.test.ts`, `tickets.test.ts` | Cumplida |
-| **BR-021** Validación de saldo | `evaluateTicketInTransaction` + `debitSelections`: saldo insuficiente rechaza el ticket entero | `tickets.test.ts`, `coins-service.test.ts` | Cumplida |
-| **BR-022** Descuento al confirmar | La vista previa no escribe nada; el débito ocurre solo en `POST /apuestas/tickets` | `betting.test.ts`, `tickets.test.ts` | Cumplida |
-| **BR-023** Resumen previo | `POST /apuestas/vista-previa`: partidos, tipo, pronóstico, costo por selección, cantidad, total, saldo actual y posterior, con el motivo de cada selección inválida; `TicketPanel.tsx` lo muestra | `betting.test.ts`; front `TicketPanel.test.tsx`, `Apuestas.test.tsx` | Cumplida |
+| **BR-020** Costo por selección | Derogada por C-13 (D-042): apostar no cuesta nada; la vista previa y el ticket no llevan costo | `betting.test.ts`, `tickets.test.ts` | Derogada |
+| **BR-021** Validación de saldo | Derogada por C-13 (D-042): no hay saldo que validar; un participante con 0 monedas apuesta. La reemplaza el límite de BR-017 | `betting.test.ts`, `tickets.test.ts` | Derogada |
+| **BR-022** Descuento al confirmar | Derogada por C-13 (D-042): confirmar no descuenta nada. La vista previa sigue sin escribir nada | `betting.test.ts`, `tickets.test.ts` | Derogada |
+| **BR-023** Resumen previo | `POST /apuestas/vista-previa`: partidos, tipo, pronóstico y cantidad, con el motivo de cada selección inválida (también `BET_LIMIT_REACHED`, C-13); sin costo ni saldo desde C-13; `TicketPanel.tsx` lo muestra | `betting.test.ts`; front `TicketPanel.test.tsx`, `Apuestas.test.tsx` | Cumplida |
 | **BR-024** Confirmación explícita | Confirmar, modificar y vaciar viven en la pantalla; solo la confirmación crea el ticket. El borrador se guarda en la pestaña (D-012) | front `Apuestas.test.tsx`, `ticket-draft.test.ts`; backend `tickets.test.ts` | Cumplida |
-| **BR-025** Ticket | `GET /apuestas/tickets/:id` (solo el dueño): id, usuario, fecha, selecciones, partidos, pronósticos, tipos, monedas utilizadas, estado y puntos, todo calculado al leer | `tickets.test.ts`; front `Apuestas.test.tsx` (comprobante) | Cumplida |
+| **BR-025** Ticket | `GET /apuestas/tickets/:id` (solo el dueño): id, usuario, fecha, selecciones, partidos, pronósticos, tipos, estado y puntos, todo calculado al leer (sin monedas desde C-13) | `tickets.test.ts`; front `Apuestas.test.tsx` (comprobante) | Cumplida |
 
 ## Historial y resultados
 
@@ -87,9 +89,9 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | **BR-036** Empate (+1) | `PUNTOS_EMPATE` | `settlement.test.ts` | Cumplida |
 | **BR-037** Marcador exacto (+3) | `PUNTOS_MARCADOR_EXACTO` | `settlement.test.ts` | Cumplida |
 | **BR-038** Evaluación independiente | Una fila por selección, evaluadas por separado (también repetidas y contradictorias) | `settlement.test.ts` | Cumplida |
-| **BR-039** Monedas y puntos separados | Los puntos nunca se convierten en monedas: desde C-09 la liquidación paga el premio de **cada acierto** por `payPrizesBatch` (`services/coins.service.ts`), 1 o 2 monedas según el tipo de apuesta (`lib/coins.ts`), nunca a partir de los puntos | `settlement.test.ts` (6 puntos pagan 3 monedas), `prizes.test.ts` | Cumplida (precisión D-038) |
-| **BR-040** Cálculo automático | Ocurre en la misma transacción que la confirmación, con el pago de los premios (C-09); si algo falla, no queda confirmada | `settlement.test.ts`, `results.test.ts`, `prizes.test.ts` | Cumplida |
-| **BR-057** Premio en monedas por acierto (C-09) | Automático al confirmar el resultado, en su misma transacción: `lockPrizeWinners` bloquea a los ganadores antes del partido (usuario → partido; `SettlementRestart` vuelve a empezar hasta 3 veces si entran apostadores nuevos), `settleMatchSelections` liquida y paga con `payPrizesBatch`: `premio_resultado_general` +1 y `premio_marcador_exacto` +2, uno por selección que pasa a acertada de un ticket de apostador (`uq_movimiento_seleccion_tipo` impide pagar dos veces). No retroactivo. Saldo máximo: 409 `BALANCE_LIMIT_EXCEEDED`, nada confirmado. La respuesta y la auditoría llevan `premios` (cantidades, sin ids ni saldos); el recibo, "Mis apuestas", su resumen, la consulta del admin, las estadísticas y los movimientos muestran las monedas ganadas desde los movimientos reales; C-07 no las muestra. Migración `db/migraciones/C-09-premios-por-acierto.sql` | `prizes.test.ts`, `settlement.test.ts`, `concurrency-stress.test.ts` (confirmaciones que pagan contra tickets y cancelaciones, cero deadlocks), `migration-c09.test.ts`, `coins-service.test.ts`, `dev-seed.test.ts`; front `prizes.test.tsx`, `partidos.test.tsx` | Cumplida (D-038) |
+| **BR-039** Monedas y puntos separados | Desde C-13 la polla es solo por puntos: la liquidación asigna puntos y nada más (`settleMatchSelections` no bloquea usuarios ni escribe movimientos) | `settlement.test.ts` (la confirmación no mueve monedas ni las menciona) | Cumplida (precisión C-13) |
+| **BR-040** Cálculo automático | Ocurre en la misma transacción que la confirmación (sin premios desde C-13); si algo falla, no queda confirmada | `settlement.test.ts`, `results.test.ts` | Cumplida |
+| **BR-057** Premio en monedas por acierto (C-09) | Derogada por C-13 (D-042): la confirmación del resultado no paga premios; `lockPrizeWinners`, `SettlementRestart` y `payPrizesBatch` se eliminaron, y la respuesta y la auditoría ya no llevan `premios`. Los premios pagados antes quedan en la base, sin mostrarse | `settlement.test.ts`, `audit.test.ts`, `concurrency-stress.test.ts`; front `partidos.test.tsx` | Derogada |
 
 ## Ranking
 
@@ -104,9 +106,9 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
-| **BR-045** Partido cancelado | `POST /admin/partidos/:id/cancelacion/confirmar` (`services/match-cancellation.service.ts`): anula las pendientes; vista previa sin efectos y advertencia de que es definitiva | `cancellation.test.ts`; front `partidos.test.tsx` | Cumplida |
-| **BR-046** Devolución de monedas | `refundSelectionsBatch`: 1 moneda por selección anulada con débito de una cuenta apostador, con su `seleccion_id` (D19) | `cancellation.test.ts`, `coins-service.test.ts` | Cumplida (precisión D-002: una cuenta admin se anula sin devolución) |
-| **BR-047** Tickets con varios partidos | Solo se tocan las selecciones de ese partido; el estado del ticket se deriva | `cancellation.test.ts`, `tickets.test.ts` | Cumplida |
+| **BR-045** Partido cancelado | `POST /admin/partidos/:id/cancelacion/confirmar` (`services/match-cancellation.service.ts`): anula las pendientes; vista previa sin efectos y advertencia de que es definitiva. Desde C-13 sin devolución: bloquea solo el partido (ningún usuario) y no vuelve a empezar | `cancellation.test.ts`; front `partidos.test.tsx` | Cumplida |
+| **BR-046** Devolución de monedas | Derogada por C-13 (D-042): cancelar no devuelve nada (`refundSelectionsBatch` se eliminó) | `cancellation.test.ts` (ningún movimiento ni saldo después de cancelar) | Derogada |
+| **BR-047** Tickets con varios partidos | Solo se tocan las selecciones de ese partido; el estado del ticket se deriva (la parte de las monedas, derogada por C-13) | `cancellation.test.ts`, `tickets.test.ts` | Cumplida |
 
 ## Landing y apuestas
 
@@ -122,9 +124,9 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 
 | Regla | Dónde se cumple | Cómo se comprueba | Estado |
 |---|---|---|---|
-| **BR-053** Transacción atómica | `POST /apuestas/tickets` en un solo `withTransaction`: evaluar, insertar y debitar | `tickets.test.ts`, `concurrency-stress.test.ts` | Cumplida |
+| **BR-053** Transacción atómica | `POST /apuestas/tickets` en un solo `withTransaction`: evaluar e insertar (sin débito desde C-13) | `tickets.test.ts`, `concurrency-stress.test.ts` | Cumplida |
 | **BR-054** Idempotencia | `Idempotency-Key` (UUID) en `ticket.clave_idempotencia` con `UNIQUE(usuario_id, clave)` y `huella_solicitud` (D20) | `tickets.test.ts`; front `Apuestas.test.tsx` | Cumplida |
-| **BR-055** Devolución atómica | Anulación, devoluciones, saldos y estado del partido en una transacción; si algo falla, no se aplica nada | `cancellation.test.ts` | Cumplida |
+| **BR-055** Devolución atómica | Derogada por C-13 (D-042) en la devolución: la anulación y el estado del partido siguen en una transacción; si algo falla, no se aplica nada | `cancellation.test.ts` | Derogada (en la devolución) |
 
 ## Apuestas de todos (C-07)
 
@@ -139,13 +141,13 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 | **NFR-001** Mobile first | Cada hoja parte del ancho de teléfono y crece con `min-width`; recorrido de T-23 a 320, 390, 768, 1024 y 1280 px sin desbordes de página y con objetivos táctiles de 44 px | **Revisión manual en el navegador** (T-23): ninguna prueba automática mide anchos ni tamaños; las del front corren en jsdom, que no hace layout | Cumplida |
 | **NFR-002** Responsive | Mismo recorrido en los cinco anchos, en las 18 pantallas (públicas, apostador y panel) | **Revisión manual en el navegador** (T-23), por la misma razón | Cumplida |
 | **NFR-003** Pixel art | `src/styles/global.css` (tokens, `pixel-box`, `pixel-bevel`, `pixel-shadow`); sin `border-radius`, sin desenfoques, sin `backdrop-filter`, gradientes en bandas, `steps()` en todo movimiento y todo apagado con `prefers-reduced-motion` | Auditoría automática del CSS (T-23, sobre los archivos) + revisión visual en el navegador | Cumplida |
-| **NFR-004** Indicador de monedas | `SessionBar` + `CoinIcon` (sprite 8×8 con `box-shadow`), siempre visible para el apostador | front `SessionBar.test.tsx` | Cumplida |
+| **NFR-004** Indicador de monedas | Derogada por C-13 (D-042): la interfaz no muestra monedas | front `SessionBar.test.tsx` | Derogada |
 | **NFR-005** Seguridad | argon2id, sesiones en servidor con cookie `HttpOnly`/`SameSite=Strict`, CSRF en toda escritura, `requireAuth`/`requireRole`/`requireBettor`/`requireParticipant`, zod en body, params y query, límites por IP, subida de imágenes validada por contenido, `helmet`, CORS cerrado y errores sin datos internos | `authorization.test.ts`, `csrf.test.ts`, `auth-rate-limits.test.ts`, `rate-limit.test.ts`, `query-params.test.ts`, `body-errors.test.ts`, `media-lib.test.ts`, `env.test.ts`, `read-secret.test.ts` | Cumplida |
 | **NFR-006** Auditoría | `services/audit.service.ts` + `lib/audit.ts`: una fila por escritura del admin (desde C-05, también las estadísticas de una inscripción; desde C-08, el restablecimiento de la contraseña de un participante, con cuántas sesiones se cerraron y nunca la contraseña ni su hash), en su misma transacción, con administrador, acción, fecha, registro afectado y detalle acotado; consulta en `GET /admin/auditoria` | `audit.test.ts`, `enrollment-stats.test.ts`, `participant-password.test.ts`; front `panel.test.tsx` | Cumplida |
 
 ## Resumen
 
-- **63 reglas revisadas** (57 BR + 6 NFR): todas **cumplidas**, seis de ellas con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-039, BR-042 y BR-046).
+- **63 reglas revisadas** (57 BR + 6 NFR): desde C-13, **10 derogadas** (BR-008, BR-009, BR-010, BR-020, BR-021, BR-022, BR-046, BR-055 en la devolución, BR-057 y NFR-004) y el resto **cumplidas**, varias con una precisión ya documentada en `business-rules.md` o en `docs/decisiones.md` (BR-003, BR-004, BR-011, BR-017, BR-039, BR-042).
 
 > Revisado el 2026-09-18 tras el cambio **C-01** (contraseña de 6 a 20 caracteres, D-024): solo cambian BR-003 y BR-004; el resto de la tabla sigue igual.
 >
@@ -156,4 +158,6 @@ Las reglas críticas se validan **siempre en backend**; cuando una pantalla tamb
 > Revisado el 2026-09-27 tras el cambio **C-08** (el admin restablece la contraseña de un participante, D-037): se precisa BR-004 (también en BR-001 de `business-rules.md`) y se movió dónde se cumplen BR-001 y NFR-006 (una acción auditada más). El resto sigue igual.
 >
 > Revisado el 2026-09-28 tras el cambio **C-09** (los aciertos también pagan monedas, D-038): se agrega **BR-057**, se precisa BR-039 (el premio sale del acierto, no de los puntos) y se movió dónde se cumple BR-040 (la confirmación también paga). El resto sigue igual.
+>
+> Revisado el 2026-09-30 tras el cambio **C-13** (se quitan las monedas: la polla es solo por puntos, D-042): se derogan BR-008 a BR-010, BR-020 a BR-022, BR-046, la devolución de BR-055, BR-057 y NFR-004; se reescriben BR-017 y BR-018 (una apuesta de cada tipo por partido) y se precisan BR-039, BR-045 y BR-047. Las tablas y columnas de monedas quedan en la base, sin uso.
 - Ninguna regla quedó pendiente. Lo que sigue abierto son mejoras y deudas técnicas, no incumplimientos: están en [pendientes.md](pendientes.md).

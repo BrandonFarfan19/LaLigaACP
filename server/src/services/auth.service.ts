@@ -7,8 +7,8 @@ import { createSession, deleteSession, type NewSession } from './session.service
 import { findCredentialsByEmail, findUserById, insertUser, isDuplicateEntry, type PublicUser } from './users.service.js';
 
 /**
- * BR-003: a new account is always `apostador`, `pendiente`, pago `pendiente`,
- * 0 coins. There is no parameter that could make it an admin.
+ * BR-003: a new account is always `apostador`, `pendiente`, pago `pendiente`.
+ * There is no parameter that could make it an admin.
  */
 export async function register(pool: Pool, input: RegisterInput): Promise<PublicUser> {
 	const passwordHash = await hashPassword(input.password);

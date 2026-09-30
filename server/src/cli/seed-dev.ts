@@ -61,7 +61,7 @@ async function main(): Promise<number> {
 		);
 		console.log('Cuentas de ejemplo (solo para desarrollo):');
 		for (const cuenta of done.cuentas) {
-			const estado = cuenta.rol === 'apostador' ? `, ${cuenta.validado ? 'validado' : 'pendiente'}, ${plural(cuenta.saldoMonedas ?? 0, 'moneda', 'monedas')}` : '';
+			const estado = cuenta.rol === 'apostador' ? `, ${cuenta.validado ? 'validado' : 'pendiente'}` : '';
 			console.log(`  ${cuenta.email} / ${cuenta.password}  (${cuenta.rol}${estado})`);
 		}
 		return 0;

@@ -179,9 +179,9 @@ describe('one match (T-21)', () => {
 		expect(writes(calls)[0]!.body).toEqual({ confirmar: true, golesLocal: 1, golesVisitante: 1 });
 		await user.click(within(step).getByRole('button', { name: 'Sí, confirmar 1 - 1' }));
 		const done = await within(result).findByText(/Resultado confirmado: 1 - 1\. El partido quedó finalizado/);
-		// C-09: the coins were paid automatically by the confirmation; the message says how many, to how many.
-		expect(done.textContent).toMatch(/Se pagaron 3 monedas por 2 aciertos a 2 participantes\./);
-		// Nothing new to approve: the preview and its step are as before C-09.
+		// C-13: points only; the message says the bets were settled, and nothing about prizes or coins.
+		expect(done.textContent).toBe('Listo: Resultado confirmado: 1 - 1. El partido quedó finalizado y sus apuestas se liquidaron con sus puntos.');
+		expect(done.textContent).not.toMatch(/moneda|premio|pag/i);
 		expect(step.textContent).not.toMatch(/moneda/i);
 		expect(within(result).queryByRole('button', { name: /pag|moneda/i })).toBeNull();
 	});
@@ -262,7 +262,7 @@ describe('one match (T-21)', () => {
 		expect(gets(calls, '/api/admin/partidos/42')).toHaveLength(1);
 	});
 
-	it('cancels with an explicit step that shows what happens, including the voided selections without a refund (D-002)', async () => {
+	it('cancels with an explicit step that shows what happens, with no refunds (C-13)', async () => {
 		const { calls } = mockFetch(
 			adminRoutes({
 				'POST /api/admin/partidos/42/cancelacion/confirmar': () => ok(cancelled(adminMatch({ estado: 'cancelado' }))),
@@ -271,15 +271,16 @@ describe('one match (T-21)', () => {
 		renderApp('/admin/partidos/42');
 		const cancel = await screen.findByRole('region', { name: 'Cancelación' });
 		expect(cancel.textContent).toMatch(/Apuestas a anular4/);
-		expect(cancel.textContent).toMatch(/1 apuesta de una cuenta que hoy administra/);
-		expect(cancel.textContent).not.toMatch(/D-002/);
+		expect(cancel.textContent).toMatch(/Usuarios2/);
+		expect(cancel.textContent).not.toMatch(/moneda|devoluci|devolver/i);
 		const user = userEvent.setup();
 		await user.click(within(cancel).getByRole('button', { name: 'Cancelar partido' }));
 		const step = within(cancel).getByRole('group', { name: 'Cancelación definitiva del partido' });
-		expect(step.textContent).toMatch(/Se anularán 4 apuestas y se devolverán 3 monedas a 2 usuarios\./);
-		expect(step.textContent).toMatch(/Cancelar el partido es definitivo: sus apuestas pendientes quedan anuladas/);
+		expect(step.textContent).toMatch(/Se anularán 4 apuestas de 2 usuarios\./);
+		expect(step.textContent).toMatch(/Cancelar el partido es definitivo: sus apuestas pendientes quedan anuladas, sin puntos,/);
+		expect(step.textContent).not.toMatch(/moneda/i);
 		await user.click(within(step).getByRole('button', { name: 'Sí, cancelar el partido' }));
-		expect(await within(cancel).findByText('Partido cancelado: se anularon 4 apuestas y se devolvieron 3 monedas.')).toBeTruthy();
+		expect(await within(cancel).findByText('Partido cancelado: se anularon 4 apuestas.')).toBeTruthy();
 		expect(writes(calls).map((c) => [c.url, c.body])).toEqual([['/api/admin/partidos/42/cancelacion/confirmar', { confirmar: true }]]);
 	});
 });

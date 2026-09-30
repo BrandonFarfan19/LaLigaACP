@@ -59,7 +59,6 @@ describe('GET /admin/participantes and /conteos (BR-001, BR-007)', () => {
 					rol: 'apostador',
 					estadoValidacion: 'pendiente',
 					estadoPago: 'pendiente',
-					saldoMonedas: 0,
 					creadoEn: '2026-09-01T12:00:00.000Z',
 					puntos: 0,
 				},

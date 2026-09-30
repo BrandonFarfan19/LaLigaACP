@@ -485,3 +485,19 @@ Formato de cada entrada:
   - **Dónde vive el número:** solo en `HORAS_CIERRE_APUESTAS` de `server/src/lib/betting.ts`. El front no repite el número en ningún texto: lo toma de la API o lo dice de forma general.
   - **Reglas de negocio:** se actualizan BR-014 y todo texto o tabla de `docs/business-rules.md`, `docs/verificacion-final.md` y la documentación que diga 24 horas.
 - **Dónde quedó aplicada:** C-12.
+
+## D-042 · 2026-09-30 · C-13 — Se quitan las monedas: la polla es solo por puntos
+
+- **Qué pidió el usuario:**
+  1. La polla se mide **solo con puntos**.
+  2. El sistema de **monedas se quita**: un participante aprobado (validado) puede apostar a los partidos que quiera, sin saldo.
+  3. Las tablas y campos que queden sin uso (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) **se dejan** en el esquema.
+- **Lo que decidió el usuario (pregunta del coordinador):** sin costo, apostar a los tres resultados de un partido aseguraría puntos. Por eso cada participante puede tener como máximo **una apuesta de resultado general y una de marcador exacto por partido**. Otras opciones eran una sola apuesta por partido o no poner límite (lo de hoy, BR-017 y BR-018); el usuario las descartó.
+- **Lo que decidió el coordinador (con la opción recomendada):**
+  - **Qué deja de pasar:** validar a un participante ya no da 10 monedas; confirmar un ticket ya no descuenta; cancelar un partido anula sus selecciones pendientes pero ya no devuelve nada; acertar ya no paga premio (C-09). Nada escribe más en `movimiento_moneda` ni en `saldo_monedas`.
+  - **Los datos que ya existen no se borran ni se cambian:** saldos y movimientos quedan en la base, sin mostrarse. No hay migración: el esquema no cambia.
+  - **Lo que se quita de la app:** toda mención de monedas en la API y en las pantallas (el contador del navbar, los costos del ticket, las monedas usadas, devueltas y ganadas, los movimientos de «Mi cuenta», las cifras de monedas del panel, los mensajes de validación y de premios). También las rutas que solo servían a las monedas (`/monedas/...`, `/admin/monedas/consistencia`) y el comando `coins:check`. El código muerto de monedas se elimina; el esquema, no.
+  - **El límite de una apuesta por tipo por partido** lo comprueba el backend al previsualizar y al confirmar: contra las selecciones que el participante ya tiene en ese partido, excepto las anuladas, y dentro del mismo ticket. Se serializa por usuario con el bloqueo que el ticket ya toma. Las apuestas repetidas que ya existan antes del cambio se dejan como están; el ejecutor informa cuántas hay en la base de desarrollo.
+  - **Lo que no cambia:** hay que estar validado para apostar (el pago de la inscripción y la validación siguen), los puntos (BR-034 a BR-038), el ranking, el cierre de 1 hora (C-12), el máximo de 50 selecciones por ticket, «Apuestas de todos» (C-07) y la cancelación, salvo la devolución.
+  - **Reglas de negocio:** se actualiza `docs/business-rules.md`. Las reglas de monedas (BR-008 a BR-010, BR-020, la parte de devolución de BR-045 a BR-047 y BR-055, BR-057 y la tabla 28) no se borran: se marcan **derogadas por C-13**, para que la numeración y el historial sigan teniendo sentido. BR-017 y BR-018 se reescriben con el límite nuevo.
+- **Dónde quedó aplicada:** C-13.

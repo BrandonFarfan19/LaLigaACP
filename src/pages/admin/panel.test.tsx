@@ -77,7 +77,10 @@ describe('admin panel: access and navigation (T-21)', () => {
 		expect(welcome.textContent).toMatch(/Los administradores no participan: estas cifras no los cuentan\./);
 		expect(welcome.textContent).not.toMatch(/participantes/);
 		const figures = screen.getByRole('region', { name: 'Estadísticas de la polla' });
-		expect(within(figures).getByText('Monedas devueltas').nextElementSibling?.textContent).toBe('1 moneda');
+		// C-13: points only, no coin figures.
+		expect(within(figures).queryByText(/Monedas/)).toBeNull();
+		expect(figures.textContent).not.toMatch(/moneda|saldo|premio/i);
+		expect(within(figures).getByText('Puntos').nextElementSibling?.textContent).toBe(String(stats.puntos));
 		expect(within(figures).getByText('Tickets').nextElementSibling?.textContent).toBe('42 pendientes · 1 finalizado · 1 anulado');
 		expect(within(figures).getByText('Selecciones').nextElementSibling?.textContent).toBe('73 pendientes · 2 acertadas · 1 no acertada · 1 anulada');
 	});
@@ -113,7 +116,7 @@ describe('admin panel: access and navigation (T-21)', () => {
 });
 
 describe('participants (T-21, BR-006, BR-007)', () => {
-	it('lists participants with their states, balance and points; the filters live in the URL and reach the API', async () => {
+	it('lists participants with their states and points (no balance since C-13); the filters live in the URL and reach the API', async () => {
 		const { calls } = mockFetch(adminRoutes());
 		const router = renderApp('/admin/participantes?estadoPago=pendiente&q=ros&foo=1');
 		const table = await screen.findByRole('table', { name: 'Inscritos' });
@@ -121,7 +124,8 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 		const row = within(table).getAllByRole('row')[1]!;
 		expect(within(row).getByText('Rosa')).toBeTruthy();
 		expect(within(row).getByText('rosa@liga.test')).toBeTruthy();
-		expect(row.textContent).toMatch(/0 monedas/);
+		expect(row.textContent).not.toMatch(/moneda|saldo/i);
+		expect(within(table).queryByRole('columnheader', { name: 'Saldo' })).toBeNull();
 		const user = userEvent.setup();
 		await user.selectOptions(screen.getByLabelText('Validación'), 'validado');
 		await user.click(screen.getByRole('button', { name: 'Filtrar' }));
@@ -134,13 +138,13 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 		expect(screen.getByText('Total', { selector: 'dt' }).nextElementSibling?.textContent).toBe(String(counts.inscritos));
 		expect(screen.queryByText('Inscritos', { selector: 'dt' })).toBeNull();
 		expect(screen.getByRole('form', { name: 'Filtrar inscritos' })).toBeTruthy();
-		expect(screen.getByText(/al validar, el inscrito recibe sus 10 monedas/)).toBeTruthy();
+		expect(screen.getByText(/al validar, el inscrito puede apostar/)).toBeTruthy();
 		expect(screen.queryByText(/participante/i)).toBeNull();
 		// No role actions anywhere.
 		expect(screen.queryByText(/rol/i, { selector: 'button' })).toBeNull();
 	});
 
-	it('confirms a payment with an explicit step, then validates and shows the coins', async () => {
+	it('confirms a payment with an explicit step, then validates, with no coins (C-13)', async () => {
 		let who = participant();
 		const { calls } = mockFetch(
 			adminRoutes({
@@ -150,7 +154,7 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 					return ok({ participante: who });
 				},
 				'POST /api/admin/participantes/21/validar': () => {
-					who = participant({ estadoPago: 'confirmado', estadoValidacion: 'validado', saldoMonedas: 10 });
+					who = participant({ estadoPago: 'confirmado', estadoValidacion: 'validado' });
 					return ok({ participante: who });
 				},
 			}),
@@ -168,11 +172,11 @@ describe('participants (T-21, BR-006, BR-007)', () => {
 		expect(writes(calls).map((c) => [c.method, c.url, c.headers['x-csrf-token']])).toEqual([['POST', '/api/admin/participantes/21/pago/confirmar', 't']]);
 
 		await user.click(await screen.findByRole('button', { name: 'Validar' }));
-		expect(screen.getByText(/Recibirá 10 monedas y podrá apostar\. La validación no se deshace\./)).toBeTruthy();
+		expect(screen.getByText(/^Podrá apostar\. La validación no se deshace\./)).toBeTruthy();
 		await user.click(screen.getByRole('button', { name: 'Sí, validar' }));
-		expect(await screen.findByText(/Rosa quedó validado y recibió sus monedas: su saldo es 10\./)).toBeTruthy();
+		expect(await screen.findByText('Rosa quedó validado: ya puede apostar.')).toBeTruthy();
 		await waitFor(() => expect(screen.getByText('Ya está validado: no le quedan pasos.')).toBeTruthy());
-		expect(screen.getByRole('table', { name: 'Inscritos' }).textContent).toMatch(/10 monedas/);
+		expect(screen.getByRole('main').textContent).not.toMatch(/moneda/i);
 	});
 
 	it('explains a refusal with the backend reason and what to do; revert has its own step', async () => {
@@ -241,8 +245,8 @@ describe('bets, ranking and audit (T-21)', () => {
 					ok(
 						pageOf([
 							auditRecord(),
-							// The detail is the backend's own: the validation carries the id of the
-							// movement it wrote, and a sport row always carries its slug.
+							// The detail is the backend's own: a validation recorded before C-13 carries the id of the
+							// coin movement it wrote (the log is never rewritten), and a sport row always carries its slug.
 							auditRecord({ id: 2, accion: { codigo: 'validacion_usuario', nombre: 'Validación de usuario' }, entidad: 'usuario', entidadId: 21, detalle: { estadoValidacion: { antes: 'pendiente', despues: 'validado' }, monedasAsignadas: 10, movimientoId: 77 } }),
 							auditRecord({ id: 3, accion: { codigo: 'alta_deporte', nombre: 'Alta de deporte' }, entidad: 'deporte', entidadId: 1, detalle: { nuevo: { id: 1, nombre: 'Fútbol', slug: 'futbol', permiteEmpate: true } } }),
 						]),

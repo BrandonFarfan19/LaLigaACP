@@ -1,7 +1,0 @@
-/* The coin and its amount on one line, on the 8px grid. */
-.amount {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-1);
-	white-space: nowrap;
-}

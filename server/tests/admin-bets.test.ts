@@ -3,7 +3,6 @@ import type { Express } from 'express';
 import type { Pool, ResultSetHeader } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { applyCoinMovementsInTransaction } from '../src/services/coins.service.js';
 import { createTestApp } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertMatch, teamBody } from './helpers/catalog.js';
@@ -14,13 +13,13 @@ const wholeSeconds = (ms: number) => new Date(Math.floor(ms / 1000) * 1000);
 
 type Session = Awaited<ReturnType<typeof signedInUser>>;
 
-/** Every key the query may return: the history's, plus the participant. Never an email, balance, key or fingerprint. */
+/** Every key the query may return: the history's, plus the participant. Never an email, balance, coins (C-13), key or fingerprint. */
 const ALLOWED_KEYS = new Set([
 	'data', 'items', 'page', 'pageSize', 'total', 'totalPages',
-	'usuario', 'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'monedasUtilizadas', 'monedasDevueltas', 'monedasGanadas', 'puntosObtenidos',
+	'usuario', 'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'puntosObtenidos',
 	'partido', 'competicion', 'deporte', 'nombre', 'slug', 'permiteEmpate', 'jornada', 'fechaHora', 'sede',
 	'local', 'visita', 'equipo', 'goles', 'competicionId', 'nombreCorto', 'escudo', 'colorAcento',
-	'resultadoReal', 'golesLocal', 'golesVisitante', 'resultado', 'tipo', 'pronostico', 'costo',
+	'resultadoReal', 'golesLocal', 'golesVisitante', 'resultado', 'tipo', 'pronostico',
 ]);
 
 function keysOf(value: unknown, into = new Set<string>()): Set<string> {
@@ -46,7 +45,7 @@ describe('admin query of the bets placed (T-21, BR-001)', () => {
 		const res = await api.get(`/polla/apuestas${query}`);
 		expect(res.status, JSON.stringify(res.body)).toBe(200);
 		return res.body.data as {
-			items: Array<{ id: number; usuario: { id: number; nombre: string }; ticket: { id: number; estado: string; monedasDevueltas: number }; estado: string }>;
+			items: Array<{ id: number; usuario: { id: number; nombre: string }; ticket: { id: number; estado: string }; estado: string }>;
 			total: number;
 			totalPages: number;
 			page: number;
@@ -101,11 +100,10 @@ describe('admin query of the bets placed (T-21, BR-001)', () => {
 		for (const [key, date] of [['t1', '2026-01-01T10:00:00Z'], ['t2', '2026-02-01T10:00:00Z'], ['t3', '2026-03-01T10:00:00Z']] as const) {
 			await pool.query('UPDATE ticket SET creado_en = ? WHERE id = ?', [new Date(date), s.t[key]]);
 		}
-		// m2 cancelled by hand: its selections voided with their refund (D-003).
+		// m2 cancelled by hand: its selections voided (no refund since C-13).
 		await pool.query("UPDATE partido SET estado_partido_id = (SELECT id FROM estado_partido WHERE codigo = 'cancelado') WHERE id = ?", [s.m2]);
-		for (const [sel, who] of [[s.sel.a2!, ana], [s.sel.b1!, beto]] as const) {
+		for (const sel of [s.sel.a2!, s.sel.b1!]) {
 			await pool.query("UPDATE seleccion SET estado_seleccion_id = (SELECT id FROM estado_seleccion WHERE codigo = 'anulada') WHERE id = ?", [sel]);
-			await applyCoinMovementsInTransaction(pool, who.user.id, [{ tipo: 'devolucion_cancelacion', seleccionId: sel }]);
 		}
 
 		// An admin with a ticket loaded by hand (only possible that way): never listed.
@@ -138,9 +136,9 @@ describe('admin query of the bets placed (T-21, BR-001)', () => {
 		expect(data.items.map((x) => x.id)).toEqual([s.sel.b1, s.sel.a3, s.sel.a1, s.sel.a2]);
 		const [beto1, , a1, a2] = data.items;
 		expect(beto1!.usuario).toEqual({ id: beto.user.id, nombre: 'Beto' });
-		expect(beto1!.ticket).toMatchObject({ id: s.t.t3, estado: 'anulado', monedasDevueltas: 1 });
+		expect(beto1!.ticket).toMatchObject({ id: s.t.t3, estado: 'anulado' });
 		expect(a1!.usuario).toEqual({ id: ana.user.id, nombre: 'Ana' });
-		expect(a1!.ticket).toMatchObject({ id: s.t.t1, estado: 'pendiente', monedasDevueltas: 1 });
+		expect(a1!.ticket).toMatchObject({ id: s.t.t1, estado: 'pendiente' });
 		expect(a2!.estado).toBe('anulada');
 		expect(data.items.every((x) => x.usuario.id !== api.admin.user.id)).toBe(true);
 	});

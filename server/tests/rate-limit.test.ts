@@ -55,7 +55,7 @@ describe('rate limit', () => {
 	});
 
 	it('the 429 is never cacheable, on any route kind (T-08 follow-up)', async () => {
-		for (const [method, path] of [['get', '/health/extra'], ['post', '/auth/me'], ['get', '/admin/deportes'], ['get', '/monedas'], ['post', '/auth/logout']] as const) {
+		for (const [method, path] of [['get', '/health/extra'], ['post', '/auth/me'], ['get', '/admin/deportes'], ['get', '/apuestas/partidos'], ['post', '/auth/logout']] as const) {
 			const app = tinyLimitApp();
 			await request(app)[method](path);
 			const res = await request(app)[method](path);

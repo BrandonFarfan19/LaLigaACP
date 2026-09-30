@@ -1,6 +1,5 @@
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { withReadSnapshot } from '../db/transaction.js';
-import { MONEDAS_POR_VALIDACION } from '../lib/coins.js';
 import { accionAuditada, cambios, type DetalleAuditoria, detalleAcotado } from '../lib/audit.js';
 import type { ListAuditQuery } from '../schemas/audit.schema.js';
 import { type Page, toPage } from '../schemas/common.schema.js';
@@ -234,11 +233,8 @@ function participantDetail(outcome: ParticipantActionOutcome): DetalleAuditoria 
 		case 'revertir_pago':
 			return { estadoPago: { antes: 'confirmado', despues: 'pendiente' } };
 		case 'validar':
-			return {
-				estadoValidacion: { antes: 'pendiente', despues: 'validado' },
-				monedasAsignadas: MONEDAS_POR_VALIDACION,
-				movimientoId: outcome.movimientoId ?? null,
-			};
+			// C-13: validating grants no coins any more, so the detail says only the state change.
+			return { estadoValidacion: { antes: 'pendiente', despues: 'validado' } };
 		// C-08: how many sessions were closed, never the password or its hash. The key avoids the
 		// words the detail drops (`sesion`, `contrasena`...), or the count would be dropped with them.
 		case 'restablecer_contrasena':

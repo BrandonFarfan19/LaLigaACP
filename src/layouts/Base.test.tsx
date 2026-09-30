@@ -121,13 +121,13 @@ describe('a session that ended on the server (T-18 fix, D-009)', () => {
 
 	it('a 401 anywhere while /cuenta is showing: the data goes away and sign in opens, with ?next=', async () => {
 		let alive = true;
-		mockFetch(({ url }) => (alive ? ok(url === '/api/auth/me' ? { user: apostador, csrfToken: 't' } : { saldoMonedas: 10 }) : unauthenticated()));
+		mockFetch(({ url }) => (alive ? ok(url === '/api/auth/me' ? { user: apostador, csrfToken: 't' } : {}) : unauthenticated()));
 		const router = renderApp('/cuenta');
 		expect(await screen.findByText(`Hola, ${apostador.nombre}.`)).toBeTruthy();
 
 		alive = false;
 		await act(async () => {
-			await api.get('/monedas/saldo').catch(() => undefined);
+			await api.get('/ranking').catch(() => undefined);
 		});
 		await waitFor(() => expect(where(router)).toBe('/ingresar?next=%2Fcuenta'));
 		expect(screen.queryByText(`Hola, ${apostador.nombre}.`)).toBeNull();
@@ -174,7 +174,7 @@ describe('browsing public pages does not read the session every time (D-009)', (
 		now.mockImplementation(() => clock);
 		const { calls } = mockFetch(() => ok({ user: apostador, csrfToken: 't' }));
 		const router = renderApp('/');
-		await screen.findByTestId('coin-counter');
+		await screen.findByRole('link', { name: 'Mi cuenta' });
 		expect(meCalls(calls)).toBe(1);
 
 		for (const path of ['/posiciones', '/plantilla/1', '/', '/posiciones', '/#fixture', '/']) {
@@ -210,7 +210,7 @@ describe('browsing public pages does not read the session every time (D-009)', (
 			broken = false;
 			clock += 1;
 			await act(() => router.navigate('/posiciones'));
-			expect(await screen.findByTestId('coin-counter')).toBeTruthy();
+			expect(await screen.findByRole('link', { name: 'Mi cuenta' })).toBeTruthy();
 			now.mockRestore();
 			router.dispose();
 			reset();

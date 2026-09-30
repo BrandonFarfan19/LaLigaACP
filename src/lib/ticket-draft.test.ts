@@ -35,6 +35,9 @@ describe('ticket draft (D-012)', () => {
 		}
 		expect(draft.items.map((i) => i.input)).toEqual([win, score, win]);
 		expect([0, 1, 2].map((i) => repeatOf(draft.items, i))).toEqual([null, null, 0]);
+		// C-13: the limit is per type and match, whatever the forecast; other matches don't count.
+		const other = { ...draft, items: [...draft.items, ...addSelection(emptyDraft(7), { ...win, pronostico: 'empate' }, match).items, ...addSelection(emptyDraft(7), { ...score, partidoId: win.partidoId + 1 }, match).items] };
+		expect([3, 4].map((i) => repeatOf(other.items, i))).toEqual([0, null]);
 		draft = removeSelection(draft, draft.items[1]!.id);
 		keys.push(draft.idempotencyKey);
 		expect(draft.items.map((i) => i.input)).toEqual([win, win]);

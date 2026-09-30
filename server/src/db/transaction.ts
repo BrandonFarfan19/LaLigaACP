@@ -16,7 +16,7 @@ declare const inTransaction: unique symbol;
 
 /**
  * A connection with an open transaction. Only `withTransaction` hands these
- * out, so a function that takes one (the coin service, for example) can't be
+ * out, so a function that takes one (the settler, for example) can't be
  * called with a plain autocommit connection: that doesn't compile without a
  * cast, and `assertInTransaction` rejects it at runtime too.
  */

@@ -1,11 +1,10 @@
 import { data, Link, type LoaderFunctionArgs, useLoaderData } from 'react-router';
-import CoinAmount from '../components/CoinAmount';
 import PixelIcon from '../components/PixelIcon';
 import TeamCrest from '../components/TeamCrest';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useSession } from '../hooks/useSession';
 import { getTicket } from '../lib/betting';
-import { BET_TYPE_LABEL, coinsText, forecastValue, resultLabel, SELECTION_STATE_LABEL, TICKET_STATE_LABEL } from '../lib/betting-labels';
+import { BET_TYPE_LABEL, forecastValue, resultLabel, SELECTION_STATE_LABEL, TICKET_STATE_LABEL } from '../lib/betting-labels';
 import { requireUser } from '../lib/route-guards';
 import { formatKickoff } from '../utils/format-date';
 import styles from './Ticket.module.css';
@@ -61,20 +60,6 @@ export default function Ticket() {
 						<dd>{ticket.cantidadSelecciones}</dd>
 					</div>
 					<div>
-						<dt>Monedas utilizadas</dt>
-						<dd>{coinsText(ticket.monedasUtilizadas)}</dd>
-					</div>
-					<div>
-						<dt>Monedas devueltas</dt>
-						<dd>{coinsText(ticket.monedasDevueltas)}</dd>
-					</div>
-					<div>
-						<dt>Monedas ganadas</dt>
-						<dd>
-							<CoinAmount amount={ticket.monedasGanadas} />
-						</dd>
-					</div>
-					<div>
 						<dt>Puntos</dt>
 						<dd>{ticket.puntosObtenidos}</dd>
 					</div>
@@ -119,10 +104,6 @@ export default function Ticket() {
 									</dd>
 								</div>
 								<div>
-									<dt>Costo</dt>
-									<dd>{coinsText(selection.costo)}</dd>
-								</div>
-								<div>
 									<dt>Resultado real</dt>
 									<dd>
 										{selection.resultadoReal
@@ -134,14 +115,6 @@ export default function Ticket() {
 									<dt>Puntos</dt>
 									<dd>{selection.puntosObtenidos ?? '-'}</dd>
 								</div>
-								{selection.monedasGanadas > 0 && (
-									<div>
-										<dt>Monedas ganadas</dt>
-										<dd>
-											<CoinAmount amount={selection.monedasGanadas} signed />
-										</dd>
-									</div>
-								)}
 							</dl>
 						</li>
 					);

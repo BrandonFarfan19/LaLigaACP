@@ -277,16 +277,20 @@ describe('protected routes', () => {
 		}
 	});
 
-	it('a pending participant sees the notice on /cuenta, with 0 coins', async () => {
+	it('a pending participant sees the notice on /cuenta, with no balance or coins (C-13)', async () => {
 		mockFetch(() => ok({ user: pendiente, csrfToken: 't' }));
 		renderRoutes('/cuenta');
 		const notice = await screen.findByRole('status');
 		expect(notice.textContent).toMatch(/Cuenta pendiente de validación/);
 		expect(notice.textContent).toMatch(/Todavía no puedes apostar/);
-		expect(screen.getByText('Saldo').nextElementSibling?.textContent).toMatch(/0\s*monedas/);
+		expect(notice.textContent).toBe(
+			'Cuenta pendiente de validaciónTodavía no puedes apostar.Un administrador tiene que confirmar tu pago y validar tu cuenta. Cuando lo haga podrás participar en la polla.',
+		);
+		expect(screen.queryByText('Saldo')).toBeNull();
+		expect(document.body.textContent).not.toMatch(/moneda|movimiento/i);
 	});
 
-	it('a participant cannot open /admin (403 page); an admin can, and has no coins on /cuenta', async () => {
+	it('a participant cannot open /admin (403 page); an admin can, and sees they do not take part on /cuenta', async () => {
 		mockFetch(() => ok({ user: apostador, csrfToken: 't' }));
 		let router = renderRoutes('/admin');
 		expect(await screen.findByRole('heading', { name: 'Acceso restringido' })).toBeTruthy();

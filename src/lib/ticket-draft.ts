@@ -5,7 +5,7 @@ import { MAX_GOALS, MAX_SELECTIONS, newIdempotencyKey } from './betting';
  * The ticket being built (BR-019, BR-023, BR-024) before it is confirmed.
  * D-012: it lives in `sessionStorage`, per user, so a reload or a tab switch
  * on a phone doesn't lose it; it is removed on confirming, emptying or
- * signing out. It moves no coins and is worth nothing until confirmed: the
+ * signing out. It is worth nothing until confirmed: the
  * backend checks everything again.
  *
  * Every change of the selections gets a new idempotency key (BR-054): the key
@@ -235,7 +235,12 @@ export function draftMatchOf(match: BettingMatch): DraftMatch {
 	};
 }
 
-/** Adds a selection (repeats allowed, BR-017), up to `MAX_SELECTIONS`. Returns the same draft if full. */
+/**
+ * Adds a selection, up to `MAX_SELECTIONS`. Returns the same draft if full.
+ * A second one of the same type on the same match is added too: the preview
+ * marks it with the backend's `BET_LIMIT_REACHED` (BR-017, C-13), which
+ * stays the authority, and `repeatOf` tags it at once.
+ */
 export function addSelection(draft: TicketDraft, input: SelectionInput, match: DraftMatch): TicketDraft {
 	if (draft.items.length >= MAX_SELECTIONS) return draft;
 	return { ...draft, items: [...draft.items, { id: localId(), input, match }], idempotencyKey: newIdempotencyKey() };
@@ -267,10 +272,13 @@ export function renewKey(draft: TicketDraft): TicketDraft {
 	return { ...draft, idempotencyKey: newIdempotencyKey() };
 }
 
-export const sameInput = (a: SelectionInput, b: SelectionInput) => JSON.stringify(a) === JSON.stringify(b);
-
-/** Index of an earlier identical selection (BR-017 repeats), or `null`. */
+/**
+ * Index of an earlier selection of the same match and bet type, or `null`:
+ * the limit of one per type and match (BR-017, BR-018, C-13) leaves this one
+ * out. Only a hint; the backend decides, also against earlier tickets.
+ */
 export function repeatOf(items: readonly DraftSelection[], index: number): number | null {
-	const found = items.findIndex((item, i) => i < index && sameInput(item.input, items[index]!.input));
+	const { partidoId, tipo } = items[index]!.input;
+	const found = items.findIndex((item, i) => i < index && item.input.partidoId === partidoId && item.input.tipo === tipo);
 	return found === -1 ? null : found;
 }

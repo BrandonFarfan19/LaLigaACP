@@ -17,7 +17,7 @@ type RegisterResult =
 	| ({ ok: false; nombre: string; email: string } & FormFailure);
 
 /**
- * BR-003: every account is born a pending participant with 0 coins, and
+ * BR-003: every account is born a pending participant, and
  * registering doesn't sign in. The backend decides; the checks here only help.
  */
 export async function action({ request }: ActionFunctionArgs): Promise<RegisterResult> {
@@ -73,7 +73,7 @@ export default function Registro() {
 					</p>
 					<p>
 						Ya puedes ingresar y recorrer la polla, pero no podrás apostar hasta que un administrador confirme tu pago y valide tu
-						cuenta. Entonces recibirás tus monedas.
+						cuenta.
 					</p>
 					<p>
 						<Link className={styles.textLink} to="/ingresar" state={{ email: result.email }}>

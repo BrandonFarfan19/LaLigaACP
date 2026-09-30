@@ -161,7 +161,7 @@ const HINTS: Record<string, string> = {
 	CONCURRENT_UPDATE: 'Otra operación estaba usando los mismos datos: vuelve a intentarlo.',
 	PAYMENT_ALREADY_CONFIRMED: 'No hace falta hacer nada.',
 	PAYMENT_NOT_CONFIRMED: 'Primero confirma el pago; después valida.',
-	USER_ALREADY_VALIDATED: 'La validación y sus 10 monedas no se deshacen.',
+	USER_ALREADY_VALIDATED: 'La validación no se deshace.',
 	NOT_A_PARTICIPANT: 'Los administradores no participan en la polla.',
 	CSRF_FAILED: 'Recarga la página e intenta de nuevo.',
 };

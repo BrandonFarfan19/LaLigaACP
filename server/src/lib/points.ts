@@ -3,8 +3,8 @@ import type { OfficialResult, ResultadoGeneralCodigo } from './match-result.js';
 
 /**
  * Pool points (table 27 of business-rules.md, BR-035 to BR-038). The only
- * place these numbers live. Points measure performance and never turn into
- * coins (BR-039): settling a selection moves no `movimiento_moneda`.
+ * place these numbers live. Since C-13 (D-042) the pool is measured with
+ * points only: there are no coins (BR-039).
  * `seleccion.puntos_obtenidos` only admits these values (`ck_seleccion_puntos`).
  */
 

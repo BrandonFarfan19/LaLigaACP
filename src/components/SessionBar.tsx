@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router';
 import { loginPathFor } from '../lib/next-path';
 import type { SessionState } from '../lib/auth';
-import CoinIcon from './CoinIcon';
 import styles from './SessionBar.module.css';
 
 interface SessionBarProps {
@@ -15,13 +14,11 @@ interface SessionBarProps {
 	logoutError: string | null;
 }
 
-const formatCoins = new Intl.NumberFormat('es');
-
 /**
  * The account corner of the navbar (T-18): sign in / sign up for a guest;
- * coins, account and sign out for a participant (BR-010: always visible,
- * also while pending, with 0); administration and sign out for an admin, who
- * has no coins because they don't take part (BR-001).
+ * the pool, account and sign out for a participant (a pending one sees a
+ * "Pendiente" tag on "Mi cuenta", BR-005); administration and sign out for an
+ * admin, who doesn't take part (BR-001). No coin counter since C-13 (D-042).
  */
 export default function SessionBar({ session, currentPath, onLogout, loggingOut, logoutError }: SessionBarProps) {
 	const { status, user } = session;
@@ -49,31 +46,19 @@ export default function SessionBar({ session, currentPath, onLogout, loggingOut,
 	}
 
 	const pending = user.rol === 'apostador' && user.estadoValidacion !== 'validado';
-	const coins = formatCoins.format(user.saldoMonedas);
 
 	return (
 		<>
 			<ul className={styles.bar}>
 				{user.rol === 'apostador' ? (
 					<>
-						<li>
-							<Link
-								className={styles.coins}
-								to="/cuenta"
-								aria-label={`Saldo: ${coins} ${user.saldoMonedas === 1 ? 'moneda' : 'monedas'}${pending ? '. Cuenta pendiente de validación' : ''}`}
-								data-testid="coin-counter"
-							>
-								<CoinIcon />
-								<span className={styles.amount}>{coins}</span>
-								{pending && <span className={styles.badge}>Pendiente</span>}
-							</Link>
-						</li>
 						<li className={styles.menuItem}>
 							<PoolMenu currentPath={currentPath} />
 						</li>
 						<li>
-							<Link className={styles.link} to="/cuenta">
+							<Link className={styles.link} to="/cuenta" aria-label={pending ? 'Mi cuenta, pendiente de validación' : undefined}>
 								Mi cuenta
+								{pending && <span className={styles.badge}>Pendiente</span>}
 							</Link>
 						</li>
 					</>

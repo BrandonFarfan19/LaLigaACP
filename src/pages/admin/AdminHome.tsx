@@ -1,6 +1,5 @@
 import { Link, type LoaderFunctionArgs, useLoaderData } from 'react-router';
 import { LoadNotice, Stat } from '../../components/admin/AdminUi';
-import CoinAmount from '../../components/CoinAmount';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useKept } from '../../hooks/useKept';
 import { useSession } from '../../hooks/useSession';
@@ -17,7 +16,6 @@ export function loader(args: LoaderFunctionArgs) {
 	});
 }
 
-const coins = (n: number) => `${n} ${n === 1 ? 'moneda' : 'monedas'}`;
 /** "1 pendiente", "2 pendientes", "0 no acertadas": every word here takes an s. */
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -86,14 +84,6 @@ export default function AdminHome() {
 								count(stats.selecciones.anulada, 'anulada'),
 							].join(' · ')}
 						/>
-						<Stat label="Monedas usadas" value={coins(stats.monedasUtilizadas)} />
-						<Stat label="Monedas devueltas" value={coins(stats.monedasDevueltas)} />
-						<Stat
-							label="Monedas ganadas"
-							value={<CoinAmount amount={stats.monedasGanadas} />}
-							note="Premios de los aciertos: 1 por resultado general, 2 por marcador exacto."
-						/>
-						<Stat label="Monedas disponibles" value={coins(stats.monedasDisponibles)} note="Suma de los saldos de los participantes." />
 						<Stat label="Puntos" value={stats.puntos} />
 						<Stat label="Aciertos" value={stats.aciertos} />
 					</dl>

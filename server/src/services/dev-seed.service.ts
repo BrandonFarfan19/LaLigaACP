@@ -5,8 +5,7 @@ import { HORAS_CIERRE_APUESTAS } from '../lib/betting.js';
 import { resultOfScore } from '../lib/match-result.js';
 import { hashPassword } from '../lib/password.js';
 import { plural } from '../lib/plural.js';
-import { lockPrizeWinners, type LockedWinners, settleMatchSelections } from './bets-settlement.service.js';
-import { debitSelections, grantValidationCoins, refundSelections } from './coins.service.js';
+import { settleMatchSelections } from './bets-settlement.service.js';
 import { insertUser } from './users.service.js';
 
 /**
@@ -255,8 +254,7 @@ export interface SeedSummary {
 	equipos: number;
 	jugadores: number;
 	partidos: number;
-	/** `saldoMonedas` is the real balance after the sample tickets (null for the admin). */
-	cuentas: Array<{ email: string; password: string; rol: string; validado: boolean; saldoMonedas: number | null }>;
+	cuentas: Array<{ email: string; password: string; rol: string; validado: boolean }>;
 }
 
 export interface CleanSummary {
@@ -371,6 +369,7 @@ async function cleanIn(conn: TransactionConnection): Promise<CleanSummary> {
 
 	// The sample accounts and everything they own.
 	const tickets = await ids(conn, 'SELECT id FROM ticket WHERE usuario_id IN (?)', [inList(users)]);
+	// Sample data loaded before C-13 still has coin movements (the table stays, unused since then).
 	await deleteIn(conn, 'DELETE FROM movimiento_moneda WHERE usuario_id IN (?)', users);
 	await deleteIn(conn, 'DELETE FROM seleccion WHERE ticket_id IN (?)', tickets);
 	await deleteIn(conn, 'DELETE FROM ticket WHERE id IN (?)', tickets);
@@ -523,15 +522,12 @@ export async function seedDevData(pool: Pool, now: Date = new Date()): Promise<S
 						estado_usuario_id = (SELECT id FROM estado_usuario WHERE codigo = 'validado') WHERE id = ?`,
 					[id],
 				);
-				await grantValidationCoins(conn, id);
 			}
 		}
 
 		await seedTickets(conn, now, accountIds, matchIds, competitionIds);
 
 		await conn.query('INSERT INTO dato_demo (tabla, fila_id) VALUES ?', [marks]);
-		const [balances] = await conn.query<RowDataPacket[]>('SELECT id, saldo_monedas FROM usuario WHERE id IN (?)', [[...accountIds.values()]]);
-		const balanceOf = new Map(balances.map((row) => [Number(row.id), Number(row.saldo_monedas)]));
 
 		return {
 			deportes: SPORTS.length,
@@ -539,13 +535,7 @@ export async function seedDevData(pool: Pool, now: Date = new Date()): Promise<S
 			equipos: SPORTS.reduce((sum, sport) => sum + sport.equipos.length, 0),
 			jugadores: players,
 			partidos: MATCHES.length,
-			cuentas: DEMO_ACCOUNTS.map(({ key, email, password, rol, validado }) => ({
-				email,
-				password,
-				rol,
-				validado,
-				saldoMonedas: rol === 'apostador' ? (balanceOf.get(accountIds.get(key)!) ?? 0) : null,
-			})),
+			cuentas: DEMO_ACCOUNTS.map(({ email, password, rol, validado }) => ({ email, password, rol, validado })),
 		};
 	});
 }
@@ -619,19 +609,20 @@ export function sampleTicketTimes(now: Date): Array<{ confirmado: number; cierre
 }
 
 /**
- * Inserts the sample tickets and debits them like a confirmation (T-10), then:
+ * Inserts the sample tickets like a confirmation (T-10; free since C-13), then:
  *
  * - settles every finished sample match with the real settler (T-14,
  *   `settleMatchSelections`), and checks each pick ended as `settled` says;
- * - voids the picks on the cancelled match and refunds them with the real
- *   coin service (`refundSelections`).
+ * - voids the picks on the cancelled match.
+ *
+ * The picks keep the limit of one bet per type, match and participant
+ * (BR-017, C-13); a test checks it.
  *
  * The cancellation itself (`cancelMatch`, T-16) is not called: it opens its
  * own transaction and writes an audit record as an admin, so it can't run
  * inside the seed's single transaction (a failure would leave half-loaded
  * data), and the cancelled match is inserted already `cancelado`. The void is
- * the same UPDATE the cancellation runs (pending to anulada, points NULL), and
- * the refund goes through the same coin rules (only debited selections, once).
+ * the same UPDATE the cancellation runs (pending to anulada, points NULL).
  */
 async function seedTickets(
 	conn: TransactionConnection,
@@ -678,7 +669,6 @@ async function seedTickets(
 			);
 			selectionIds.push(row.insertId);
 		}
-		await debitSelections(conn, userId, selectionIds);
 		for (const [index, pick] of ticket.picks.entries()) {
 			const id = selectionIds[index]!;
 			expected.push([id, pick.settled ?? 'pendiente']);
@@ -691,20 +681,17 @@ async function seedTickets(
 				id,
 				ids.pendiente,
 			]);
-			await refundSelections(conn, userId, [id]);
 		}
 	}
 
-	// The finished matches, settled as a confirmed result would be (T-12): the winners locked first, then the
-	// match row, then the real settler, which also pays their prizes (C-09, BR-057), so the sample has some.
+	// The finished matches, settled as a confirmed result would be (T-12): the match row locked, then the real settler.
 	for (const [index, match] of MATCHES.entries()) {
 		if (match.estado !== 'finalizado' || !match.goles) continue;
 		const id = matchIds[index]!;
 		const [golesLocal, golesVisitante] = match.goles;
 		const result = { golesLocal, golesVisitante, resultado: resultOfScore(golesLocal, golesVisitante) };
-		const winners = (await lockPrizeWinners(conn, id, result)) as LockedWinners;
 		await conn.query('SELECT id FROM partido FORCE INDEX (PRIMARY) WHERE id = ? FOR UPDATE', [id]);
-		await settleMatchSelections(conn, { id, competicionId: competitionIds[match.sport]!, ...result }, winners, now);
+		await settleMatchSelections(conn, { id, competicionId: competitionIds[match.sport]!, ...result });
 	}
 
 	const [rows] = await conn.query<RowDataPacket[]>(

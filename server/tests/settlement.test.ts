@@ -16,15 +16,11 @@ import {
 import { countPendingSelections } from '../src/services/bets-match-probe.service.js';
 import {
 	LOTE_LIQUIDACION,
-	type LockedWinners,
-	lockPrizeWinners,
-	matchSettlement,
 	PENDING_IDS_SQL,
 	PENDING_INDEX,
 	settleMatchBets,
 	settleMatchSelections,
 } from '../src/services/bets-settlement.service.js';
-import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
 import { confirmResult, type MatchSettler, type ResultDeps } from '../src/services/results.service.js';
 import { createTestApp } from './helpers/app.js';
 import { registerUser, signedInUser } from './helpers/auth.js';
@@ -53,8 +49,7 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 	let api: AdminApi;
 	const s = {} as { liga: number; A: number; B: number; user: number; cat: Record<string, number> };
 
-	const deps = (settle: MatchSettler = settleMatchBets): ResultDeps => ({ countPendingSelections, ...matchSettlement, settle });
-	const locked = (prepared: unknown) => prepared as LockedWinners;
+	const deps = (settle: MatchSettler = settleMatchBets): ResultDeps => ({ countPendingSelections, settle });
 	const ctx = () => ({ actorId: api.admin.user.id as number });
 
 	/** A match that started two hours ago (its time is over), with the score loaded, ready to confirm. */
@@ -277,15 +272,15 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			expect(await selections([kept!])).toEqual([{ id: kept, estado: 'pendiente', puntos: null }]);
 		});
 
-		it('BR-039 (C-09 precision): points never turn into coins; each right selection pays its own prize', async () => {
+		it('BR-039 (C-13): only points; a right selection pays no prize, and the confirmation says nothing about coins', async () => {
 			const id = await endedMatch(3, 0);
 			const ticket = await insertTicket();
 			await insertSelections([selectionRow(ticket, id, general('local_gana')), selectionRow(ticket, id, exact(3, 0))]);
 			const before = await coinTotals();
 			const confirmed = await confirmResult(pool, ctx(), id, confirmBody(3, 0), deps());
-			// 6 points, but 1 + 2 coins: the prize of each hit (BR-057), not the points.
-			expect(confirmed.premios).toEqual({ selecciones: 2, monedas: 3, participantes: 1 });
-			expect(await coinTotals()).toEqual({ movimientos: before.movimientos + 2, saldos: before.saldos + 3 });
+			expect(Object.keys(confirmed).sort()).toEqual(['partido', 'resultado']);
+			expect(await coinTotals()).toEqual(before);
+			expect(before).toEqual({ movimientos: 0, saldos: 0 });
 		});
 	});
 
@@ -293,8 +288,8 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 		it('a failing settlement (or anything after it) rolls the whole confirmation back', async () => {
 			const id = await endedMatch(1, 0);
 			const ids = await insertSelections([selectionRow(await insertTicket(), id, general('local_gana'))]);
-			const failing: MatchSettler = async (conn, match, prepared) => {
-				await settleMatchBets(conn, match, prepared);
+			const failing: MatchSettler = async (conn, match) => {
+				await settleMatchBets(conn, match);
 				throw new Error('falla después de liquidar');
 			};
 			await expect(confirmResult(pool, ctx(), id, confirmBody(1, 0), deps(failing))).rejects.toThrow('falla después de liquidar');
@@ -312,9 +307,9 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			const ids = await insertSelections([selectionRow(ticket, id, general('visitante_gana')), selectionRow(ticket, id, exact(0, 1))]);
 			let calls = 0;
 			const summaries: number[] = [];
-			const flaky: MatchSettler = async (conn, match, prepared) => {
+			const flaky: MatchSettler = async (conn, match) => {
 				calls++;
-				summaries.push((await settleMatchSelections(conn, match, locked(prepared))).liquidadas);
+				summaries.push((await settleMatchSelections(conn, match)).liquidadas);
 				if (calls === 1) throw Object.assign(new Error('deadlock simulado'), { errno: 1213, sqlState: '40001' });
 			};
 			const retries = transactionStats.deadlockRetries;
@@ -332,20 +327,10 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 		it('idempotent inside the transaction: a second run settles nothing and changes nothing', async () => {
 			const id = await endedMatch(2, 2);
 			const ids = await insertSelections([selectionRow(await insertTicket(), id, general('empate'))]);
-			const twice: MatchSettler = async (conn, match, prepared) => {
-				expect(await settleMatchSelections(conn, match, locked(prepared))).toEqual({
-					liquidadas: 1,
-					acertadas: 1,
-					puntos: 1,
-					premios: { selecciones: 1, monedas: 1, participantes: 1 },
-				});
-				// Nothing pending: nothing settled and nothing paid again.
-				expect(await settleMatchSelections(conn, match, locked(prepared))).toEqual({
-					liquidadas: 0,
-					acertadas: 0,
-					puntos: 0,
-					premios: { selecciones: 0, monedas: 0, participantes: 0 },
-				});
+			const twice: MatchSettler = async (conn, match) => {
+				expect(await settleMatchSelections(conn, match)).toEqual({ liquidadas: 1, acertadas: 1, puntos: 1 });
+				// Nothing pending: nothing settled again.
+				expect(await settleMatchSelections(conn, match)).toEqual({ liquidadas: 0, acertadas: 0, puntos: 0 });
 			};
 			await confirmResult(pool, ctx(), id, confirmBody(2, 2), deps(twice));
 			expect(await selections(ids)).toEqual([{ id: ids[0], estado: 'acertada', puntos: 1 }]);
@@ -355,14 +340,14 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			const conn = await pool.getConnection();
 			try {
 				await expect(
-					settleMatchSelections(conn as TransactionConnection, { id: 1, competicionId: s.liga, ...result(1, 0) }, { usuarios: new Set() }),
+					settleMatchSelections(conn as TransactionConnection, { id: 1, competicionId: s.liga, ...result(1, 0) }),
 				).rejects.toThrow(/withTransaction/);
 			} finally {
 				conn.release();
 			}
 		});
 
-		it.skipIf(!canInspectLocks)('locks only the settled selections, by primary key, and a ticket can still add selections meanwhile', async () => {
+		it.skipIf(!canInspectLocks)('locks only the settled selections, by primary key, no user row (C-13), and a ticket can still add selections meanwhile', async () => {
 			const id = await endedMatch(1, 0);
 			const open = await insertMatch(pool, s.liga, s.B, s.A, 'programado', wholeSeconds(Date.now() + 3 * DAY));
 			const ticket = await insertTicket();
@@ -375,12 +360,13 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			const rollback = new Error('rollback');
 			await expect(
 				withTransaction(pool, async (conn) => {
-					// C-09: the winners first (usuario → partido), then the match, as the confirmation does.
-					const winners = (await lockPrizeWinners(conn, id, result(1, 0))) as LockedWinners;
+					// The match, as the confirmation does; since C-13 nothing is locked before it.
 					await conn.query('SELECT id FROM partido FORCE INDEX (PRIMARY) WHERE id = ? FOR UPDATE', [id]);
-					await settleMatchSelections(conn, { id, competicionId: s.liga, ...result(1, 0) }, winners);
+					await settleMatchSelections(conn, { id, competicionId: s.liga, ...result(1, 0) });
 					const [[me]] = await conn.query<RowDataPacket[]>('SELECT CONNECTION_ID() AS id');
-					const locks = (await locksHeldBy(Number(me!.id))).filter((l) => l.tabla === 'seleccion' && l.tipo === 'RECORD');
+					const all = await locksHeldBy(Number(me!.id));
+					expect(all.filter((l) => l.tabla === 'usuario')).toEqual([]);
+					const locks = all.filter((l) => l.tabla === 'seleccion' && l.tipo === 'RECORD');
 					// performance_schema.data_locks has no fixed row order: compare by id.
 					const held = locks.map((l) => [l.indice, l.modo, Number(l.dato)] as const).sort((a, b) => a[2] - b[2]);
 					expect(held).toEqual([
@@ -435,20 +421,15 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			expect(warning).toMatchObject({ Code: 3128 });
 
 			let statements = 0;
-			const counting: MatchSettler = async (conn, match, prepared) => {
+			const counting: MatchSettler = async (conn, match) => {
 				const original = conn.query;
 				conn.query = ((...args: Parameters<typeof original>) => {
 					statements++;
 					return original.apply(conn, args);
 				}) as typeof original;
 				try {
-					// Every fifth selection is a right general result (1 coin) and every fifth a right exact score (2).
-					expect(await settleMatchSelections(conn, match, locked(prepared))).toEqual({
-						liquidadas: TOTAL,
-						acertadas: 2000,
-						puntos: 6000,
-						premios: { selecciones: 2000, monedas: 3000, participantes: 1 },
-					});
+					// Every fifth selection is a right general result and every fifth a right exact score.
+					expect(await settleMatchSelections(conn, match)).toEqual({ liquidadas: TOTAL, acertadas: 2000, puntos: 6000 });
 				} finally {
 					// Back to the prototype's method.
 					delete (conn as unknown as { query?: unknown }).query;
@@ -457,12 +438,8 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			const started = performance.now();
 			await confirmResult(pool, ctx(), id, confirmBody(2, 1), deps(counting));
 			const elapsed = performance.now() - started;
-			// Catalogs, the pending ids, the winners, one UPDATE per batch and the totals; then the prizes (one user):
-			// lock and role, ownership and hits per 1000, the movement types, one INSERT per 1000 and one UPDATE.
-			const settle = 4 + Math.ceil(TOTAL / LOTE_LIQUIDACION);
-			const hitBatches = Math.ceil(2000 / 1000);
-			const prizes = 2 + hitBatches + hitBatches + 1 + hitBatches + 1;
-			expect(statements).toBe(settle + prizes);
+			// Catalogs, the pending ids, one UPDATE per batch and the totals (no prizes since C-13).
+			expect(statements).toBe(3 + Math.ceil(TOTAL / LOTE_LIQUIDACION));
 			expect(elapsed).toBeLessThan(10_000);
 
 			const [summary] = await pool.query<RowDataPacket[]>(
@@ -480,7 +457,7 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 	});
 
 	describe('concurrency', () => {
-		/** A participant validated through the real admin actions (10 coins with their movement). */
+		/** A participant validated through the real admin actions (no coins since C-13). */
 		async function validatedBettor(): Promise<Session> {
 			const who = await signedInUser(app, pool);
 			expect((await api.post(`/participantes/${who.user.id}/pago/confirmar`, {})).status).toBe(200);
@@ -507,10 +484,9 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 					selectionRow(ticket, id, general('empate')),
 				]);
 				let settled = 0;
-				const tracking: MatchSettler = async (conn, match, prepared) => {
-					const summary = await settleMatchSelections(conn, match, locked(prepared));
+				const tracking: MatchSettler = async (conn, match) => {
+					const summary = await settleMatchSelections(conn, match);
 					settled += summary.liquidadas;
-					return summary.premios;
 				};
 				const deadlocks = { ...transactionStats };
 				const [confirmations, tickets] = await Promise.all([
@@ -535,8 +511,8 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 				expect(tickets[3]).toMatchObject({ status: 409, body: { error: { code: 'TICKET_REJECTED' } } });
 				expect(transactionStats).toEqual(deadlocks);
 			}
-			// The prizes were paid once per round: every balance still matches its movements.
-			expect(await checkCoinConsistency(pool)).toMatchObject({ ok: true, descuadres: [] });
+			// C-13: no prize was paid.
+			expect(await coinTotals()).toEqual({ movimientos: 0, saldos: 0 });
 		});
 
 		it('two matches sharing tickets, confirmed at the same time: each settles its own selections, no deadlocks', async () => {
@@ -573,7 +549,7 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 	});
 
 	describe('what the bettor sees (HTTP)', () => {
-		it('receipt, my bets and the summary show states, points and the ticket state; the balance does not change', async () => {
+		it('receipt, my bets and the summary show states, points and the ticket state; no coin anywhere (C-13)', async () => {
 			const who = await signedInUser(app, pool);
 			expect((await api.post(`/participantes/${who.user.id}/pago/confirmar`, {})).status).toBe(200);
 			expect((await api.post(`/participantes/${who.user.id}/validar`, {})).status).toBe(200);
@@ -588,7 +564,7 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 					selecciones: [
 						{ partidoId: first, tipo: 'resultado_general', pronostico: 'local_gana' },
 						{ partidoId: first, tipo: 'marcador_exacto', golesLocal: 2, golesVisitante: 1 },
-						{ partidoId: first, tipo: 'resultado_general', pronostico: 'empate' },
+						{ partidoId: second, tipo: 'marcador_exacto', golesLocal: 3, golesVisitante: 0 },
 						{ partidoId: second, tipo: 'resultado_general', pronostico: 'empate' },
 					],
 				});
@@ -601,33 +577,32 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 
 			expect((await api.put(`/partidos/${first}/resultado`, { golesLocal: 2, golesVisitante: 1 })).status).toBe(200);
 			const preview = (await api.get(`/partidos/${first}/resultado`)).body.data;
-			expect(preview.seleccionesPendientes).toBe(3);
-			// The preview is as before (the user's decision for C-09): nothing about coins.
+			expect(preview.seleccionesPendientes).toBe(2);
 			expect(preview).not.toHaveProperty('premios');
 			const confirmed = await api.post(`/partidos/${first}/resultado/confirmar`, confirmBody(2, 1));
 			expect(confirmed.status).toBe(200);
-			// C-09: paid automatically by the confirmation: the right winner (1) and the right score (2), to one participant.
-			expect(confirmed.body.data.premios).toEqual({ selecciones: 2, monedas: 3, participantes: 1 });
-			expect(JSON.stringify(confirmed.body.data.premios)).not.toMatch(/usuario|saldo/i);
+			// C-13: the answer carries the match and its result, and nothing about coins or prizes.
+			expect(Object.keys(confirmed.body.data).sort()).toEqual(['partido', 'resultado']);
 			expect((await api.get(`/partidos/${first}/resultado`)).body.data.seleccionesPendientes).toBe(0);
 
 			let body = (await receipt()).body.data;
-			expect(body).toMatchObject({ estado: 'pendiente', puntosObtenidos: 6, monedasUtilizadas: 4, monedasDevueltas: 0, monedasGanadas: 3 });
-			type Row = { estado: string; puntosObtenidos: number | null; monedasGanadas: number };
-			expect(body.selecciones.map((x: Row) => [x.estado, x.puntosObtenidos, x.monedasGanadas])).toEqual([
-				['acertada', 3, 1],
-				['acertada', 3, 2],
-				['no_acertada', 0, 0],
-				['pendiente', null, 0],
+			expect(body).toMatchObject({ estado: 'pendiente', puntosObtenidos: 6 });
+			type Row = { estado: string; puntosObtenidos: number | null };
+			expect(body.selecciones.map((x: Row) => [x.estado, x.puntosObtenidos])).toEqual([
+				['acertada', 3],
+				['acertada', 3],
+				['pendiente', null],
+				['pendiente', null],
 			]);
 			expect(body.selecciones[0].resultadoReal).toEqual({ golesLocal: 2, golesVisitante: 1, resultado: 'local_gana' });
 
 			expect((await api.put(`/partidos/${second}/resultado`, { golesLocal: 0, golesVisitante: 0 })).status).toBe(200);
 			expect((await api.post(`/partidos/${second}/resultado/confirmar`, confirmBody(0, 0))).status).toBe(200);
 			body = (await receipt()).body.data;
-			expect(body).toMatchObject({ estado: 'finalizado', puntosObtenidos: 7, monedasGanadas: 4 });
-			// A right draw: 1 point and 1 coin.
-			expect(body.selecciones[3]).toMatchObject({ estado: 'acertada', puntosObtenidos: 1, monedasGanadas: 1 });
+			expect(body).toMatchObject({ estado: 'finalizado', puntosObtenidos: 7 });
+			// A right draw: 1 point, and nothing else.
+			expect(body.selecciones[3]).toMatchObject({ estado: 'acertada', puntosObtenidos: 1 });
+			expect(JSON.stringify(body)).not.toMatch(/moneda|costo|saldo/i);
 
 			const list = await request(app).get('/apuestas/mis-apuestas').set('Cookie', who.cookie);
 			expect(list.status).toBe(200);
@@ -637,8 +612,8 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 				['no_acertada', 0],
 				['acertada', 1],
 			]);
-			expect(list.body.data.items.map((x: { monedasGanadas: number }) => x.monedasGanadas)).toEqual([1, 2, 0, 1]);
-			expect(list.body.data.items[0].ticket).toMatchObject({ estado: 'finalizado', puntosObtenidos: 7, monedasGanadas: 4 });
+			expect(list.body.data.items[0].ticket).toMatchObject({ estado: 'finalizado', puntosObtenidos: 7 });
+			expect(JSON.stringify(list.body.data)).not.toMatch(/moneda|costo|saldo/i);
 			const hits = await request(app).get('/apuestas/mis-apuestas?estado=acertada').set('Cookie', who.cookie);
 			expect(hits.body.data.total).toBe(3);
 
@@ -646,24 +621,14 @@ describe('settling bets (T-14: BR-034 to BR-040)', () => {
 			expect(summary.body.data).toMatchObject({
 				tickets: { total: 1, pendiente: 0, finalizado: 1, anulado: 0 },
 				selecciones: { total: 4, pendiente: 0, acertada: 3, no_acertada: 1, anulada: 0 },
-				monedasUtilizadas: 4,
-				monedasDevueltas: 0,
-				monedasGanadas: 4,
 				puntos: 7,
 				aciertos: 3,
 			});
 
-			// 10 coins, 4 spent, 4 won by the hits (BR-057); the 7 points never turn into coins (BR-039).
-			const me = await request(app).get('/monedas/saldo').set('Cookie', who.cookie);
-			expect(me.body.data.saldoMonedas).toBe(10);
-			const moves = await request(app).get('/monedas/movimientos').set('Cookie', who.cookie);
-			const codes = moves.body.data.items.map((m: { tipo: { codigo: string }; cantidad: number }) => [m.tipo.codigo, m.cantidad]);
-			expect(codes.filter(([c]: [string]) => c.startsWith('premio_')).sort()).toEqual([
-				['premio_marcador_exacto', 2],
-				['premio_resultado_general', 1],
-				['premio_resultado_general', 1],
-			]);
-			expect(await checkCoinConsistency(pool)).toMatchObject({ ok: true, descuadres: [] });
+			// C-13: the coin routes are gone, and nothing wrote a coin.
+			expect((await request(app).get('/monedas/saldo').set('Cookie', who.cookie)).status).toBe(404);
+			expect((await request(app).get('/monedas/movimientos').set('Cookie', who.cookie)).status).toBe(404);
+			expect(await coinTotals()).toEqual({ movimientos: 0, saldos: 0 });
 		});
 	});
 });

@@ -2,7 +2,6 @@ import express, { type Express } from 'express';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { MONEDAS_POR_VALIDACION } from '../src/lib/coins.js';
 import { createRequireAuth, requireBettor } from '../src/middleware/auth.js';
 import { errorHandler } from '../src/middleware/error-handler.js';
 import { validateParticipant } from '../src/services/participant-validation.service.js';
@@ -11,7 +10,7 @@ import { login, registerUser, setUserState, signedInUser } from './helpers/auth.
 import { resetDatabase } from './helpers/db.js';
 import { setPayment, userState } from './helpers/participants.js';
 
-describe('participant actions (BR-006, BR-008, §23)', () => {
+describe('participant actions (BR-006, §23; no coins since C-13)', () => {
 	let app: Express;
 	let pool: Pool;
 	let admin: Awaited<ReturnType<typeof signedInUser>>;
@@ -34,14 +33,14 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 		return user;
 	}
 
-	async function validationMovements(userId: number) {
-		const [rows] = await pool.query<RowDataPacket[]>(
-			`SELECT m.cantidad, m.seleccion_id, tm.codigo
-			FROM movimiento_moneda m JOIN tipo_movimiento tm ON tm.id = m.tipo_movimiento_id
-			WHERE m.usuario_id = ?`,
+	/** A coin movement and balance left by the app before C-13 (the tables stay, unused). */
+	async function legacyValidationCoins(userId: number) {
+		await pool.query(
+			`INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en)
+			VALUES (?, (SELECT id FROM tipo_movimiento WHERE codigo = 'validacion'), NULL, 10, UTC_TIMESTAMP())`,
 			[userId],
 		);
-		return rows;
+		await pool.query('UPDATE usuario SET saldo_monedas = 10 WHERE id = ?', [userId]);
 	}
 
 	beforeAll(() => {
@@ -67,9 +66,9 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 				id: user.id,
 				estadoPago: 'confirmado',
 				estadoValidacion: 'pendiente',
-				saldoMonedas: 0,
 				puntos: 0,
 			});
+			expect(res.body.data.participante).not.toHaveProperty('saldoMonedas');
 			expect(await userState(pool, user.id)).toEqual({
 				estadoValidacion: 'pendiente',
 				estadoPago: 'confirmado',
@@ -131,19 +130,43 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 			});
 		});
 
-		it('validates, adds 10 coins and records one +10 validacion movement', async () => {
-			expect(MONEDAS_POR_VALIDACION).toBe(10);
+		it('C-13: validates and grants no coins: no movement, the balance untouched', async () => {
 			const user = await paidUser();
 
 			const res = await validate(user.id);
 
 			expect(res.status).toBe(200);
-			expect(res.body.data.participante).toMatchObject({
-				id: user.id,
+			expect(res.body.data.participante).toMatchObject({ id: user.id, estadoValidacion: 'validado', estadoPago: 'confirmado' });
+			expect(res.body.data.participante).not.toHaveProperty('saldoMonedas');
+			expect(await userState(pool, user.id)).toEqual({
 				estadoValidacion: 'validado',
 				estadoPago: 'confirmado',
-				saldoMonedas: MONEDAS_POR_VALIDACION,
+				saldo: 0,
+				movimientos: 0,
+				sumaMovimientos: 0,
 			});
+		});
+
+		it('twice -> 409 USER_ALREADY_VALIDATED, no effects', async () => {
+			const user = await paidUser();
+			await validate(user.id);
+
+			const res = await validate(user.id);
+
+			expect(res.status).toBe(409);
+			expect(res.body).toEqual(conflict('USER_ALREADY_VALIDATED'));
+			expect(await userState(pool, user.id)).toMatchObject({ estadoValidacion: 'validado', saldo: 0, movimientos: 0 });
+		});
+
+		it('C-13: coins left from before are never touched, even when the state was reset by hand and validated again', async () => {
+			const user = await paidUser();
+			await validate(user.id);
+			await legacyValidationCoins(user.id);
+			await setUserState(pool, user.id, { estado: 'pendiente' });
+
+			const res = await validate(user.id);
+
+			expect(res.status).toBe(200);
 			expect(await userState(pool, user.id)).toEqual({
 				estadoValidacion: 'validado',
 				estadoPago: 'confirmado',
@@ -151,34 +174,9 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 				movimientos: 1,
 				sumaMovimientos: 10,
 			});
-			expect(await validationMovements(user.id)).toEqual([{ cantidad: 10, seleccion_id: null, codigo: 'validacion' }]);
 		});
 
-		it('twice -> 409 USER_ALREADY_VALIDATED and no second movement', async () => {
-			const user = await paidUser();
-			await validate(user.id);
-
-			const res = await validate(user.id);
-
-			expect(res.status).toBe(409);
-			expect(res.body).toEqual(conflict('USER_ALREADY_VALIDATED'));
-			expect(await userState(pool, user.id)).toMatchObject({ saldo: 10, movimientos: 1 });
-		});
-
-		it('the database refuses a second +10 even if the state was reset by hand, and rolls everything back', async () => {
-			const user = await paidUser();
-			await validate(user.id);
-			await setUserState(pool, user.id, { estado: 'pendiente' });
-
-			const res = await validate(user.id);
-
-			expect(res.status).toBe(409);
-			expect(res.body).toEqual(conflict('USER_ALREADY_VALIDATED'));
-			// The UPDATE of the same transaction was rolled back: still pending, still 10.
-			expect(await userState(pool, user.id)).toMatchObject({ estadoValidacion: 'pendiente', saldo: 10, movimientos: 1 });
-		});
-
-		it('only assigns the coins once under concurrent requests', async () => {
+		it('only one of concurrent validations wins, and none writes coins', async () => {
 			for (let round = 0; round < 3; round++) {
 				const user = await paidUser();
 
@@ -192,9 +190,9 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 				expect(await userState(pool, user.id)).toEqual({
 					estadoValidacion: 'validado',
 					estadoPago: 'confirmado',
-					saldo: 10,
-					movimientos: 1,
-					sumaMovimientos: 10,
+					saldo: 0,
+					movimientos: 0,
+					sumaMovimientos: 0,
 				});
 			}
 		});
@@ -210,7 +208,7 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 	});
 
 	describe('effect on the validated user', () => {
-		it('/auth/me shows validado and 10 coins on the next request, and requireBettor lets them through', async () => {
+		it('/auth/me shows validado on the next request, with no coins, and requireBettor lets them through', async () => {
 			const { body, user } = await registerUser(app);
 			const session = await login(app, body.email);
 			const bettingApp = express();
@@ -225,7 +223,8 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 			await validate(user.id);
 
 			const me = await request(app).get('/auth/me').set('Cookie', session.cookie);
-			expect(me.body.data.user).toMatchObject({ estadoValidacion: 'validado', estadoPago: 'confirmado', saldoMonedas: 10 });
+			expect(me.body.data.user).toMatchObject({ estadoValidacion: 'validado', estadoPago: 'confirmado' });
+			expect(me.body.data.user).not.toHaveProperty('saldoMonedas');
 			expect((await request(bettingApp).get('/apostar').set('Cookie', session.cookie)).status).toBe(200);
 		});
 	});
@@ -314,14 +313,16 @@ describe('participant actions (BR-006, BR-008, §23)', () => {
 				{
 					inTransaction: async (conn, outcome) => {
 						// Sees the uncommitted change through the same connection.
-						const [rows] = await conn.query<RowDataPacket[]>('SELECT saldo_monedas FROM usuario WHERE id = ?', [user.id]);
-						seen.push({ action: outcome.action, actorId: outcome.actorId, saldo: rows[0]!.saldo_monedas });
-						expect(outcome.movimientoId).toEqual(expect.any(Number));
+						const [rows] = await conn.query<RowDataPacket[]>(
+							`SELECT eu.codigo AS estado FROM usuario u JOIN estado_usuario eu ON eu.id = u.estado_usuario_id WHERE u.id = ?`,
+							[user.id],
+						);
+						seen.push({ action: outcome.action, actorId: outcome.actorId, estado: rows[0]!.estado });
 					},
 				},
 			);
 
-			expect(seen).toEqual([{ action: 'validar', actorId: admin.user.id, saldo: 10 }]);
+			expect(seen).toEqual([{ action: 'validar', actorId: admin.user.id, estado: 'validado' }]);
 		});
 
 		it('a failing hook rolls the whole validation back', async () => {

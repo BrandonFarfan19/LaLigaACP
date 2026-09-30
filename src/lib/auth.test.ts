@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { apostador, fail, mockFetch, ok } from '../test/fetch-mock';
-import { getCsrfToken } from './api';
+import { api, getCsrfToken } from './api';
 import {
 	cachedSession,
 	getSessionState,
 	login,
 	logout,
 	readSession,
-	refreshCoinBalance,
 	refreshSession,
 	SESSION_CACHE_MS,
 	subscribeSession,
@@ -87,26 +86,11 @@ describe('session store (T-18)', () => {
 		expect(getSessionState().user).toEqual(apostador);
 	});
 
-	it('a new balance reaches the subscribers (the coin counter)', async () => {
-		mockFetch(() => ok({ user: apostador, csrfToken: 't' }));
-		await refreshSession();
-		let notified = 0;
-		const stop = subscribeSession(() => notified++);
-		mockFetch(() => ok({ saldoMonedas: 7 }));
-		await expect(refreshCoinBalance()).resolves.toBe(7);
-		expect(getSessionState().user?.saldoMonedas).toBe(7);
-		expect(notified).toBe(1);
-		// The same balance changes nothing.
-		await refreshCoinBalance();
-		expect(notified).toBe(1);
-		stop();
-	});
-
 	it('any 401 from another call signs the user out of the store', async () => {
 		mockFetch(() => ok({ user: apostador, csrfToken: 't' }));
 		await refreshSession();
 		mockFetch(() => fail(401, 'UNAUTHENTICATED'));
-		await expect(refreshCoinBalance()).rejects.toMatchObject({ status: 401 });
+		await expect(api.get('/ranking')).rejects.toMatchObject({ status: 401 });
 		expect(getSessionState()).toEqual({ status: 'ready', user: null });
 	});
 });

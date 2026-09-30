@@ -4,7 +4,6 @@ import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { hashPassword } from '../lib/password.js';
 import { findAccountRole, findParticipant, type Participant } from './participants.service.js';
-import { grantValidationCoins } from './coins.service.js';
 
 /**
  * The admin actions of the participation flow (business-rules.md §23):
@@ -37,8 +36,6 @@ export interface ParticipantActionOutcome {
 	action: ParticipantAction;
 	actorId: number;
 	participant: Participant;
-	/** Only for `validar`: the `movimiento_moneda` row created. */
-	movimientoId?: number;
 	/** Only for `restablecer_contrasena`: how many of the participant's sessions were closed. */
 	sesionesCerradas?: number;
 }
@@ -133,7 +130,7 @@ export async function confirmPayment(
 /**
  * Undoes a payment confirmed by mistake: `confirmado` → `pendiente`, only
  * while the user is still `pendiente`. Never for a validated user: their
- * validation (and the 10 coins) rests on that payment (BR-006), and
+ * validation rests on that payment (BR-006), and
  * validation is not reversible.
  */
 export async function revertPayment(
@@ -159,16 +156,11 @@ export async function revertPayment(
 }
 
 /**
- * §23 step 2, BR-006/BR-008, in one transaction:
- *
- * 1. `pendiente` → `validado`, in an UPDATE that only matches a `pendiente`
- *    `apostador` with payment `confirmado`. Two concurrent calls: InnoDB
- *    locks the row, the second re-reads it after the first commits, matches
- *    nothing and gets 409.
- * 2. The +10 through the coin service (`grantValidationCoins`, T-05): the
- *    `validacion` movement and the new balance. `uq_movimiento_sin_seleccion`
- *    (EsquemaBD D19) rejects a second one for the same user even if the state
- *    had been reset by hand; the whole transaction is then rolled back.
+ * §23 step 2, BR-006: `pendiente` → `validado`, in an UPDATE that only
+ * matches a `pendiente` `apostador` with payment `confirmado`. Two concurrent
+ * calls: InnoDB locks the row, the second re-reads it after the first
+ * commits, matches nothing and gets 409. Since C-13 (D-042) validating grants
+ * no coins: it only lets the participant bet.
  */
 export async function validateParticipant(
 	pool: Pool,
@@ -189,17 +181,7 @@ export async function validateParticipant(
 			throw errors.paymentNotConfirmed('Primero hay que confirmar el pago del usuario; después se lo puede validar.');
 		}
 
-		let movimientoId: number;
-		try {
-			[movimientoId] = (await grantValidationCoins(conn, input.userId)).movimientoIds as [number];
-		} catch (error) {
-			if (error instanceof HttpError && error.code === ErrorCode.MOVEMENT_ALREADY_APPLIED) {
-				throw errors.alreadyValidated('Este usuario ya recibió sus monedas de validación: no se asignan dos veces.');
-			}
-			throw error;
-		}
-
-		return finish(conn, hooks, { action: 'validar', actorId: input.actorId, movimientoId }, input.userId);
+		return finish(conn, hooks, { action: 'validar', actorId: input.actorId }, input.userId);
 	}, CHECK_AND_SET);
 }
 

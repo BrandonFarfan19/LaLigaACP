@@ -24,6 +24,7 @@ Regla: **Informativo nunca depende de Polla ni de Auditoría.** La parte informa
 - Monedas y puntos de la polla: **enteros** (`SMALLINT UNSIGNED`/`SMALLINT`). Ya no hay `DECIMAL`: la anticipación y las bonificaciones fraccionarias del diseño anterior desaparecen.
 - Los **catálogos** tienen un `codigo` único y estable. La lógica filtra por `codigo`, nunca por el número de `id`.
 - Lo que se puede calcular **no se guarda**: tabla de posiciones, goleadores, resultado general del partido, ranking de la polla. La única excepción deliberada es `usuario.saldo_monedas` (ver Decisiones).
+- **Monedas sin uso desde C-13 (D-042).** La polla se mide solo con puntos: `usuario.saldo_monedas`, `tipo_movimiento` y `movimiento_moneda` quedan en el esquema, con los datos anteriores, pero la aplicación ya no los lee ni los escribe (salvo el valor por defecto 0 al crear una cuenta). El esquema no cambió y no hubo migración; quitarlos sería una migración aparte, si el usuario lo decide (`docs/pendientes.md`). Lo que este documento dice de monedas describe cómo funcionaron hasta C-13.
 - Las **reglas de negocio críticas viven en el backend, nunca solo en el frontend** (regla general de la plataforma de apuestas).
 
 ## Decisiones
@@ -102,7 +103,7 @@ Un rol por usuario. Los roles no se incluyen entre sí: el `admin` administra y 
 | nombre | VARCHAR | Nombre a mostrar (no lo pide BR-003, pero hace falta para "Participante" en el ranking, BR-042, y "Usuario" en la tabla de inscritos, BR-007). |
 | email | VARCHAR, único | Es el "usuario o correo electrónico" de BR-003: se usa solo el correo, sin una columna de nombre de usuario aparte (D17). El backend lo guarda recortado y en minúsculas; la collation `_ci` hace que la unicidad tampoco distinga mayúsculas. |
 | password_hash | VARCHAR(255) | Nunca texto plano (BR-004). argon2id en formato PHC (`$argon2id$v=19$m=...`), calculado por el backend (T-03). |
-| saldo_monedas | SMALLINT UNSIGNED | Ver decisión D12. `DEFAULT 0`. Sin `CHECK` aparte: `UNSIGNED` ya impide un valor negativo por el tipo (a diferencia del viejo `coins_obtenidos`, un `DECIMAL` con signo, que sí necesitaba uno). |
+| saldo_monedas | SMALLINT UNSIGNED | **Sin uso desde C-13 (D-042).** Ver decisión D12. `DEFAULT 0`. Sin `CHECK` aparte: `UNSIGNED` ya impide un valor negativo por el tipo (a diferencia del viejo `coins_obtenidos`, un `DECIMAL` con signo, que sí necesitaba uno). |
 | creado_en | DATETIME (UTC) | Fecha de inscripción (BR-007). |
 
 No es un jugador: son entidades distintas.
@@ -349,14 +350,18 @@ Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general
 | puntos_obtenidos | SMALLINT UNSIGNED, opcional | Vacío hasta liquidar. Ver D13. |
 
 - `CHECK`: exactamente una de las dos formas de pronóstico tiene valor (igual patrón que la vieja `ck_mercado_objetivo`, sin depender de otra tabla).
-- **Backend:** que la forma usada corresponda al `tipo_apuesta` (por `codigo`), que el partido esté `programado` y dentro del plazo (BR-014, `fecha_hora − 1h` desde C-12; eran 24 h), y que el costo de 1 moneda (D11) no supere el saldo (BR-021).
+- **Backend:** que la forma usada corresponda al `tipo_apuesta` (por `codigo`), que el partido esté `programado` y dentro del plazo (BR-014, `fecha_hora − 1h` desde C-12; eran 24 h) y, desde C-13, que el participante no tenga ya una selección de ese tipo en ese partido (BR-017). Hasta C-13 también que el costo de 1 moneda (D11) no superara el saldo (BR-021, derogada).
 - `CHECK (puntos_obtenidos IN (0, 1, 3))`: son los únicos valores que produce la tabla de puntuación (BR-035 a BR-038).
 - Índice `idx_seleccion_ticket_estado (ticket_id, estado_seleccion_id, puntos_obtenidos)` (T-11): calcula el estado, las monedas y los puntos de cada ticket leyendo solo el índice. También es el índice de la FK a `ticket`, que antes tenía uno propio. Con 1000 tickets y 3000 selecciones de un usuario, la página de "Mis apuestas" pasó de unos 28 ms a 16 ms, y el resumen de 21 ms a 12 ms.
 - Índice `idx_seleccion_partido_estado (partido_id, estado_seleccion_id)` (T-14): las selecciones pendientes de un partido, que se liquidan al confirmar su resultado y que cuenta su vista previa. También es el índice de la FK a `partido`, que antes tenía uno propio (`fk_seleccion_partido`). Con 5000 selecciones pendientes en un partido, la liquidación hace 8 sentencias.
-- **Backend (T-14):** al confirmar el resultado, cada selección `pendiente` del partido pasa a `acertada` (con 3 o 1 puntos) o `no_acertada` (con 0), según la tabla de "Reglas del backend". Las `anulada` y las ya liquidadas no cambian, y ningún punto genera un movimiento de monedas (BR-039). **Desde C-09 (BR-057)**, en esa misma transacción, cada selección que pasa a `acertada` de un ticket de apostador recibe su premio: un `movimiento_moneda` `premio_resultado_general` (+1) o `premio_marcador_exacto` (+2) con su `seleccion_id`. El premio sale del acierto, no de los puntos.
-- Varias selecciones por partido y por ticket, incluso contradictorias entre sí, están permitidas (BR-017, BR-018): no hay `UNIQUE` que las junte por `usuario_id`/`partido_id` como en el diseño anterior.
+- **Backend (T-14):** al confirmar el resultado, cada selección `pendiente` del partido pasa a `acertada` (con 3 o 1 puntos) o `no_acertada` (con 0), según la tabla de "Reglas del backend". Las `anulada` y las ya liquidadas no cambian, y ningún punto genera un movimiento de monedas (BR-039). **De C-09 a C-13 (BR-057, derogada por C-13)**, en esa misma transacción, cada selección que pasa a `acertada` de un ticket de apostador recibe su premio: un `movimiento_moneda` `premio_resultado_general` (+1) o `premio_marcador_exacto` (+2) con su `seleccion_id`. El premio sale del acierto, no de los puntos.
+- Varias selecciones por partido y por ticket, incluso contradictorias entre sí, estaban permitidas (BR-017, BR-018): no hay `UNIQUE` que las junte por `usuario_id`/`partido_id` como en el diseño anterior.
+- **Desde C-13 (D-042):** como máximo una selección de cada `tipo_apuesta` por participante y partido, sin contar las `anulada`. Es una regla del backend (`services/betting.service.ts`), serializada por el bloqueo `FOR UPDATE` de la fila del usuario que ya toma cada ticket, y no un `UNIQUE`: el usuario está en `ticket` y no en `seleccion`, las anuladas no cuentan, y las repetidas cargadas antes de C-13 se dejan como están.
 
 ### tipo_movimiento — catálogo
+
+**Sin uso desde C-13 (D-042).** El catálogo queda con sus cinco filas; nada lo lee ni lo escribe.
+
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
@@ -366,6 +371,9 @@ Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general
 Solo los eventos de la tabla 28 que efectivamente mueven monedas; "apuesta incorrecta" no genera movimiento. Desde C-09 (D-038) un acierto sí: su premio. Los montos no se guardan en el catálogo, viven solo en `server/src/lib/coins.ts`. Una base creada antes de C-09 recibe los dos tipos con `db/migraciones/C-09-premios-por-acierto.sql`.
 
 ### movimiento_moneda
+
+**Sin uso desde C-13 (D-042).** Los movimientos anteriores se conservan; nada inserta uno nuevo. Lo que sigue describe cómo se usaba.
+
 | Campo | Tipo | Notas |
 |---|---|---|
 | id | PK | |
@@ -432,12 +440,12 @@ El backend mapea cada acción de la aplicación a su código en un solo lugar (`
 
 **Partido cancelado (BR-045 a BR-047).** El `estado_partido` pasa a `cancelado`:
 1. Cada `seleccion` **pendiente** de ese `partido_id` pasa a `anulada`, con `puntos_obtenidos` NULL (sin importar el ticket al que pertenezca). Las ya liquidadas o anuladas (solo posibles con datos cargados a mano) no cambian.
-2. Por cada una que tenga su débito (`seleccion_confirmada`), se crea un `movimiento_moneda` de tipo `devolucion_cancelacion` con `cantidad = +1` y su `seleccion_id` (D19), y se actualiza `usuario.saldo_monedas` en la misma transacción (BR-055). Una sin débito, o de una cuenta que hoy es admin (D-002 de `docs/decisiones.md`), se anula sin devolución.
+2. *(Hasta C-13; desde entonces no se devuelve nada.)* Por cada una que tenga su débito (`seleccion_confirmada`), se crea un `movimiento_moneda` de tipo `devolucion_cancelacion` con `cantidad = +1` y su `seleccion_id` (D19), y se actualiza `usuario.saldo_monedas` en la misma transacción (BR-055). Una sin débito, o de una cuenta que hoy es admin (D-002 de `docs/decisiones.md`), se anula sin devolución.
 3. Las demás selecciones del mismo ticket, de otros partidos, no se tocan (BR-047).
-4. **Backend (T-16):** `server/src/services/match-cancellation.service.ts`, en `READ COMMITTED`. Bloquea primero los usuarios afectados y después el partido (orden usuario → partido), y empieza de nuevo si mientras tanto apostó un usuario que no había bloqueado. La cancelación es definitiva: `cancelado` bloquea la fila igual que `finalizado`. Un partido cancelado solo se borra si no tiene apuestas, goles, resultado ni multimedia (D-001). El marcador, los goles y la multimedia que tuviera se conservan, pero no son públicos.
+4. **Backend (T-16):** `server/src/services/match-cancellation.service.ts`, en `READ COMMITTED`. Desde C-13 bloquea solo el partido (`FOR UPDATE`) y anula sus selecciones pendientes por clave primaria; hasta C-13 bloqueaba antes a los usuarios a los que devolvía monedas y volvía a empezar si aparecía uno nuevo. La cancelación es definitiva: `cancelado` bloquea la fila igual que `finalizado`. Un partido cancelado solo se borra si no tiene apuestas, goles, resultado ni multimedia (D-001). El marcador, los goles y la multimedia que tuviera se conservan, pero no son públicos.
 
 **Validar un usuario (BR-006 a BR-008).** El admin pone `estado_usuario = validado`:
-1. Se crea un `movimiento_moneda` de tipo `validacion` con `cantidad = +10`, y se actualiza `usuario.saldo_monedas`.
+1. *(Hasta C-13; desde entonces validar no asigna monedas.)* Se crea un `movimiento_moneda` de tipo `validacion` con `cantidad = +10`, y se actualiza `usuario.saldo_monedas`.
 2. Solo debe ocurrir una vez por usuario: el backend lo garantiza validando que el usuario esté hoy en `pendiente` antes de aplicar el cambio (no hay forma de expresar "una sola vez" con una restricción de la tabla, porque no depende del contenido de la fila sino de su transición).
 
 **Ranking de la polla (BR-041 a BR-044).** `SUM(seleccion.puntos_obtenidos)` por usuario, orden `puntos DESC, aciertos DESC` (aciertos = `COUNT(seleccion.estado_seleccion = acertada)`). Empate total: comparten posición (BR-043 lo deja abierto).

@@ -88,6 +88,8 @@ export interface SelectionProblem {
 	message: string;
 	/** `BETTING_CLOSED` only, UTC. */
 	cierre?: string;
+	/** `BET_LIMIT_REACHED` for a repeat inside the same ticket (C-13): the index of the earlier selection. */
+	repiteA?: number;
 }
 
 export interface EvaluatedSelection {
@@ -98,11 +100,8 @@ export interface EvaluatedSelection {
 	pronostico: GeneralResult | null;
 	golesLocal: number | null;
 	golesVisitante: number | null;
-	costo: number;
 	valida: boolean;
 	errores: SelectionProblem[];
-	/** Index of an earlier identical selection, or `null`. */
-	repiteA: number | null;
 	partido: BettingMatch | null;
 }
 
@@ -111,12 +110,6 @@ export interface TicketEvaluation {
 	valido: boolean;
 	selecciones: EvaluatedSelection[];
 	cantidadSelecciones: number;
-	costoPorSeleccion: number;
-	costoTotal: number;
-	saldoActual: number;
-	saldoPosterior: number;
-	saldoSuficiente: boolean;
-	errores: SelectionProblem[];
 }
 
 export interface OfficialResult {
@@ -134,10 +127,7 @@ export interface TicketSelection {
 	golesLocal: number | null;
 	golesVisitante: number | null;
 	estado: SelectionState;
-	costo: number;
 	puntosObtenidos: number | null;
-	/** BR-057 (C-09): the coins its prize actually paid; 0 without one. */
-	monedasGanadas: number;
 }
 
 /** `GET /apuestas/tickets/:id` and the confirmation's answer (BR-025). */
@@ -147,10 +137,6 @@ export interface TicketReceipt {
 	creadoEn: string;
 	estado: TicketState;
 	cantidadSelecciones: number;
-	monedasUtilizadas: number;
-	monedasDevueltas: number;
-	/** BR-057 (C-09): the coins its right selections actually won. */
-	monedasGanadas: number;
 	puntosObtenidos: number;
 	selecciones: TicketSelection[];
 }
@@ -167,11 +153,6 @@ export interface ApiCompetition {
 export interface TicketTotals {
 	estado: TicketState;
 	cantidadSelecciones: number;
-	monedasUtilizadas: number;
-	/** D-003: the coins really refunded. */
-	monedasDevueltas: number;
-	/** BR-057 (C-09): the coins really won, from the prize movements. */
-	monedasGanadas: number;
 	puntosObtenidos: number;
 }
 
@@ -184,10 +165,6 @@ export interface MyBet extends TicketSelection {
 export interface MyBetsSummary {
 	tickets: { total: number } & Record<TicketState, number>;
 	selecciones: { total: number } & Record<SelectionState, number>;
-	monedasUtilizadas: number;
-	monedasDevueltas: number;
-	/** BR-057 (C-09). */
-	monedasGanadas: number;
 	puntos: number;
 	/** Selections in state `acertada`, of any type (BR-042). */
 	aciertos: number;

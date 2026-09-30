@@ -55,10 +55,9 @@ export const apostador = {
 	rol: 'apostador' as const,
 	estadoValidacion: 'validado' as const,
 	estadoPago: 'confirmado' as const,
-	saldoMonedas: 10,
 	creadoEn: '2026-09-17T12:00:00.000Z',
 };
 
-export const pendiente = { ...apostador, id: 8, nombre: 'Beto', email: 'beto@liga.test', estadoValidacion: 'pendiente' as const, estadoPago: 'pendiente' as const, saldoMonedas: 0 };
+export const pendiente = { ...apostador, id: 8, nombre: 'Beto', email: 'beto@liga.test', estadoValidacion: 'pendiente' as const, estadoPago: 'pendiente' as const };
 
-export const admin = { ...apostador, id: 1, nombre: 'Admin', email: 'admin@liga.test', rol: 'admin' as const, saldoMonedas: 0 };
+export const admin = { ...apostador, id: 1, nombre: 'Admin', email: 'admin@liga.test', rol: 'admin' as const };

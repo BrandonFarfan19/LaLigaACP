@@ -29,7 +29,7 @@ describe('page and pageSize: decimal digits only, in every list', () => {
 		'/admin/polla/ranking',
 		'/admin/polla/apuestas',
 	];
-	const BETTOR_LISTS = ['/apuestas/partidos', '/apuestas/mis-apuestas', '/monedas/movimientos'];
+	const BETTOR_LISTS = ['/apuestas/partidos', '/apuestas/mis-apuestas'];
 	const PUBLIC_LISTS = ['/public/competiciones', '/public/partidos'];
 
 	const get = (path: string) => {

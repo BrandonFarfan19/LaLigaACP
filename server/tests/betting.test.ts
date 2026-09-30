@@ -14,13 +14,13 @@ import {
 	PLAZO_CIERRE_APUESTAS,
 	resultOfScore,
 } from '../src/lib/betting.js';
-import { COSTO_POR_SELECCION } from '../src/lib/coins.js';
 import { compareByProximity } from '../src/lib/match-order.js';
 import { evaluateTicketInTransaction, listBettingMatches, previewTicket } from '../src/services/betting.service.js';
 import { createTestApp } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertMatch, teamBody } from './helpers/catalog.js';
 import { resetDatabase } from './helpers/db.js';
+import { placeSelection } from './helpers/participants.js';
 import { canInspectLocks, locksHeldBy } from './helpers/locks.js';
 
 const SECOND = 1000;
@@ -286,108 +286,117 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 		});
 	});
 
-	describe('ticket preview (BR-015 to BR-021, BR-023)', () => {
+	describe('ticket preview (BR-015 to BR-019, BR-023; no coins and one bet per type and match since C-13)', () => {
 		type Evaluated = {
 			valido: boolean;
 			selecciones: Array<{
 				indice: number;
 				valida: boolean;
-				errores: Array<{ code: string }>;
-				repiteA: number | null;
-				costo: number;
+				errores: Array<{ code: string; message: string; repiteA?: number }>;
 				partido: { id: number; apuesta: { estado: string } } | null;
 			}>;
 			cantidadSelecciones: number;
-			costoPorSeleccion: number;
-			costoTotal: number;
-			saldoActual: number;
-			saldoPosterior: number;
-			saldoSuficiente: boolean;
-			errores: Array<{ code: string }>;
 		};
-		const evaluate = async (selecciones: Selection[]) => {
-			const res = await preview(selecciones);
+		const evaluate = async (selecciones: Selection[], who: Session = bettor) => {
+			const res = await preview(selecciones, who);
 			expect(res.status, JSON.stringify(res.body)).toBe(200);
 			return res.body.data as Evaluated;
 		};
 		const codes = (e: Evaluated) => e.selecciones.map((sel) => sel.errores.map((x) => x.code));
 
-		it('accepts every forecast of both bet types on an open match', async () => {
-			const e = await evaluate([
-				general(s.match.open!, 'local_gana'),
-				general(s.match.open!, 'empate'),
-				general(s.match.open!, 'visitante_gana'),
-				exact(s.match.open!, 2, 1),
-				exact(s.match.open!, 0, 0),
-				exact(s.match.open!, 0, MAX_GOLES_PRONOSTICO),
-			]);
+		it('accepts both bet types on an open match, and the answer has no cost or balance (C-13)', async () => {
+			const e = await evaluate([general(s.match.open!, 'local_gana'), exact(s.match.open!, 2, 1), exact(s.match.later!, 0, MAX_GOLES_PRONOSTICO)]);
 
 			expect(e.valido).toBe(true);
-			expect(codes(e)).toEqual([[], [], [], [], [], []]);
-			expect(e.selecciones[0]).toMatchObject({
+			expect(codes(e)).toEqual([[], [], []]);
+			expect(Object.keys(e).sort()).toEqual(['cantidadSelecciones', 'selecciones', 'valido']);
+			expect(e.selecciones[0]).toEqual({
 				indice: 0,
 				partidoId: s.match.open,
 				tipo: 'resultado_general',
 				pronostico: 'local_gana',
 				golesLocal: null,
 				golesVisitante: null,
-				costo: COSTO_POR_SELECCION,
 				valida: true,
-				repiteA: null,
-				partido: { id: s.match.open, apuesta: { estado: 'disponible' }, local: { equipo: { nombre: 'Alianza' } } },
+				errores: [],
+				partido: expect.objectContaining({ id: s.match.open, apuesta: expect.objectContaining({ estado: 'disponible' }), local: expect.objectContaining({ equipo: expect.objectContaining({ nombre: 'Alianza' }) }) }),
 			});
-			expect(e.selecciones[3]).toMatchObject({ tipo: 'marcador_exacto', pronostico: null, golesLocal: 2, golesVisitante: 1 });
+			expect(e.selecciones[1]).toMatchObject({ tipo: 'marcador_exacto', pronostico: null, golesLocal: 2, golesVisitante: 1 });
+		});
+
+		it('every forecast of both types is admitted, one per ticket', async () => {
+			for (const pronostico of ['local_gana', 'empate', 'visitante_gana']) {
+				expect(codes(await evaluate([general(s.match.open!, pronostico)]))).toEqual([[]]);
+			}
+			for (const [l, v] of [[0, 0], [2, 1], [0, MAX_GOLES_PRONOSTICO]] as const) {
+				expect(codes(await evaluate([exact(s.match.open!, l, v)]))).toEqual([[]]);
+			}
 		});
 
 		it('draws: allowed in football; refused in volleyball, as a result and as a tied exact score', async () => {
-			const e = await evaluate([
-				general(s.match.voley!, 'empate'),
-				exact(s.match.voley!, 2, 2),
-				exact(s.match.voley!, 0, 0),
-				general(s.match.voley!, 'local_gana'),
-				general(s.match.voley!, 'visitante_gana'),
-				exact(s.match.voley!, 3, 1),
-			]);
-
-			expect(codes(e)).toEqual([['DRAW_NOT_ALLOWED'], ['DRAW_NOT_ALLOWED'], ['DRAW_NOT_ALLOWED'], [], [], []]);
-			expect(e.valido).toBe(false);
+			const refused = await evaluate([general(s.match.voley!, 'empate'), exact(s.match.voley!, 2, 2)]);
+			expect(codes(refused)).toEqual([['DRAW_NOT_ALLOWED'], ['DRAW_NOT_ALLOWED']]);
+			expect(refused.valido).toBe(false);
+			expect(codes(await evaluate([exact(s.match.voley!, 0, 0)]))).toEqual([['DRAW_NOT_ALLOWED']]);
+			expect(codes(await evaluate([general(s.match.voley!, 'local_gana'), exact(s.match.voley!, 3, 1)]))).toEqual([[], []]);
+			expect(codes(await evaluate([general(s.match.voley!, 'visitante_gana')]))).toEqual([[]]);
 			expect(resultOfScore(2, 2)).toBe('empate');
 		});
 
-		it('several selections on one match, contradictory and of both types, each costing one coin (BR-017, BR-018, BR-020)', async () => {
+		it('C-13 (BR-017, BR-018): one general result and one exact score per match; a second of a type in the ticket is BET_LIMIT_REACHED, pointing at the first', async () => {
 			const e = await evaluate([
 				general(s.match.open!, 'local_gana'),
+				exact(s.match.open!, 1, 0),
 				general(s.match.open!, 'empate'),
-				general(s.match.open!, 'visitante_gana'),
-				exact(s.match.open!, 2, 1),
+				exact(s.match.open!, 1, 0),
 				general(s.match.later!, 'empate'),
+				general(s.match.open!, 'local_gana'),
 			]);
 
-			expect(e).toMatchObject({
-				valido: true,
-				cantidadSelecciones: 5,
-				costoPorSeleccion: COSTO_POR_SELECCION,
-				costoTotal: 5 * COSTO_POR_SELECCION,
-				saldoActual: 10,
-				saldoPosterior: 5,
-				saldoSuficiente: true,
-				errores: [],
-			});
+			expect(codes(e)).toEqual([[], [], ['BET_LIMIT_REACHED'], ['BET_LIMIT_REACHED'], [], ['BET_LIMIT_REACHED']]);
+			expect(e.selecciones.map((x) => x.errores[0]?.repiteA ?? null)).toEqual([null, null, 0, 1, null, 0]);
+			expect(e.selecciones[2]!.errores[0]!.message).toBe(
+				'Este ticket ya tiene una apuesta de resultado general para este partido (la selección 1): se admite una sola de cada tipo por partido.',
+			);
+			expect(e.selecciones[3]!.errores[0]!.message).toContain('marcador exacto');
+			expect(e.valido).toBe(false);
 		});
 
-		it('an identical selection repeated is allowed, costs again, and points at the first one', async () => {
-			const e = await evaluate([
-				general(s.match.open!, 'empate'),
-				exact(s.match.open!, 1, 0),
-				general(s.match.open!, 'empate'),
-				exact(s.match.open!, 1, 0),
-				exact(s.match.open!, 0, 1),
-				general(s.match.open!, 'empate'),
-			]);
+		it('C-13: a type already placed on the match in an earlier ticket is BET_LIMIT_REACHED; voided ones do not count, settled ones do', async () => {
+			const who = await signedInUser(app, pool, { estado: 'validado' });
+			await placeSelection(pool, who.user.id, s.match.open!, 'resultado_general');
+			await placeSelection(pool, who.user.id, s.match.later!, 'marcador_exacto', 'anulada');
+			await placeSelection(pool, who.user.id, s.match.voley!, 'marcador_exacto', 'no_acertada');
 
-			expect(e.valido).toBe(true);
-			expect(e.costoTotal).toBe(6);
-			expect(e.selecciones.map((x) => x.repiteA)).toEqual([null, null, 0, 1, null, 0]);
+			const e = await evaluate(
+				[
+					general(s.match.open!, 'empate'),
+					exact(s.match.open!, 2, 0),
+					exact(s.match.later!, 2, 0),
+					general(s.match.later!, 'empate'),
+					exact(s.match.voley!, 2, 0),
+				],
+				who,
+			);
+
+			expect(codes(e)).toEqual([['BET_LIMIT_REACHED'], [], [], [], ['BET_LIMIT_REACHED']]);
+			expect(e.selecciones[0]!.errores[0]).toEqual({
+				code: 'BET_LIMIT_REACHED',
+				message: 'Ya tienes una apuesta de resultado general en este partido: se admite una sola de cada tipo por partido.',
+			});
+			// Another participant's bets never count.
+			expect(codes(await evaluate([general(s.match.open!, 'empate')]))).toEqual([[]]);
+		});
+
+		it('C-13: no balance is needed; a participant with 0 coins, or with coins left from before, gets the same answer', async () => {
+			const list = [general(s.match.open!, 'local_gana'), exact(s.match.later!, 1, 1)];
+			await setBalance(0);
+			const zero = await evaluate(list);
+			await setBalance(7);
+			const seven = await evaluate(list);
+			await setBalance(10);
+			expect(zero.valido).toBe(true);
+			expect(seven).toEqual(zero);
 		});
 
 		it('refuses matches that are closed, started, finished, cancelled or missing, each with its reason', async () => {
@@ -420,8 +429,7 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 				'disponible',
 			]);
 			expect(e.valido).toBe(false);
-			// Invalid selections still count in the cost shown: the ticket as sent.
-			expect(e.costoTotal).toBe(7);
+			expect(e.cantidadSelecciones).toBe(7);
 		});
 
 		it('the closed message has no raw date: the close goes in its own field', async () => {
@@ -436,37 +444,19 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 		it('reports every problem of a selection at once', async () => {
 			await pool.query("UPDATE partido SET estado_partido_id = (SELECT id FROM estado_partido WHERE codigo = 'en_curso') WHERE id = ?", [s.match.voley]);
 			try {
-				const e = await evaluate([general(s.match.voley!, 'empate')]);
-				expect(codes(e)).toEqual([['MATCH_NOT_PROGRAMMED', 'DRAW_NOT_ALLOWED']]);
+				const e = await evaluate([general(s.match.voley!, 'empate'), general(s.match.voley!, 'local_gana')]);
+				expect(codes(e)).toEqual([['MATCH_NOT_PROGRAMMED', 'DRAW_NOT_ALLOWED'], ['MATCH_NOT_PROGRAMMED', 'BET_LIMIT_REACHED']]);
 			} finally {
 				await pool.query("UPDATE partido SET estado_partido_id = (SELECT id FROM estado_partido WHERE codigo = 'programado') WHERE id = ?", [s.match.voley]);
 			}
 		});
 
-		it('balance (BR-021): enough, exactly enough, and short', async () => {
-			const three = [general(s.match.open!, 'local_gana'), general(s.match.open!, 'empate'), exact(s.match.open!, 1, 1)];
-
-			await setBalance(10);
-			expect(await evaluate(three)).toMatchObject({ valido: true, saldoActual: 10, costoTotal: 3, saldoPosterior: 7, saldoSuficiente: true });
-
-			await setBalance(3);
-			expect(await evaluate(three)).toMatchObject({ valido: true, saldoActual: 3, saldoPosterior: 0, saldoSuficiente: true, errores: [] });
-
-			await setBalance(2);
-			const short = await evaluate(three);
-			expect(short).toMatchObject({ valido: false, saldoActual: 2, saldoPosterior: -1, saldoSuficiente: false });
-			expect(short.errores).toEqual([{ code: 'INSUFFICIENT_BALANCE', message: expect.any(String) }]);
-			// The selections themselves are fine: only the balance fails.
-			expect(short.selecciones.every((x) => x.valida)).toBe(true);
-
-			await setBalance(0);
-			expect((await evaluate([general(s.match.open!, 'local_gana')])).saldoSuficiente).toBe(false);
-		});
-
 		it(`takes up to ${MAX_SELECCIONES_POR_TICKET} selections, not one more, nor an empty list`, async () => {
-			await setBalance(MAX_SELECCIONES_POR_TICKET);
 			const many = Array.from({ length: MAX_SELECCIONES_POR_TICKET }, (_, i) => exact(s.match.open!, i, 0));
-			expect(await evaluate(many)).toMatchObject({ valido: true, cantidadSelecciones: MAX_SELECCIONES_POR_TICKET, saldoPosterior: 0 });
+			const e = await evaluate(many);
+			// Evaluated whole (only the first exact score on the match is valid: BR-017, C-13).
+			expect(e.cantidadSelecciones).toBe(MAX_SELECCIONES_POR_TICKET);
+			expect(e.selecciones.filter((x) => x.valida)).toHaveLength(1);
 
 			for (const list of [[...many, exact(s.match.open!, 0, 1)], []]) {
 				const res = await preview(list);
@@ -592,7 +582,7 @@ describe('selections and betting close (T-09: BR-014 to BR-021, BR-051, BR-052)'
 			const conn = await pool.getConnection();
 			try {
 				// Deliberately the wrong kind of connection.
-				// It rejects the promise (like the coin functions), it does not throw synchronously.
+				// It rejects the promise, it does not throw synchronously.
 				const result = evaluateTicketInTransaction(conn as never, bettor.user.id, sel());
 				expect(result).toBeInstanceOf(Promise);
 				await expect(result).rejects.toThrow(/withTransaction/);

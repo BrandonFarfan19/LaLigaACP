@@ -9,20 +9,18 @@ import {
 	type TipoApuestaCodigo,
 	ticketStateFromCounts,
 } from '../lib/betting.js';
-import { COSTO_POR_SELECCION, PREMIO_POR_TIPO_APUESTA } from '../lib/coins.js';
 import { ErrorCode } from '../lib/error-codes.js';
 import { HttpError } from '../lib/http-error.js';
 import { type OfficialResult, officialResult } from '../lib/match-result.js';
 import type { SelectionInput } from '../schemas/betting.schema.js';
 import { evaluateTicketInTransaction } from './betting.service.js';
-import { debitSelections } from './coins.service.js';
 import { MATCH_COLUMNS, MATCH_FROM, matchFrom, type PublicMatch } from './public.service.js';
 
 /**
  * Módulo Polla, T-10: confirming a ticket (BR-019, BR-022 to BR-025, BR-053,
  * BR-054) and reading one back as a receipt. Everything a ticket shows that
- * can be computed (coins used, state, points) is computed here, never stored
- * (EsquemaBD D13, D14).
+ * can be computed (state, points) is computed here, never stored (EsquemaBD
+ * D13, D14). Since C-13 (D-042) a ticket costs nothing and moves no coins.
  */
 
 /** BR-026/BR-029: the match's actual result, only once it is `finalizado` with both sides loaded (BR-049). */
@@ -41,12 +39,8 @@ export interface TicketSelectionView {
 	golesVisitante: number | null;
 	/** BR-027. */
 	estado: EstadoSeleccion;
-	/** BR-020. */
-	costo: number;
 	/** `null` until the match's result is confirmed (T-12). */
 	puntosObtenidos: number | null;
-	/** BR-057, C-09: the coins its prize movement actually paid (0 without one: not right, or confirmed before C-09). */
-	monedasGanadas: number;
 }
 
 /** What a ticket shows that is computed from its selections (BR-025), shared by the receipt and the history (T-11). */
@@ -54,12 +48,6 @@ export interface TicketTotals {
 	/** Derived from the selections (`ticketStateFromCounts`). */
 	estado: EstadoTicket;
 	cantidadSelecciones: number;
-	/** BR-020, D14: selections × cost. Refunds don't change it. */
-	monedasUtilizadas: number;
-	/** BR-046, D-003: the coins actually refunded (`devolucion_cancelacion` movements of its selections). */
-	monedasDevueltas: number;
-	/** BR-057, C-09: the coins its right selections actually won (their prize movements, like D-003). */
-	monedasGanadas: number;
 	/** BR-040: the sum of the settled selections' points (0 while none is settled). */
 	puntosObtenidos: number;
 }
@@ -86,34 +74,11 @@ export function realResult(match: PublicMatch): RealResult | null {
 	return officialResult(match.estado, match.local.goles, match.visita.goles);
 }
 
-/** The id of the refund movement type, as an uncorrelated SQL subquery. */
-export const REFUND_TYPE = "(SELECT id FROM tipo_movimiento WHERE codigo = 'devolucion_cancelacion')";
-
-/**
- * C-09: the id of the prize movement type that the selection aliased `alias`
- * can get, by its bet type (`PREMIO_POR_TIPO_APUESTA`), as SQL. Only
- * uncorrelated subqueries on the catalogs (evaluated once). Joining on it
- * finds at most one movement per selection (`uq_movimiento_seleccion_tipo`).
- */
-export const prizeTypeFor = (alias: string) =>
-	`(CASE ${alias}.tipo_apuesta_id ${Object.entries(PREMIO_POR_TIPO_APUESTA)
-		.map(([apuesta, movimiento]) => `WHEN (SELECT id FROM tipo_apuesta WHERE codigo = '${apuesta}') THEN (SELECT id FROM tipo_movimiento WHERE codigo = '${movimiento}')`)
-		.join(' ')} END)`;
-
-/**
- * BR-025 totals from counts: the receipt counts its selections, the history
- * (T-11) gets them from SQL. `devueltas` is the coins actually refunded
- * (`SUM` of the ticket's `devolucion_cancelacion` movements, D-003), not a
- * count of voided selections: one with no debit, or of an admin account
- * (D-002), got nothing back.
- */
-export function ticketTotals(counts: TicketCounts & { puntos: number; devueltas: number; ganadas: number }): TicketTotals {
+/** BR-025 totals from counts: the receipt counts its selections, the history (T-11) gets them from SQL. */
+export function ticketTotals(counts: TicketCounts & { puntos: number }): TicketTotals {
 	return {
 		estado: ticketStateFromCounts(counts),
 		cantidadSelecciones: counts.total,
-		monedasUtilizadas: counts.total * COSTO_POR_SELECCION,
-		monedasDevueltas: counts.devueltas,
-		monedasGanadas: counts.ganadas,
 		puntosObtenidos: counts.puntos,
 	};
 }
@@ -126,8 +91,6 @@ export function ticketTotals(counts: TicketCounts & { puntos: number; devueltas:
 export const SELECTION_COLUMNS = `s.id AS s_id, tap.codigo AS s_tipo, rg.codigo AS s_pronostico,
 	s.pronostico_goles_local AS s_goles_local, s.pronostico_goles_visitante AS s_goles_visitante,
 	es.codigo AS s_estado, s.puntos_obtenidos AS s_puntos,
-	(SELECT COALESCE(SUM(mg.cantidad), 0) FROM movimiento_moneda mg
-		WHERE mg.seleccion_id = s.id AND mg.tipo_movimiento_id = ${prizeTypeFor('s')}) AS s_ganadas,
 	${MATCH_COLUMNS}`;
 export const SELECTION_JOINS = `${MATCH_FROM.replace('FROM partido p', 'JOIN partido p ON p.id = s.partido_id')}
 	JOIN tipo_apuesta tap ON tap.id = s.tipo_apuesta_id
@@ -145,9 +108,7 @@ export function selectionFrom(row: RowDataPacket): TicketSelectionView {
 		golesLocal: row.s_goles_local === null ? null : Number(row.s_goles_local),
 		golesVisitante: row.s_goles_visitante === null ? null : Number(row.s_goles_visitante),
 		estado: row.s_estado as EstadoSeleccion,
-		costo: COSTO_POR_SELECCION,
 		puntosObtenidos: row.s_puntos === null ? null : Number(row.s_puntos),
-		monedasGanadas: Number(row.s_ganadas ?? 0),
 	};
 }
 
@@ -166,12 +127,6 @@ async function readTicket(db: Db, userId: number, ticketId: number): Promise<Tic
 		[ticketId],
 	);
 	const selecciones = rows.map(selectionFrom);
-	const [[refunded]] = await db.query<RowDataPacket[]>(
-		`SELECT COALESCE(SUM(m.cantidad), 0) AS devueltas
-		FROM seleccion s JOIN movimiento_moneda m ON m.seleccion_id = s.id AND m.tipo_movimiento_id = ${REFUND_TYPE}
-		WHERE s.ticket_id = ?`,
-		[ticketId],
-	);
 	return {
 		id: Number(ticket.id),
 		usuario: { id: Number(ticket.usuario_id), nombre: String(ticket.usuario_nombre) },
@@ -181,8 +136,6 @@ async function readTicket(db: Db, userId: number, ticketId: number): Promise<Tic
 			pendientes: selecciones.filter((x) => x.estado === 'pendiente').length,
 			anuladas: selecciones.filter((x) => x.estado === 'anulada').length,
 			puntos: selecciones.reduce((sum, x) => sum + (x.puntosObtenidos ?? 0), 0),
-			devueltas: Number(refunded!.devueltas),
-			ganadas: selecciones.reduce((sum, x) => sum + x.monedasGanadas, 0),
 		}),
 		selecciones,
 	};
@@ -227,10 +180,8 @@ async function insertTicket(
 	const resultados = await catalogIds(conn, 'resultado_general');
 	const pendiente = (await catalogIds(conn, 'estado_seleccion')).get('pendiente');
 
-	// One row at a time: each debit needs its own selection id (D19).
-	const seleccionIds: number[] = [];
 	for (const s of selections) {
-		const [row] = await conn.query<ResultSetHeader>(
+		await conn.query<ResultSetHeader>(
 			`INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id,
 				pronostico_goles_local, pronostico_goles_visitante, estado_seleccion_id, puntos_obtenidos)
 			VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -244,10 +195,7 @@ async function insertTicket(
 				pendiente,
 			],
 		);
-		seleccionIds.push(row.insertId);
 	}
-	// BR-022, BR-053: the debit, one movement per selection, in this same transaction.
-	await debitSelections(conn, userId, seleccionIds);
 	return ticket.insertId;
 }
 
@@ -259,11 +207,13 @@ async function insertTicket(
  *    repeated key always sees the ticket the first one committed: the same
  *    selections return that ticket (`repetido`), other selections are 409
  *    `IDEMPOTENCY_KEY_REUSED`.
- * 2. Evaluates the selections with the rows locked (T-09). Any invalid one,
- *    or a short balance, is 409 `TICKET_REJECTED` with the whole evaluation in
- *    `details` (same shape as the preview), and nothing is written.
- * 3. Creates the ticket and its selections (`pendiente`, no points) and debits
- *    one coin per selection.
+ * 2. Evaluates the selections with the rows locked (T-09). Any invalid one is
+ *    409 `TICKET_REJECTED` with the whole evaluation in `details` (same shape
+ *    as the preview), and nothing is written. The user lock of step 1 also
+ *    serializes the limit of one bet per type and match (BR-017, C-13): two
+ *    tickets of the same user can't both pass it.
+ * 3. Creates the ticket and its selections (`pendiente`, no points). Since
+ *    C-13 (D-042) nothing is debited: a ticket is free.
  *
  * `READ COMMITTED`: every plain read sees the latest commit, and searches take
  * no gap locks. A deadlock retry (withTransaction) runs all of it again,
@@ -302,7 +252,7 @@ export function confirmTicket(
 				throw new HttpError(
 					409,
 					ErrorCode.TICKET_REJECTED,
-					'El ticket no se confirmó: revisa las selecciones marcadas o tu saldo. No se descontó nada.',
+					'El ticket no se confirmó: revisa las selecciones marcadas.',
 					evaluation,
 				);
 			}

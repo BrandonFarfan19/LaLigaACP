@@ -22,7 +22,7 @@ describe('POST /auth/register (BR-003)', () => {
 		await pool.end();
 	});
 
-	it('creates a pending apostador with pending payment and 0 coins', async () => {
+	it('creates a pending apostador with pending payment, and no coins anywhere (C-13)', async () => {
 		const body = newUserBody();
 		const res = await request(app).post('/auth/register').send(body);
 
@@ -36,7 +36,6 @@ describe('POST /auth/register (BR-003)', () => {
 					rol: 'apostador',
 					estadoValidacion: 'pendiente',
 					estadoPago: 'pendiente',
-					saldoMonedas: 0,
 					creadoEn: expect.any(String),
 				},
 			},
@@ -70,7 +69,8 @@ describe('POST /auth/register (BR-003)', () => {
 			.send(newUserBody({ rol: 'admin', rol_id: 2, estadoValidacion: 'validado', saldoMonedas: 999 }));
 
 		expect(res.status).toBe(201);
-		expect(res.body.data.user).toMatchObject({ rol: 'apostador', estadoValidacion: 'pendiente', saldoMonedas: 0 });
+		expect(res.body.data.user).toMatchObject({ rol: 'apostador', estadoValidacion: 'pendiente' });
+		expect(res.body.data.user).not.toHaveProperty('saldoMonedas');
 	});
 
 	it('rejects a duplicate email, whatever its case, with 409 EMAIL_TAKEN', async () => {

@@ -16,7 +16,7 @@ export const BETTING_STATE_HINT: Record<BettingState, string> = {
 	cerrada: 'Ya pasó el cierre de apuestas de este partido.',
 	en_curso: 'El partido ya empezó: no recibe apuestas.',
 	finalizado: 'El partido terminó.',
-	cancelado: 'El partido fue cancelado: sus apuestas se anularon y se devolvieron sus monedas.',
+	cancelado: 'El partido fue cancelado: sus apuestas se anularon.',
 };
 
 export const SELECTION_STATE_LABEL: Record<SelectionState, string> = {
@@ -62,8 +62,6 @@ export function forecastLabel(input: Forecast, local: string, visita: string): s
 	const value = forecastValue(input, local, visita);
 	return input.tipo === 'marcador_exacto' && value ? `Marcador ${value}` : value;
 }
-
-export const coinsText = (n: number) => `${n} ${Math.abs(n) === 1 ? 'moneda' : 'monedas'}`;
 
 /**
  * How long before the kick-off bets close, in words, read from the API's own

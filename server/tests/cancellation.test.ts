@@ -6,9 +6,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { transactionStats } from '../src/db/transaction.js';
 import type { AdminActionOutcome } from '../src/services/admin-action.js';
 import { countPendingSelections } from '../src/services/bets-match-probe.service.js';
-import { matchSettlement } from '../src/services/bets-settlement.service.js';
-import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
-import { cancelMatch, cancellationStats } from '../src/services/match-cancellation.service.js';
+import { settleMatchBets } from '../src/services/bets-settlement.service.js';
+import { cancelMatch } from '../src/services/match-cancellation.service.js';
 import { confirmResult } from '../src/services/results.service.js';
 import { env, createTestApp } from './helpers/app.js';
 import { setUserState, signedInUser } from './helpers/auth.js';
@@ -27,11 +26,12 @@ type Pick =
 const win = (partidoId: number): Pick => ({ partidoId, tipo: 'resultado_general', pronostico: 'local_gana' });
 const score = (partidoId: number, golesLocal: number, golesVisitante: number): Pick => ({ partidoId, tipo: 'marcador_exacto', golesLocal, golesVisitante });
 
-describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
+describe('cancelling a match (T-16: BR-045, BR-047; no refunds since C-13)', () => {
 	let app: Express;
 	let pool: Pool;
 	let api: AdminApi;
 	const s = {} as { liga: number; A: number; B: number };
+	const settlement = { countPendingSelections, settle: settleMatchBets };
 
 	const ctx = (hooks?: Parameters<typeof cancelMatch>[1]['hooks']) => ({ actorId: api.admin.user.id as number, hooks });
 	const preview = (id: number) => api.get(`/partidos/${id}/cancelacion`);
@@ -49,7 +49,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 		if (goles) await pool.query('UPDATE partido_equipo SET goles = IF(es_visita, ?, ?) WHERE partido_id = ?', [goles[1], goles[0], id]);
 	}
 
-	/** A participant validated through the real admin actions: 10 coins with their movement. */
+	/** A participant validated through the real admin actions (no coins since C-13). */
 	async function bettor(): Promise<Session> {
 		const who = await signedInUser(app, pool);
 		expect((await api.post(`/participantes/${who.user.id}/pago/confirmar`, {})).status).toBe(200);
@@ -95,23 +95,13 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 		);
 		return String(row!.codigo);
 	}
-	const balance = async (userId: number) => {
-		const [[row]] = await pool.query<RowDataPacket[]>('SELECT saldo_monedas FROM usuario WHERE id = ?', [userId]);
-		return Number(row!.saldo_monedas);
-	};
-	const refundsOf = async (userId: number) => {
-		const [rows] = await pool.query<RowDataPacket[]>(
-			`SELECT m.seleccion_id, m.cantidad FROM movimiento_moneda m JOIN tipo_movimiento tm ON tm.id = m.tipo_movimiento_id
-			WHERE m.usuario_id = ? AND tm.codigo = 'devolucion_cancelacion' ORDER BY m.seleccion_id`,
-			[userId],
+	/** Since C-13 nothing moves coins: no movement and no balance, after every test. */
+	async function noCoins() {
+		const [[row]] = await pool.query<RowDataPacket[]>(
+			'SELECT (SELECT COUNT(*) FROM movimiento_moneda) AS movimientos, (SELECT COUNT(*) FROM usuario WHERE saldo_monedas <> 0) AS saldos',
 		);
-		return rows.map((r) => [Number(r.seleccion_id), Number(r.cantidad)]);
-	};
-	const selectionIdsOf = async (ticketId: number, matchId: number) => {
-		const [rows] = await pool.query<RowDataPacket[]>('SELECT id FROM seleccion WHERE ticket_id = ? AND partido_id = ? ORDER BY id', [ticketId, matchId]);
-		return rows.map((r) => Number(r.id));
-	};
-	const consistent = async () => expect(await checkCoinConsistency(pool)).toMatchObject({ ok: true, descuadres: [], adminsConMonedas: [] });
+		expect({ movimientos: Number(row!.movimientos), saldos: Number(row!.saldos) }).toEqual({ movimientos: 0, saldos: 0 });
+	}
 
 	beforeAll(async () => {
 		({ app, pool } = createTestApp());
@@ -128,7 +118,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 	});
 
 	afterEach(async () => {
-		await consistent();
+		await noCoins();
 	});
 
 	afterAll(async () => {
@@ -137,76 +127,67 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 	});
 
 	describe('preview and cancellation', () => {
-		it('the preview is exact and writes nothing; cancelling voids, refunds per user and leaves other matches alone (BR-047)', async () => {
+		it('the preview is exact and writes nothing; cancelling voids the pending bets, refunds nothing and leaves other matches alone (BR-047)', async () => {
 			const x = await openMatch(3);
 			const y = await openMatch(4);
 			const ana = await bettor();
 			const beto = await bettor();
 			const onlyX = await ticket(ana, [win(x), score(x, 1, 0)]); // every selection on X: ends anulado
-			const mixed = await ticket(ana, [win(x), win(y)]); // BR-047: Y stays
+			const mixed = await ticket(ana, [win(y)]); // BR-047: Y stays
 			const betoMixed = await ticket(beto, [score(x, 2, 2), win(y), score(y, 0, 0)]);
 			const before = await snapshot();
 
 			const shown = await preview(x);
 			expect(shown.status).toBe(200);
-			expect(shown.body.data).toMatchObject({
-				partido: { id: x, estado: 'programado' },
+			expect(shown.body.data).toEqual({
+				partido: expect.objectContaining({ id: x, estado: 'programado' }),
 				puedeCancelar: true,
 				problemas: [],
-				selecciones: 4,
-				monedasDevueltas: 4,
-				seleccionesSinDevolucion: { total: 0, sinDebito: 0, cuentaAdministrador: 0 },
+				selecciones: 3,
 				usuarios: 2,
-				tickets: 3,
+				tickets: 2,
 				ticketsAnulados: 1,
+				advertencia: expect.stringMatching(/definitivo/),
 			});
-			expect(shown.body.data.advertencia).toMatch(/definitivo/);
+			expect(shown.body.data.advertencia).not.toMatch(/moneda|devuelve/i);
 			expect(await snapshot()).toEqual(before);
 
 			const res = await cancel(x);
 			expect(res.status).toBe(200);
-			expect(res.body.data).toMatchObject({
-				partido: { id: x, estado: 'cancelado' },
-				selecciones: 4,
-				monedasDevueltas: 4,
+			expect(res.body.data).toEqual({
+				partido: expect.objectContaining({ id: x, estado: 'cancelado' }),
+				selecciones: 3,
 				usuarios: 2,
-				tickets: 3,
+				tickets: 2,
 				ticketsAnulados: 1,
 			});
 			expect(await matchState(x)).toBe('cancelado');
-			expect(await states(x)).toEqual({ anulada: 4 });
+			expect(await states(x)).toEqual({ anulada: 3 });
 			expect(await states(y)).toEqual({ pendiente: 3 });
 
-			// Ana spent 4 and got 3 back; Beto spent 3 and got 1 back.
-			expect(await balance(ana.user.id)).toBe(10 - 4 + 3);
-			expect(await balance(beto.user.id)).toBe(10 - 3 + 1);
-			expect(await refundsOf(ana.user.id)).toEqual(
-				[...(await selectionIdsOf(onlyX, x)), ...(await selectionIdsOf(mixed, x))].map((id) => [id, 1]),
-			);
-			expect(await refundsOf(beto.user.id)).toEqual((await selectionIdsOf(betoMixed, x)).map((id) => [id, 1]));
-
-			// Receipts: states, refunds and the ticket state (T-10 rule).
-			expect((await receipt(ana, onlyX)).body.data).toMatchObject({ estado: 'anulado', monedasUtilizadas: 2, monedasDevueltas: 2, puntosObtenidos: 0 });
-			const mixedReceipt = (await receipt(ana, mixed)).body.data;
-			expect(mixedReceipt).toMatchObject({ estado: 'pendiente', monedasUtilizadas: 2, monedasDevueltas: 1 });
-			expect(mixedReceipt.selecciones.map((sel: { estado: string; puntosObtenidos: null }) => [sel.estado, sel.puntosObtenidos])).toEqual([
+			// Receipts: states and the ticket state (T-10 rule), no coin figure.
+			const onlyXReceipt = (await receipt(ana, onlyX)).body.data;
+			expect(onlyXReceipt).toMatchObject({ estado: 'anulado', puntosObtenidos: 0 });
+			expect(JSON.stringify(onlyXReceipt)).not.toMatch(/moneda/i);
+			expect((await receipt(ana, mixed)).body.data).toMatchObject({ estado: 'pendiente' });
+			const betoReceipt = (await receipt(beto, betoMixed)).body.data;
+			expect(betoReceipt.selecciones.map((sel: { estado: string; puntosObtenidos: null }) => [sel.estado, sel.puntosObtenidos])).toEqual([
 				['anulada', null],
 				['pendiente', null],
+				['pendiente', null],
 			]);
-			expect(mixedReceipt.selecciones[0].partido.estado).toBe('cancelado');
+			expect(betoReceipt.selecciones[0].partido.estado).toBe('cancelado');
 
 			// My bets and its summary.
 			const summary = (await request(app).get('/apuestas/mis-apuestas/resumen').set('Cookie', ana.cookie)).body.data;
-			expect(summary).toMatchObject({
+			expect(summary).toEqual({
 				tickets: { total: 2, pendiente: 1, anulado: 1, finalizado: 0 },
-				selecciones: { total: 4, anulada: 3, pendiente: 1 },
-				monedasUtilizadas: 4,
-				monedasDevueltas: 3,
+				selecciones: { total: 3, anulada: 2, pendiente: 1, acertada: 0, no_acertada: 0 },
 				puntos: 0,
+				aciertos: 0,
 			});
 			const voided = await request(app).get('/apuestas/mis-apuestas?estado=anulada').set('Cookie', ana.cookie);
-			expect(voided.body.data.total).toBe(3);
-			expect((await request(app).get('/monedas/saldo').set('Cookie', ana.cookie)).body.data.saldoMonedas).toBe(9);
+			expect(voided.body.data.total).toBe(2);
 
 			// Ranking: voided selections have no points.
 			const ranking = (await request(app).get('/ranking').set('Cookie', ana.cookie)).body.data;
@@ -215,6 +196,16 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 			// The public fixture shows it cancelled.
 			const pub = await request(app).get(`/public/partidos/${x}`);
 			expect(pub.body.data).toMatchObject({ estado: 'cancelado', resultado: null, goles: null, multimedia: null });
+		});
+
+		it('C-13: once cancelled, the match takes no new bet', async () => {
+			const x = await openMatch();
+			const ana = await bettor();
+			await ticket(ana, [win(x)]);
+			expect((await cancel(x)).status).toBe(200);
+			const again = await placeTicket(ana, [win(x)]);
+			expect(again.status).toBe(409);
+			expect(again.body.error.details.selecciones[0].errores.map((e: { code: string }) => e.code)).toEqual(['MATCH_NOT_PROGRAMMED']);
 		});
 
 		it('a match in progress, with a score, goals and media, can be cancelled; none of it becomes public', async () => {
@@ -230,9 +221,8 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 
 			const res = await cancel(x);
 			expect(res.status).toBe(200);
-			expect(res.body.data).toMatchObject({ partido: { estado: 'cancelado', local: { goles: 1 } }, selecciones: 2, monedasDevueltas: 2 });
-			expect((await receipt(ana, t)).body.data).toMatchObject({ estado: 'anulado', monedasDevueltas: 2 });
-			expect(await balance(ana.user.id)).toBe(10);
+			expect(res.body.data).toMatchObject({ partido: { estado: 'cancelado', local: { goles: 1 } }, selecciones: 2 });
+			expect((await receipt(ana, t)).body.data).toMatchObject({ estado: 'anulado' });
 			const pub = (await request(app).get(`/public/partidos/${x}`)).body.data;
 			expect(pub).toMatchObject({ estado: 'cancelado', resultado: null, goles: null, multimedia: null, local: { goles: null } });
 
@@ -247,8 +237,8 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 		it('a match with no bets cancels too; a programado match whose betting closed as well', async () => {
 			const empty = await openMatch();
 			expect((await preview(empty)).body.data).toMatchObject({ puedeCancelar: true, selecciones: 0, usuarios: 0 });
-			expect((await cancel(empty)).body.data).toMatchObject({ partido: { estado: 'cancelado' }, selecciones: 0, monedasDevueltas: 0 });
-			const closing = await insertMatch(pool, s.liga, s.A, s.B, 'programado', wholeSeconds(Date.now() + 2 * HOUR));
+			expect((await cancel(empty)).body.data).toMatchObject({ partido: { estado: 'cancelado' }, selecciones: 0 });
+			const closing = await insertMatch(pool, s.liga, s.A, s.B, 'programado', wholeSeconds(Date.now() + 30 * 60 * 1000));
 			expect((await cancel(closing)).status).toBe(200);
 		});
 
@@ -257,7 +247,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 			const ana = await bettor();
 			await ticket(ana, [win(x)]);
 			await played(x, [1, 0]);
-			await confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, { countPendingSelections, ...matchSettlement });
+			await confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, settlement);
 			const before = await snapshot();
 			const finished = await cancel(x);
 			expect(finished.status).toBe(409);
@@ -277,7 +267,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 			expect(rejected.body.error.details.selecciones[0].errores[0].code).toBe('MATCH_NOT_PROGRAMMED');
 		});
 
-		it('hand-loaded selections: settled or voided ones stay as they are; a pending one with no debit is voided with no refund', async () => {
+		it('hand-loaded selections: settled or voided ones stay as they are; every pending one is voided', async () => {
 			const x = await openMatch();
 			const ana = await bettor();
 			const t = await ticket(ana, [win(x)]);
@@ -291,14 +281,14 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				VALUES (?, ?, ?, ?, ?, 3), (?, ?, ?, ?, ?, 0), (?, ?, ?, ?, ?, NULL), (?, ?, ?, ?, ?, NULL)`,
 				[t, x, cat!.tipo, cat!.pron, cat!.acertada, t, x, cat!.tipo, cat!.pron, cat!.no_acertada, t, x, cat!.tipo, cat!.pron, cat!.anulada, t, x, cat!.tipo, cat!.pron, cat!.pendiente],
 			);
-			const [settled, missed, alreadyVoid, undebited] = [0, 1, 2, 3].map((i) => forced.insertId + i);
-			expect((await preview(x)).body.data).toMatchObject({ selecciones: 2, monedasDevueltas: 1, seleccionesSinDevolucion: { total: 1, sinDebito: 1, cuentaAdministrador: 0 }, usuarios: 1 });
+			const [settled, missed, alreadyVoid, extraPending] = [0, 1, 2, 3].map((i) => forced.insertId + i);
+			expect((await preview(x)).body.data).toMatchObject({ selecciones: 2, usuarios: 1, tickets: 1 });
 
 			const res = await cancel(x);
-			expect(res.body.data).toMatchObject({ selecciones: 2, monedasDevueltas: 1, seleccionesSinDevolucion: { total: 1, sinDebito: 1, cuentaAdministrador: 0 } });
+			expect(res.body.data).toMatchObject({ selecciones: 2, usuarios: 1 });
 			const [rows] = await pool.query<RowDataPacket[]>(
 				`SELECT s.id, es.codigo, s.puntos_obtenidos AS p FROM seleccion s JOIN estado_seleccion es ON es.id = s.estado_seleccion_id WHERE s.id IN (?) ORDER BY s.id`,
-				[[settled, missed, alreadyVoid, undebited]],
+				[[settled, missed, alreadyVoid, extraPending]],
 			);
 			expect(rows.map((r) => [r.codigo, r.p])).toEqual([
 				['acertada', 3],
@@ -306,46 +296,27 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				['anulada', null],
 				['anulada', null],
 			]);
-			// Only the real, debited selection came back.
-			expect((await refundsOf(ana.user.id)).map(([id]) => id)).toEqual(await selectionIdsOf(t, x).then((ids) => ids.filter((id) => id < forced.insertId)));
-			expect(await balance(ana.user.id)).toBe(10);
-
-			// D-003: the receipt, my bets and the pool figures show the coins really refunded (1), not the 3 voided selections.
-			expect((await receipt(ana, t)).body.data).toMatchObject({ monedasDevueltas: 1, cantidadSelecciones: 5 });
+			expect((await receipt(ana, t)).body.data).toMatchObject({ cantidadSelecciones: 5 });
 			const summary = (await request(app).get('/apuestas/mis-apuestas/resumen').set('Cookie', ana.cookie)).body.data;
-			expect(summary).toMatchObject({ monedasDevueltas: 1, selecciones: { anulada: 3 } });
-			const list = (await request(app).get('/apuestas/mis-apuestas').set('Cookie', ana.cookie)).body.data;
-			expect(list.items[0].ticket).toMatchObject({ monedasDevueltas: 1 });
-			expect((await api.get('/polla/estadisticas')).body.data).toMatchObject({ monedasDevueltas: 1, selecciones: { anulada: 3 } });
+			expect(summary).toMatchObject({ selecciones: { anulada: 3 } });
+			expect((await api.get('/polla/estadisticas')).body.data).toMatchObject({ selecciones: { anulada: 3 } });
 		});
 
-		it('D-002: pending selections of an account that is an admin today are voided with no refund, and never block the cancellation', async () => {
+		it('pending selections of an account that is an admin today are voided like any other, and never block the cancellation', async () => {
 			const x = await openMatch();
 			const ana = await bettor();
 			const beto = await bettor();
 			const anaTicket = await ticket(ana, [win(x), score(x, 0, 0)]);
-			const betoTicket = await ticket(beto, [win(x)]);
+			await ticket(beto, [win(x)]);
 			await setUserState(pool, beto.user.id, { rol: 'admin' });
-			const betoBefore = { saldo: await balance(beto.user.id), movimientos: (await refundsOf(beto.user.id)).length };
 
-			const expected = { selecciones: 3, monedasDevueltas: 2, seleccionesSinDevolucion: { total: 1, sinDebito: 0, cuentaAdministrador: 1 }, usuarios: 2 };
+			const expected = { selecciones: 3, usuarios: 2, tickets: 2 };
 			expect((await preview(x)).body.data).toMatchObject({ puedeCancelar: true, ...expected });
 			const res = await cancel(x);
 			expect(res.status).toBe(200);
 			expect(res.body.data).toMatchObject(expected);
 			expect(await states(x)).toEqual({ anulada: 3 });
-			expect(await refundsOf(ana.user.id)).toHaveLength(2);
-			expect({ saldo: await balance(beto.user.id), movimientos: (await refundsOf(beto.user.id)).length }).toEqual(betoBefore);
-			expect(await balance(ana.user.id)).toBe(10);
-			const [[betoRow]] = await pool.query<RowDataPacket[]>(
-				`SELECT COALESCE(SUM(m.cantidad), 0) AS devueltas FROM seleccion s
-				LEFT JOIN movimiento_moneda m ON m.seleccion_id = s.id AND m.tipo_movimiento_id = (SELECT id FROM tipo_movimiento WHERE codigo = 'devolucion_cancelacion')
-				WHERE s.ticket_id = ?`,
-				[betoTicket],
-			);
-			expect(Number(betoRow!.devueltas)).toBe(0);
-			expect((await receipt(ana, anaTicket)).body.data).toMatchObject({ estado: 'anulado', monedasDevueltas: 2 });
-			// Back to apostador so the coins check (after each test) doesn't flag an admin with movements.
+			expect((await receipt(ana, anaTicket)).body.data).toMatchObject({ estado: 'anulado' });
 			await setUserState(pool, beto.user.id, { rol: 'apostador' });
 		});
 
@@ -385,14 +356,14 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 	});
 
 	describe('transactions', () => {
-		it('a failure halfway (after the refunds) rolls everything back; then it can be cancelled', async () => {
+		it('a failure halfway (after voiding) rolls everything back; then it can be cancelled', async () => {
 			const x = await openMatch();
 			const ana = await bettor();
 			await ticket(ana, [win(x), score(x, 0, 0)]);
 			const before = await snapshot();
 			await expect(
 				cancelMatch(pool, ctx(), x, {
-					afterRefunds: async () => {
+					afterVoiding: async () => {
 						throw new Error('falla a mitad de la cancelación');
 					},
 				}),
@@ -409,14 +380,14 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 
 			const actions: string[] = [];
 			const done = await cancelMatch(pool, ctx({ inTransaction: async (_c, outcome: AdminActionOutcome) => void actions.push(outcome.action) }), x);
-			expect(done).toMatchObject({ selecciones: 2, monedasDevueltas: 2 });
+			expect(done).toMatchObject({ selecciones: 2 });
 			expect(actions).toEqual(['cancelar_partido']);
 		});
 
-		it('a deadlock retry refunds once', async () => {
+		it('a deadlock retry voids once', async () => {
 			const x = await openMatch();
 			const ana = await bettor();
-			await ticket(ana, [win(x), win(x), win(x)]);
+			await ticket(ana, [win(x), score(x, 2, 2)]);
 			let calls = 0;
 			const retries = transactionStats.deadlockRetries;
 			const flaky = ctx({
@@ -425,14 +396,13 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 					if (calls === 1) throw Object.assign(new Error('deadlock simulado'), { errno: 1213, sqlState: '40001' });
 				},
 			});
-			expect(await cancelMatch(pool, flaky, x)).toMatchObject({ selecciones: 3, monedasDevueltas: 3 });
+			expect(await cancelMatch(pool, flaky, x)).toMatchObject({ selecciones: 2 });
 			expect(calls).toBe(2);
 			expect(transactionStats.deadlockRetries).toBe(retries + 1);
-			expect(await refundsOf(ana.user.id)).toHaveLength(3);
-			expect(await balance(ana.user.id)).toBe(10);
+			expect(await states(x)).toEqual({ anulada: 2 });
 		});
 
-		it('cancelling twice at once: one wins, coins come back once', async () => {
+		it('cancelling twice at once: one wins, the rest get 409', async () => {
 			const x = await openMatch();
 			const people = [await bettor(), await bettor(), await bettor()];
 			for (const who of people) await ticket(who, [win(x), score(x, 1, 1)]);
@@ -442,10 +412,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				expect(r.status).toBe(409);
 				expect(r.body.error.code).toBe('MATCH_ALREADY_CANCELLED');
 			}
-			for (const who of people) {
-				expect(await refundsOf(who.user.id)).toHaveLength(2);
-				expect(await balance(who.user.id)).toBe(10);
-			}
+			expect(await states(x)).toEqual({ anulada: 6 });
 		});
 
 		it('cancel against confirming the same match: exactly one wins, and its effects are the only ones', async () => {
@@ -456,7 +423,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				await played(x, [2, 0]);
 				const [cancelled, confirmed] = await Promise.allSettled([
 					cancelMatch(pool, ctx(), x),
-					confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 2, golesVisitante: 0 }, { countPendingSelections, ...matchSettlement }),
+					confirmResult(pool, ctx(), x, { confirmar: true, golesLocal: 2, golesVisitante: 0 }, settlement),
 				]);
 				const winners = [cancelled, confirmed].filter((r) => r.status === 'fulfilled');
 				expect(winners, `ronda ${round}`).toHaveLength(1);
@@ -484,7 +451,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				const deadlocks = { ...transactionStats };
 				const [cancelled, settled, ...placed] = await Promise.all([
 					cancel(x),
-					confirmResult(pool, ctx(), y, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, { countPendingSelections, ...matchSettlement }),
+					confirmResult(pool, ctx(), y, { confirmar: true, golesLocal: 1, golesVisitante: 0 }, settlement),
 					...people.map((who) => placeTicket(who, [win(z)])),
 				]);
 				expect(cancelled.status).toBe(200);
@@ -494,14 +461,12 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 				expect(await states(x)).toEqual({ anulada: 3 });
 				expect(await states(y)).toEqual({ acertada: 3 });
 				for (const [i, who] of people.entries()) {
-					expect((await receipt(who, tickets[i]!)).body.data).toMatchObject({ estado: 'finalizado', puntosObtenidos: 3, monedasDevueltas: 1 });
+					expect((await receipt(who, tickets[i]!)).body.data).toMatchObject({ estado: 'finalizado', puntosObtenidos: 3 });
 				}
 			}
-			// Per round: 3 debits, the refund of x and the prize of the right winner on y (C-09, 1 coin).
-			for (const who of people) expect(await balance(who.user.id)).toBe(10 - 3 * 3 + 3 + 3);
 		});
 
-		it.skipIf(!canInspectLocks)('a new bettor slipping in while the cancellation waits for the match: it starts over and refunds them too', async () => {
+		it.skipIf(!canInspectLocks)('a ticket in flight while the cancellation waits for the match: its selection is voided too, with no retry (C-13)', async () => {
 			const x = await openMatch();
 			const ana = await bettor();
 			await ticket(ana, [win(x)]);
@@ -519,20 +484,14 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 					'INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES (?, UTC_TIMESTAMP(), ?, SHA2(UUID(), 256))',
 					[late.user.id, randomUUID()],
 				);
-				const [sel] = await conn.query<ResultSetHeader>(
+				await conn.query(
 					`INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id, estado_seleccion_id)
 					SELECT ?, ?, ta.id, rg.id, es.id FROM tipo_apuesta ta, resultado_general rg, estado_seleccion es
 					WHERE ta.codigo = 'resultado_general' AND rg.codigo = 'empate' AND es.codigo = 'pendiente'`,
 					[t.insertId, x],
 				);
-				await conn.query(
-					`INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en)
-					SELECT ?, id, ?, -1, UTC_TIMESTAMP() FROM tipo_movimiento WHERE codigo = 'seleccion_confirmada'`,
-					[late.user.id, sel.insertId],
-				);
-				await conn.query('UPDATE usuario SET saldo_monedas = saldo_monedas - 1 WHERE id = ?', [late.user.id]);
 
-				const restarts = cancellationStats.restarts;
+				const retries = transactionStats.deadlockRetries;
 				const pending = cancelMatch(pool, ctx(), x);
 				// Wait until the cancellation is blocked on the match.
 				for (let i = 0; i < 200; i++) {
@@ -544,54 +503,67 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 					await new Promise((resolve) => setTimeout(resolve, 25));
 				}
 				await conn.commit();
-				expect(await pending).toMatchObject({ selecciones: 2, monedasDevueltas: 2, usuarios: 2 });
-				expect(cancellationStats.restarts).toBe(restarts + 1);
+				expect(await pending).toMatchObject({ selecciones: 2, usuarios: 2 });
+				expect(transactionStats.deadlockRetries).toBe(retries);
 			} finally {
 				conn.release();
 				await root.end();
 			}
-			expect(await balance(ana.user.id)).toBe(10);
-			expect(await balance(late.user.id)).toBe(10);
-			expect(await refundsOf(late.user.id)).toHaveLength(1);
+			expect(await states(x)).toEqual({ anulada: 2 });
+		});
+
+		it.skipIf(!canInspectLocks)('C-13: the cancellation locks no user row', async () => {
+			const x = await openMatch();
+			const ana = await bettor();
+			await ticket(ana, [win(x), score(x, 1, 0)]);
+			const root = await mysql.createConnection({ host: env.db.host, port: env.db.port, user: 'root', password: process.env.MYSQL_ROOT_PASSWORD });
+			try {
+				let userLocks = -1;
+				await cancelMatch(pool, ctx(), x, {
+					afterVoiding: async (conn) => {
+						const [[me]] = await conn.query<RowDataPacket[]>('SELECT CONNECTION_ID() AS id');
+						const [[row]] = await root.query<RowDataPacket[]>(
+							`SELECT COUNT(*) AS n FROM performance_schema.data_locks l
+							JOIN performance_schema.threads t ON t.THREAD_ID = l.THREAD_ID
+							WHERE t.PROCESSLIST_ID = ? AND l.OBJECT_SCHEMA = ? AND l.OBJECT_NAME = 'usuario' AND l.LOCK_TYPE = 'RECORD'`,
+							[Number(me!.id), env.db.database],
+						);
+						userLocks = Number(row!.n);
+					},
+				});
+				expect(userLocks).toBe(0);
+			} finally {
+				await root.end();
+			}
 		});
 	});
 
 	describe('volume', () => {
-		it('300 users and 3000 selections: a handful of statements, exact refunds', async () => {
+		it('300 users and 3000 selections: a handful of statements', async () => {
 			const USERS = 300;
 			const PER_USER = 10;
 			const x = await openMatch();
 			const y = await openMatch(4);
 			const [[ids]] = await pool.query<RowDataPacket[]>(
 				`SELECT (SELECT id FROM rol WHERE codigo = 'apostador') AS rol, (SELECT id FROM estado_usuario WHERE codigo = 'validado') AS validado,
-					(SELECT id FROM estado_pago WHERE codigo = 'confirmado') AS pago, (SELECT id FROM tipo_movimiento WHERE codigo = 'validacion') AS validacion,
-					(SELECT id FROM tipo_movimiento WHERE codigo = 'seleccion_confirmada') AS debito, (SELECT id FROM tipo_apuesta WHERE codigo = 'resultado_general') AS tipo,
+					(SELECT id FROM estado_pago WHERE codigo = 'confirmado') AS pago, (SELECT id FROM tipo_apuesta WHERE codigo = 'resultado_general') AS tipo,
 					(SELECT id FROM resultado_general WHERE codigo = 'local_gana') AS pron, (SELECT id FROM estado_seleccion WHERE codigo = 'pendiente') AS pendiente`,
 			);
 			const now = wholeSeconds(Date.now());
 			const [users] = await pool.query<ResultSetHeader>(
-				'INSERT INTO usuario (rol_id, estado_usuario_id, estado_pago_id, nombre, email, password_hash, saldo_monedas, creado_en) VALUES ?',
-				[Array.from({ length: USERS }, (_, i) => [ids!.rol, ids!.validado, ids!.pago, `V${i}`, `vol${i}@liga.test`, 'x', 10 - PER_USER, now])],
+				'INSERT INTO usuario (rol_id, estado_usuario_id, estado_pago_id, nombre, email, password_hash, creado_en) VALUES ?',
+				[Array.from({ length: USERS }, (_, i) => [ids!.rol, ids!.validado, ids!.pago, `V${i}`, `vol${i}@liga.test`, 'x', now])],
 			);
 			const userIds = Array.from({ length: USERS }, (_, i) => users.insertId + i);
-			await pool.query('INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en) VALUES ?', [
-				userIds.map((u) => [u, ids!.validacion, null, 10, now]),
-			]);
 			const [tickets] = await pool.query<ResultSetHeader>('INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES ?', [
 				userIds.map((u) => [u, now, randomUUID(), 'b'.repeat(64)]),
 			]);
-			// Nine selections on X and one on Y per user, all debited.
+			// Nine selections on X and one on Y per user, loaded by hand (the app takes one per type since C-13).
 			const rows = userIds.flatMap((_, i) =>
 				Array.from({ length: PER_USER }, (__, k) => [tickets.insertId + i, k === 0 ? y : x, ids!.tipo, ids!.pron, ids!.pendiente]),
 			);
-			const [sels] = await pool.query<ResultSetHeader>(
-				'INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id, estado_seleccion_id) VALUES ?',
-				[rows],
-			);
-			await pool.query('INSERT INTO movimiento_moneda (usuario_id, tipo_movimiento_id, seleccion_id, cantidad, creado_en) VALUES ?', [
-				rows.map((_, j) => [userIds[Math.floor(j / PER_USER)], ids!.debito, sels.insertId + j, -1, now]),
-			]);
-			await pool.query('ANALYZE TABLE seleccion, movimiento_moneda, ticket');
+			await pool.query('INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id, estado_seleccion_id) VALUES ?', [rows]);
+			await pool.query('ANALYZE TABLE seleccion, ticket');
 
 			// Count the statements of the cancellation's own connection.
 			let statements = 0;
@@ -610,7 +582,7 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 			const started = performance.now();
 			try {
 				const done = await cancelMatch(counting, ctx(), x);
-				expect(done).toMatchObject({ selecciones: USERS * (PER_USER - 1), monedasDevueltas: USERS * (PER_USER - 1), usuarios: USERS, tickets: USERS, ticketsAnulados: 0 });
+				expect(done).toMatchObject({ selecciones: USERS * (PER_USER - 1), usuarios: USERS, tickets: USERS, ticketsAnulados: 0 });
 			} finally {
 				for (const conn of patched) delete (conn as unknown as { query?: unknown }).query;
 			}
@@ -621,8 +593,6 @@ describe('cancelling a match (T-16: BR-045 to BR-047, BR-055)', () => {
 
 			expect(await states(x)).toEqual({ anulada: USERS * (PER_USER - 1) });
 			expect(await states(y)).toEqual({ pendiente: USERS });
-			const [[sum]] = await pool.query<RowDataPacket[]>('SELECT MIN(saldo_monedas) AS min, MAX(saldo_monedas) AS max FROM usuario WHERE id IN (?)', [userIds]);
-			expect([Number(sum!.min), Number(sum!.max)]).toEqual([PER_USER - 1, PER_USER - 1]);
 			expect(await countPendingSelections(pool, x)).toBe(0);
 		});
 	});

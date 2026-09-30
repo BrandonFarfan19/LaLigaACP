@@ -21,11 +21,11 @@ const ROWS: MyBet[] = [
 	myBet(
 		30,
 		{ estado: 'pendiente', puntosObtenidos: null, resultadoReal: null, tipo: 'marcador_exacto', pronostico: null, golesLocal: 3, golesVisitante: 1 },
-		{ estado: 'pendiente', cantidadSelecciones: 2, monedasUtilizadas: 2, puntosObtenidos: 1, creadoEn: '2026-09-19T15:00:00.000Z' },
+		{ estado: 'pendiente', cantidadSelecciones: 2, puntosObtenidos: 1, creadoEn: '2026-09-19T15:00:00.000Z' },
 	),
-	myBet(30, { estado: 'acertada', pronostico: 'empate', puntosObtenidos: 1 }, { estado: 'pendiente', cantidadSelecciones: 2, monedasUtilizadas: 2, puntosObtenidos: 1 }),
+	myBet(30, { estado: 'acertada', pronostico: 'empate', puntosObtenidos: 1 }, { estado: 'pendiente', cantidadSelecciones: 2, puntosObtenidos: 1 }),
 	myBet(20, { estado: 'no_acertada', pronostico: 'visitante_gana', puntosObtenidos: 0 }, { estado: 'finalizado', puntosObtenidos: 0 }),
-	myBet(10, { estado: 'anulada', puntosObtenidos: null, resultadoReal: null }, { estado: 'anulado', monedasDevueltas: 1, puntosObtenidos: 0 }),
+	myBet(10, { estado: 'anulada', puntosObtenidos: null, resultadoReal: null }, { estado: 'anulado', puntosObtenidos: 0 }),
 ];
 
 const calls = (list: RecordedCall[], path: string) => list.filter((c) => c.method === 'GET' && c.url.split('?')[0] === path);
@@ -57,8 +57,9 @@ describe('Mis apuestas (T-20)', () => {
 		expect(fact('Selecciones')).toBe('Selecciones51 pendiente · 2 acertadas · 1 no acertada · 1 anulada');
 		expect(fact('Puntos')).toBe('Puntos4');
 		expect(fact('Aciertos')).toBe('Aciertos2');
-		expect(fact('Monedas usadas')).toBe('Monedas usadas5 monedas');
-		expect(fact('Monedas devueltas')).toBe('Monedas devueltas1 moneda');
+		// C-13: points only, no coins anywhere on the page.
+		expect(summary.textContent).not.toMatch(/moneda/i);
+		expect(screen.getByRole('main').textContent).not.toMatch(/moneda|costo|ganó/i);
 
 		expect(screen.getByText('4 selecciones, del ticket más reciente al más antiguo.')).toBeTruthy();
 		const tickets = within(screen.getByRole('list', { name: 'Tickets' })).getAllByRole('article');
@@ -78,12 +79,11 @@ describe('Mis apuestas (T-20)', () => {
 		expect(rows[1]!.textContent).toMatch(/Resultado real2 - 1 \(Gana Halcones\)/);
 		expect(within(rows[1]!).getByText('Acertada').querySelector('[aria-hidden="true"]')).not.toBeNull();
 		expect(within(first).getByRole('link', { name: 'Ver el comprobante del ticket #30' }).getAttribute('href')).toBe('/apuestas/tickets/30');
-		expect(within(first).getByText('Monedas').parentElement!.textContent).toBe('Monedas2 monedas');
+		expect(within(first).getAllByText('Puntos')[0]!.parentElement!.textContent).toBe('Puntos1');
 
 		expect(within(tickets[1]!).getByText('No acertada')).toBeTruthy();
 		expect(within(tickets[2]!).getByText('Anulado')).toBeTruthy();
 		expect(within(tickets[2]!).getByText('Anulada')).toBeTruthy();
-		expect(within(tickets[2]!).getByText('Monedas').parentElement!.textContent).toBe('Monedas1 moneda (1 devuelta)');
 		expect(within(tickets[2]!).getByText(/Sin puntos/)).toBeTruthy();
 	});
 
@@ -422,7 +422,7 @@ describe('Mis apuestas (T-20)', () => {
 			{
 				'GET /api/apuestas/mis-apuestas': () => ok(pageOf([])),
 				'GET /api/apuestas/mis-apuestas/resumen': () =>
-					ok(summaryOf({ tickets: { total: 0, pendiente: 0, finalizado: 0, anulado: 0 }, selecciones: { total: 0, pendiente: 0, acertada: 0, no_acertada: 0, anulada: 0 }, monedasUtilizadas: 0, monedasDevueltas: 0, puntos: 0, aciertos: 0 })),
+					ok(summaryOf({ tickets: { total: 0, pendiente: 0, finalizado: 0, anulado: 0 }, selecciones: { total: 0, pendiente: 0, acertada: 0, no_acertada: 0, anulada: 0 }, puntos: 0, aciertos: 0 })),
 			},
 			pendiente,
 		);

@@ -1,8 +1,8 @@
 import styles from './PixelIcon.module.css';
 
 /**
- * Small 7×7 pixel icons in the current text color, drawn like the coin
- * (`CoinIcon`): one fat pixel and a hard box-shadow per pixel. They go next to
+ * Small 7×7 pixel icons in the current text color: one fat pixel and a hard
+ * box-shadow per pixel. They go next to
  * a text label, so the meaning never depends on the color alone (BR-052).
  */
 const SPRITES = {

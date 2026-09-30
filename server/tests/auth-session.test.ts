@@ -236,7 +236,6 @@ describe('login, /auth/me and logout (BR-004, BR-005, NFR-005)', () => {
 						rol: 'apostador',
 						estadoValidacion: 'pendiente',
 						estadoPago: 'pendiente',
-						saldoMonedas: 0,
 						creadoEn: expect.any(String),
 					},
 					csrfToken,

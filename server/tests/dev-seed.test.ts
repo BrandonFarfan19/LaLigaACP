@@ -8,7 +8,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HORAS_CIERRE_APUESTAS } from '../src/lib/betting.js';
 import { resultOfScore } from '../src/lib/match-result.js';
 import { settleSelection } from '../src/lib/points.js';
-import { checkCoinConsistency } from '../src/services/coins-consistency.service.js';
 import {
 	cleanDevData,
 	DEMO_ACCOUNTS,
@@ -172,8 +171,8 @@ describe('development sample data (D-013, D-016)', () => {
 			partido: 14,
 			partido_equipo: 28,
 			usuario: 12,
-			// 10 validations, 11 debits, 1 refund and 5 prizes (C-09).
-			movimiento_moneda: 27,
+			// C-13: no coins any more, so the seed writes no movement.
+			movimiento_moneda: 0,
 			ticket: 7,
 			seleccion: 11,
 		});
@@ -184,16 +183,14 @@ describe('development sample data (D-013, D-016)', () => {
 		const ana = DEMO_ACCOUNTS.find((a) => a.key === 'ana')!;
 		const session = await login(app, ana.email, ana.password);
 		const me = await request(app).get('/auth/me').set('Cookie', session.cookie);
-		expect(me.body.data.user).toMatchObject({ rol: 'apostador', estadoValidacion: 'validado', estadoPago: 'confirmado', saldoMonedas: 9 }); // 10 - 5 + 1 refunded + 3 won (C-09)
+		expect(me.body.data.user).toMatchObject({ rol: 'apostador', estadoValidacion: 'validado', estadoPago: 'confirmado' });
+		expect(me.body.data.user).not.toHaveProperty('saldoMonedas');
 
 				// T-20: tickets in every state, and a ranking with a tie at the top.
 				const history = await request(app).get('/apuestas/mis-apuestas/resumen').set('Cookie', session.cookie);
 				expect(history.body.data).toEqual({
 					tickets: { total: 3, pendiente: 1, finalizado: 1, anulado: 1 },
 					selecciones: { total: 5, pendiente: 2, acertada: 2, no_acertada: 0, anulada: 1 },
-					monedasUtilizadas: 5,
-					monedasDevueltas: 1,
-					monedasGanadas: 3,
 					puntos: 6,
 					aciertos: 2,
 				});
@@ -215,25 +212,23 @@ describe('development sample data (D-013, D-016)', () => {
 		const voley = list.body.data.items.find((m: { deporte: { slug: string } }) => m.deporte.slug === 'demo-voley');
 		expect(voley.apuesta.pronosticosAdmitidos.resultadoGeneral).toEqual(['local_gana', 'visitante_gana']);
 
-		// The sample bettor can really bet on an open match.
+		// The sample bettor can really bet on an open match (an exact score: Ana already has general results on the first open ones).
 		const open = list.body.data.items.find((m: { apuesta: { estado: string } }) => m.apuesta.estado === 'disponible');
 		const ticket = await request(app)
 			.post('/apuestas/tickets')
 			.set('Cookie', session.cookie)
 			.set('X-CSRF-Token', session.csrfToken)
 			.set('Idempotency-Key', crypto.randomUUID())
-			.send({ selecciones: [{ partidoId: open.id, tipo: 'resultado_general', pronostico: 'local_gana' }] });
-		expect(ticket.status).toBe(201);
+			.send({ selecciones: [{ partidoId: open.id, tipo: 'marcador_exacto', golesLocal: 1, golesVisitante: 0 }] });
+		expect(ticket.status, JSON.stringify(ticket.body)).toBe(201);
 
 		// The other accounts.
 		const beto = DEMO_ACCOUNTS.find((a) => a.key === 'beto')!;
 		const pending = await login(app, beto.email, beto.password);
-		expect((await request(app).get('/auth/me').set('Cookie', pending.cookie)).body.data.user).toMatchObject({ estadoValidacion: 'pendiente', saldoMonedas: 0 });
+		expect((await request(app).get('/auth/me').set('Cookie', pending.cookie)).body.data.user).toMatchObject({ estadoValidacion: 'pendiente' });
 		const adminAccount = DEMO_ACCOUNTS.find((a) => a.key === 'admin')!;
 		const adminSession = await login(app, adminAccount.email, adminAccount.password);
 		expect((await request(app).get('/admin/sesion').set('Cookie', adminSession.cookie)).status).toBe(200);
-
-		expect((await checkCoinConsistency(pool)).ok).toBe(true);
 	});
 
 	it('confirms every sample ticket before the betting close of each of its matches (BR-014), and settles them with the real rules', async () => {
@@ -271,10 +266,20 @@ describe('development sample data (D-013, D-016)', () => {
 				expect(row.puntos).toBeNull();
 			}
 		}
-		// The CLI prints the real balance, not the initial 10 coins.
-		const balances = Object.fromEntries(summary.cuentas.map((c) => [c.email.split('@')[0], c.saldoMonedas]));
-		// C-09: the right picks were paid by the real settler: ana +1 +2, carla +2 +1, dani +1 (a right draw).
-		expect(balances).toMatchObject({ admin: null, ana: 9, carla: 10, dani: 10, eva: 9, beto: 0, fede: 9, gabi: 10 });
+		// C-13: the accounts have no coins to report, and nothing wrote any.
+		expect(summary.cuentas.every((c) => !('saldoMonedas' in c))).toBe(true);
+		expect(await count(pool, 'SELECT COUNT(*) AS n FROM movimiento_moneda')).toBe(0);
+		expect(await count(pool, 'SELECT COUNT(*) AS n FROM usuario WHERE saldo_monedas <> 0')).toBe(0);
+		// C-13 (BR-017, BR-018): the sample picks keep the limit of one bet per type, match and participant.
+		expect(
+			await count(
+				pool,
+				`SELECT COUNT(*) AS n FROM (
+					SELECT t.usuario_id, s.partido_id, s.tipo_apuesta_id FROM seleccion s JOIN ticket t ON t.id = s.ticket_id
+					GROUP BY t.usuario_id, s.partido_id, s.tipo_apuesta_id HAVING COUNT(*) > 1
+				) repetidas`,
+			),
+		).toBe(0);
 	});
 
 	it('is repeatable: seeding again replaces the sample data (and its own tickets) by its marks', async () => {
@@ -287,14 +292,14 @@ describe('development sample data (D-013, D-016)', () => {
 			.set('Cookie', session.cookie)
 			.set('X-CSRF-Token', session.csrfToken)
 			.set('Idempotency-Key', crypto.randomUUID())
-			.send({ selecciones: [{ partidoId: list.body.data.items[0].id, tipo: 'resultado_general', pronostico: 'empate' }] });
+			.send({ selecciones: [{ partidoId: list.body.data.items[0].id, tipo: 'marcador_exacto', golesLocal: 1, golesVisitante: 0 }] });
 		const first = await snapshot(pool);
+		expect(first).toMatchObject({ ticket: 8, seleccion: 12 });
 
 		await seedDevData(pool);
 		// The sample tickets come back as seeded; Ana's extra one is gone.
-		expect(await snapshot(pool)).toEqual({ ...first, movimiento_moneda: 27, ticket: 7, seleccion: 11, sesion: 0 });
+		expect(await snapshot(pool)).toEqual({ ...first, movimiento_moneda: 0, ticket: 7, seleccion: 11, sesion: 0 });
 		expect(await marks(pool)).toBe(128);
-		expect((await checkCoinConsistency(pool)).ok).toBe(true);
 	});
 
 	it('cleaning removes only marked rows: look-alike real data stays', async () => {

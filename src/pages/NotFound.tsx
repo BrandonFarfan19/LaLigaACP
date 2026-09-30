@@ -131,7 +131,7 @@ export function RouteError() {
 		// The betting pages need a participant: an admin is told why (BR-001).
 		const lead =
 			(error.data as RoleRequired | null)?.role === 'apostador'
-				? 'Esta página es para los participantes de la polla. Los administradores no participan: no tienen monedas ni pueden apostar.'
+				? 'Esta página es para los participantes de la polla. Los administradores no participan: no pueden apostar.'
 				: (error.data as RoleRequired | null)?.role === 'admin'
 					? 'Esta página es solo para administradores. Tu cuenta de participante no tiene acceso al panel.'
 					: 'Tu cuenta no tiene permiso para ver esta página.';

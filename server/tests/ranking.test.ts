@@ -422,11 +422,12 @@ describe('pool ranking (T-15: BR-041 to BR-044)', () => {
 			expect(await shared('?page=3&pageSize=2')).toEqual([[5, 1]]);
 		});
 
-		it('pool figures: participants, tickets and selections by state, coins and points, participants only', async () => {
+		it('pool figures: participants, tickets and selections by state and points, participants only; no coins (C-13)', async () => {
 			const a = await person('A');
 			const b = await person('B');
 			await person('Sin validar', { estado: 'pendiente' });
 			const admin = await person('Admin', { rol: 'admin', estado: 'validado' });
+			// Balances left from before C-13 are never shown.
 			await pool.query('UPDATE usuario SET saldo_monedas = 5 WHERE id IN (?)', [[a.id, b.id]]);
 			await bets(a.id, [HIT3, MISS]); // finalizado
 			await bets(a.id, [PENDING, HIT1]); // pendiente
@@ -438,11 +439,6 @@ describe('pool ranking (T-15: BR-041 to BR-044)', () => {
 				participantes: { inscritos: 3, validados: 2, pendientes: 1 },
 				tickets: { total: 3, pendiente: 1, finalizado: 1, anulado: 1 },
 				selecciones: { total: 6, pendiente: 1, acertada: 2, no_acertada: 1, anulada: 2 },
-				monedasUtilizadas: 6,
-				// D-003: B's selections were voided by hand, with no refund movement.
-				monedasDevueltas: 0,
-				monedasGanadas: 0,
-				monedasDisponibles: 10,
 				puntos: 4,
 				aciertos: 2,
 			});

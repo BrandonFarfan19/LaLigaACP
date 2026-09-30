@@ -64,7 +64,7 @@ export default function Ingresar() {
 				<h1 className={styles.title} id="login-title">
 					Ingresar
 				</h1>
-				<p className={styles.lead}>Entra con tu correo para ver tus monedas y participar en la polla.</p>
+				<p className={styles.lead}>Entra con tu correo para participar en la polla.</p>
 			</header>
 
 			<div className={`${styles.panel} pixel-box`}>

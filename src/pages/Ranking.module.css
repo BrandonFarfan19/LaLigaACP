@@ -131,7 +131,7 @@
 
 /* The podium: its own colors, and the position is printed anyway. */
 .row[data-podium='1'] .pos {
-	color: var(--color-coin-light);
+	color: var(--color-accent-alt-light);
 }
 
 .row[data-podium='2'] .pos {

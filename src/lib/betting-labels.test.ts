@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BETTING_STATE_HINT, closeLeadNote, coinsText, forecastLabel, forecastValue } from './betting-labels';
+import { BETTING_STATE_HINT, closeLeadNote, forecastLabel, forecastValue } from './betting-labels';
 
 describe('betting labels', () => {
-	it('coins in singular or plural, negative balances included', () => {
-		expect([-2, -1, 0, 1, 2, 10].map(coinsText)).toEqual(['-2 monedas', '-1 moneda', '0 monedas', '1 moneda', '2 monedas', '10 monedas']);
+	it('C-13: no state hint talks about coins', () => {
+		for (const hint of Object.values(BETTING_STATE_HINT)) expect(hint).not.toMatch(/moneda/i);
 	});
 
 	it('a forecast alone, or with "Marcador" where no bet type is shown', () => {

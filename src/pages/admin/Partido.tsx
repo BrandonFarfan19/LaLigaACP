@@ -56,7 +56,7 @@ import { fixedSource } from '../../lib/admin-choices';
 import { loadAdmin } from '../../lib/admin-load';
 import { closeLeadNote, resultLabel } from '../../lib/betting-labels';
 import { positiveInt } from '../../lib/betting';
-import type { AdminEnrollment, AdminGoal, AdminMatch, CancellationPreview, MatchMedia, PrizesPaid, ResultPreview, VideoLink } from '../../types/admin';
+import type { AdminEnrollment, AdminGoal, AdminMatch, CancellationPreview, MatchMedia, ResultPreview, VideoLink } from '../../types/admin';
 import shared from '../Apuestas.module.css';
 import styles from './Admin.module.css';
 import { competitionName, leagueDateTime, MATCH_STATE_LABEL, MATCH_STATE_TONE, MatchFields } from './Partidos';
@@ -118,15 +118,6 @@ const videoMessage = (video: VideoLink | null) => (video ? `Video de ${video.pla
 /** "1 apuesta", "3 apuestas": a count with the form that fits it. */
 const count = (many: number, one: string, other: string) => `${many} ${many === 1 ? one : other}`;
 
-/**
- * C-09 (BR-057): what the confirmation paid, automatically, to the right
- * selections. The admin approves nothing apart: it is part of confirming.
- */
-const prizesText = ({ selecciones, monedas, participantes }: PrizesPaid) =>
-	selecciones === 0
-		? 'Ningún acierto: no se pagaron monedas.'
-		: `Se pagaron ${count(monedas, 'moneda', 'monedas')} por ${count(selecciones, 'acierto', 'aciertos')} a ${count(participantes, 'participante', 'participantes')}.`;
-
 export async function action({ request, params }: ActionFunctionArgs): Promise<ActionOutcome> {
 	const id = positiveInt(params.id ?? '', Number.MAX_SAFE_INTEGER);
 	if (!id) return refused('', '', 'Partido desconocido.');
@@ -174,7 +165,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<A
 			const local = intOf(body.golesLocal);
 			const visita = intOf(body.golesVisitante);
 			if (local === undefined || visita === undefined) return refused(intent, target, 'Falta el marcador que revisaste.');
-			return perform(intent, target, () => confirmResult(id, local, visita), (r) => `Resultado confirmado: ${local} - ${visita}. El partido quedó finalizado y sus apuestas se liquidaron. ${prizesText(r.premios)}`);
+			return perform(intent, target, () => confirmResult(id, local, visita), () => `Resultado confirmado: ${local} - ${visita}. El partido quedó finalizado y sus apuestas se liquidaron con sus puntos.`);
 		}
 		case 'createGoal':
 			return perform(intent, target, () => createGoal(id, { jugadorId: n(body.jugadorId ?? ''), equipoId: n(body.equipoId ?? ''), minuto: n(body.minuto ?? '') }), (g) => `Gol de ${g.jugador.nombre} (minuto ${g.minuto}) registrado.`);
@@ -206,7 +197,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<A
 			return perform(intent, target, () => deleteMedia(id, mediaId), () => 'Se quitó del partido.');
 		}
 		case 'cancel':
-			return perform(intent, target, () => cancelMatch(id), (r) => `Partido cancelado: se ${r.selecciones === 1 ? 'anuló' : 'anularon'} ${count(r.selecciones, 'apuesta', 'apuestas')} y se ${r.monedasDevueltas === 1 ? 'devolvió' : 'devolvieron'} ${count(r.monedasDevueltas, 'moneda', 'monedas')}.`);
+			return perform(intent, target, () => cancelMatch(id), (r) => `Partido cancelado: se ${r.selecciones === 1 ? 'anuló' : 'anularon'} ${count(r.selecciones, 'apuesta', 'apuestas')}.`);
 		default:
 			return refused(intent, target, 'Acción desconocida.');
 	}
@@ -947,20 +938,11 @@ function CancelSection({ id, preview }: { id: number; preview: CancellationPrevi
 	const messageRef = useRef<HTMLParagraphElement>(null);
 	const noForm = useRef<HTMLElement>(null);
 	useOutcomeFocus(writer.data, noForm, messageRef);
-	const without = preview.seleccionesSinDevolucion;
 	const figures = (
 		<dl className={`${styles.stats} ${styles.statsWide}`}>
 			<Stat label="Apuestas a anular" value={preview.selecciones} />
-			<Stat label="Monedas a devolver" value={preview.monedasDevueltas} />
 			<Stat label="Usuarios" value={preview.usuarios} />
 			<Stat label="Tickets afectados" value={preview.tickets} note={`${count(preview.ticketsAnulados, 'quedaría anulado', 'quedarían anulados')} por completo.`} />
-			{without.total > 0 && (
-				<Stat
-					label="Anuladas sin devolución"
-					value={without.total}
-					note={[without.sinDebito ? `${without.sinDebito} sin descuento registrado` : '', without.cuentaAdministrador ? `${count(without.cuentaAdministrador, 'apuesta', 'apuestas')} de una cuenta que hoy administra` : ''].filter(Boolean).join(' · ')}
-				/>
-			)}
 		</dl>
 	);
 
@@ -968,14 +950,13 @@ function CancelSection({ id, preview }: { id: number; preview: CancellationPrevi
 		<Section id="match-cancel" title="Cancelación">
 			{preview.puedeCancelar ? (
 				<>
-					<p className={styles.muted}>Anula las apuestas pendientes del partido y devuelve sus monedas. Las demás apuestas de esos tickets siguen vigentes.</p>
+					<p className={styles.muted}>Anula las apuestas pendientes del partido: quedan sin puntos. Las demás apuestas de esos tickets siguen vigentes.</p>
 					{figures}
 					<div className={styles.actions}>
 						<ConfirmStep trigger="Cancelar partido" title="Cancelación definitiva del partido" confirmLabel="Sí, cancelar el partido" busy={writer.state !== 'idle'} onConfirm={() => submitJson(writer, { intent: 'cancel', target: 'cancelar' })}>
 							<p>
-								{preview.selecciones === 1 ? 'Se anulará 1 apuesta' : `Se anularán ${preview.selecciones} apuestas`} y{' '}
-								{preview.monedasDevueltas === 1 ? 'se devolverá 1 moneda' : `se devolverán ${preview.monedasDevueltas} monedas`}
-								{preview.usuarios > 0 ? ` a ${count(preview.usuarios, 'usuario', 'usuarios')}` : ''}. Si entran apuestas mientras tanto, también se anulan.
+								{preview.selecciones === 1 ? 'Se anulará 1 apuesta' : `Se anularán ${preview.selecciones} apuestas`}
+								{preview.usuarios > 0 ? ` de ${count(preview.usuarios, 'usuario', 'usuarios')}` : ''}. Si entran apuestas mientras tanto, también se anulan.
 							</p>
 							<p>
 								<strong>{preview.advertencia}</strong>

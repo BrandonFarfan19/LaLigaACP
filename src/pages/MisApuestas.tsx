@@ -9,7 +9,6 @@ import {
 	useNavigationType,
 } from 'react-router';
 import ChoiceGroup from '../components/ChoiceGroup';
-import CoinAmount from '../components/CoinAmount';
 import StateTag from '../components/StateTag';
 import TeamCrest from '../components/TeamCrest';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -28,7 +27,7 @@ import {
 	TICKET_STATES,
 } from '../lib/bet-history';
 import { listSports } from '../lib/betting';
-import { BET_TYPE_LABEL, coinsText, forecastValue, resultLabel, SELECTION_STATE_LABEL, TICKET_STATE_LABEL } from '../lib/betting-labels';
+import { BET_TYPE_LABEL, forecastValue, resultLabel, SELECTION_STATE_LABEL, TICKET_STATE_LABEL } from '../lib/betting-labels';
 import { useRememberedNavigate } from '../hooks/useRequestedPath';
 import { useRetryFocus } from '../hooks/useRetryFocus';
 import { requireKnownUser } from '../lib/route-guards';
@@ -335,20 +334,6 @@ function Summary({ summary }: { summary: MyBetsSummary }) {
 						<span className={styles.big}>{summary.aciertos}</span>
 					</dd>
 				</div>
-				<div>
-					<dt>Monedas usadas</dt>
-					<dd>{coinsText(summary.monedasUtilizadas)}</dd>
-				</div>
-				<div>
-					<dt>Monedas devueltas</dt>
-					<dd>{coinsText(summary.monedasDevueltas)}</dd>
-				</div>
-				<div>
-					<dt>Monedas ganadas</dt>
-					<dd>
-						<CoinAmount amount={summary.monedasGanadas} />
-					</dd>
-				</div>
 			</dl>
 		</section>
 	);
@@ -374,24 +359,9 @@ function TicketCard({ ticket, selections }: { ticket: MyBet['ticket']; selection
 					<dd>{ticket.cantidadSelecciones}</dd>
 				</div>
 				<div>
-					<dt>Monedas</dt>
-					<dd>
-						{coinsText(ticket.monedasUtilizadas)}
-						{ticket.monedasDevueltas > 0 && ` (${ticket.monedasDevueltas} ${ticket.monedasDevueltas === 1 ? 'devuelta' : 'devueltas'})`}
-					</dd>
-				</div>
-				<div>
 					<dt>Puntos</dt>
 					<dd>{ticket.puntosObtenidos}</dd>
 				</div>
-				{ticket.monedasGanadas > 0 && (
-					<div>
-						<dt>Ganadas</dt>
-						<dd>
-							<CoinAmount amount={ticket.monedasGanadas} />
-						</dd>
-					</div>
-				)}
 			</dl>
 			{cut && (
 				<p className={styles.small}>
@@ -450,18 +420,6 @@ function SelectionRow({ selection }: { selection: MyBet }) {
 					<dt>Puntos</dt>
 					<dd>{selection.puntosObtenidos ?? (selection.estado === 'anulada' ? 'Sin puntos' : 'Por definir')}</dd>
 				</div>
-				<div>
-					<dt>Costo</dt>
-					<dd>{coinsText(selection.costo)}</dd>
-				</div>
-				{selection.monedasGanadas > 0 && (
-					<div>
-						<dt>Ganó</dt>
-						<dd>
-							<CoinAmount amount={selection.monedasGanadas} signed />
-						</dd>
-					</div>
-				)}
 			</dl>
 		</>
 	);

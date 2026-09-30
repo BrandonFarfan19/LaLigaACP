@@ -45,8 +45,6 @@ export interface AuthUser {
 	rol: UserRole;
 	estadoValidacion: ValidationState;
 	estadoPago: PaymentState;
-	/** Coins available (BR-009). Always 0 for an admin, who doesn't take part (BR-001). */
-	saldoMonedas: number;
 	/** Sign-up date, UTC. */
 	creadoEn: string;
 }
@@ -66,22 +64,4 @@ export interface LoginResponse extends MeResponse {
 /** `POST /auth/register`: the account is created pending, without signing in. */
 export interface RegisterResponse {
 	user: AuthUser;
-}
-
-/** `GET /monedas/saldo`. */
-export interface CoinBalance {
-	saldoMonedas: number;
-}
-
-/** The movement types (table 28); `premio_*` since C-09 (BR-057). */
-export type CoinMovementType = 'validacion' | 'seleccion_confirmada' | 'devolucion_cancelacion' | 'premio_resultado_general' | 'premio_marcador_exacto';
-
-/** A row of `GET /monedas/movimientos`, newest first. */
-export interface CoinMovement {
-	id: number;
-	tipo: { codigo: CoinMovementType; nombre: string };
-	/** Signed. */
-	cantidad: number;
-	creadoEn: string;
-	seleccion: { id: number; ticketId: number; partidoId: number } | null;
 }

@@ -56,22 +56,46 @@ export function bettingMatch(overrides: { estado?: BettingState; sport?: ApiSpor
 
 export const page = <T>(items: T[]): ApiPage<T> => ({ items, page: 1, pageSize: 20, total: items.length, totalPages: items.length ? 1 : 0 });
 
-/** The backend's own `plural` (`server/src/lib/plural.ts`), so its messages come out identical. */
-const plural = (n: number, singular: string, many: string) => `${n} ${n === 1 ? singular : many}`;
+const TIPO_TEXTO = { resultado_general: 'resultado general', marcador_exacto: 'marcador exacto' } as const;
 
 /**
- * The preview the backend would give for these selections, all valid.
+ * The preview the backend would give for these selections: valid, except the
+ * ones in `errores` (`BETTING_CLOSED` with that message) and, like the real
+ * one (C-13, BR-017), a second selection of the same type on the same match,
+ * with `BET_LIMIT_REACHED` and its `repiteA`. `placed` lists the
+ * `partidoId:tipo` the participant already has in earlier tickets.
  *
  * Every selection carries **its match**, as the real API does: the panel
  * refreshes each match from the preview (`Apuestas.tsx`), and a preview with
  * `partido: null` left that path untested. `partidos` are the matches the test
  * has on screen; any other id gets a match built from it.
  */
-export function evaluationFor(selecciones: unknown[], saldo: number, errores: Record<number, string> = {}, partidos: BettingMatch[] = []): TicketEvaluation {
-	return {
-		valido: Object.keys(errores).length === 0 && selecciones.length <= saldo,
-		selecciones: selecciones.map((s, indice) => {
+export function evaluationFor(
+	selecciones: unknown[],
+	errores: Record<number, string> = {},
+	partidos: BettingMatch[] = [],
+	placed: readonly string[] = [],
+): TicketEvaluation {
+	const firstSeen = new Map<string, number>();
+	const evaluated = selecciones.map((s, indice) => {
 			const input = s as { partidoId: number; tipo: 'resultado_general' | 'marcador_exacto'; pronostico?: string; golesLocal?: number; golesVisitante?: number };
+			// The backend's own message and its `cierre` (`services/betting.service.ts`).
+			const problems: TicketEvaluation['selecciones'][number]['errores'] =
+				indice in errores
+					? [{ code: 'BETTING_CLOSED', message: errores[indice]!, cierre: partidos.find((m) => m.id === input.partidoId)?.apuesta.cierre ?? '2026-10-03T00:00:00.000Z' }]
+					: [];
+			const key = `${input.partidoId}:${input.tipo}`;
+			const repiteA = firstSeen.get(key);
+			if (placed.includes(key)) {
+				problems.push({ code: 'BET_LIMIT_REACHED', message: `Ya tienes una apuesta de ${TIPO_TEXTO[input.tipo]} en este partido: se admite una sola de cada tipo por partido.` });
+			} else if (repiteA !== undefined) {
+				problems.push({
+					code: 'BET_LIMIT_REACHED',
+					message: `Este ticket ya tiene una apuesta de ${TIPO_TEXTO[input.tipo]} para este partido (la selección ${repiteA + 1}): se admite una sola de cada tipo por partido.`,
+					repiteA,
+				});
+			}
+			if (repiteA === undefined) firstSeen.set(key, indice);
 			return {
 				indice,
 				partidoId: input.partidoId,
@@ -79,26 +103,12 @@ export function evaluationFor(selecciones: unknown[], saldo: number, errores: Re
 				pronostico: (input.pronostico ?? null) as never,
 				golesLocal: input.golesLocal ?? null,
 				golesVisitante: input.golesVisitante ?? null,
-				costo: 1,
-				valida: !(indice in errores),
-				// The backend's own message and its `cierre` (`services/betting.service.ts`).
-				errores: indice in errores ? [{ code: 'BETTING_CLOSED', message: errores[indice]!, cierre: partidos.find((m) => m.id === input.partidoId)?.apuesta.cierre ?? '2026-10-03T00:00:00.000Z' }] : [],
-				repiteA: null,
+				valida: problems.length === 0,
+				errores: problems,
 				partido: partidos.find((match) => match.id === input.partidoId) ?? bettingMatch({ id: input.partidoId }),
 			};
-		}),
-		cantidadSelecciones: selecciones.length,
-		costoPorSeleccion: 1,
-		costoTotal: selecciones.length,
-		saldoActual: saldo,
-		saldoPosterior: saldo - selecciones.length,
-		saldoSuficiente: selecciones.length <= saldo,
-		// Word for word the backend's message, which the panel shows as it comes.
-		errores:
-			selecciones.length > saldo
-				? [{ code: 'INSUFFICIENT_BALANCE', message: `El ticket cuesta ${plural(selecciones.length, 'moneda', 'monedas')} y tu saldo es de ${plural(saldo, 'moneda', 'monedas')}.` }]
-				: [],
-	};
+		});
+	return { valido: evaluated.every((s) => s.valida), selecciones: evaluated, cantidadSelecciones: selecciones.length };
 }
 
 export function receipt(id: number, userId: number, overrides: Partial<TicketReceipt> = {}): TicketReceipt {
@@ -109,9 +119,6 @@ export function receipt(id: number, userId: number, overrides: Partial<TicketRec
 		creadoEn: '2026-09-18T15:30:00.000Z',
 		estado: 'finalizado',
 		cantidadSelecciones: 2,
-		monedasUtilizadas: 2,
-		monedasDevueltas: 0,
-		monedasGanadas: 1,
 		puntosObtenidos: 3,
 		selecciones: [
 			{
@@ -123,9 +130,7 @@ export function receipt(id: number, userId: number, overrides: Partial<TicketRec
 				golesLocal: null,
 				golesVisitante: null,
 				estado: 'acertada',
-				costo: 1,
 				puntosObtenidos: 3,
-				monedasGanadas: 1,
 			},
 			{
 				id: 2,
@@ -136,9 +141,7 @@ export function receipt(id: number, userId: number, overrides: Partial<TicketRec
 				golesLocal: 1,
 				golesVisitante: 1,
 				estado: 'no_acertada',
-				costo: 1,
 				puntosObtenidos: 0,
-				monedasGanadas: 0,
 			},
 		],
 		...overrides,
@@ -173,19 +176,13 @@ export function myBet(ticketId: number, overrides: Partial<MyBet> = {}, ticket: 
 		golesLocal: null,
 		golesVisitante: null,
 		estado: 'acertada',
-		costo: 1,
 		puntosObtenidos: 3,
-		// C-09: a right general result pays 1 coin.
-		monedasGanadas: 1,
 		...overrides,
 		ticket: {
 			id: ticketId,
 			creadoEn: '2026-09-18T15:30:00.000Z',
 			estado: 'finalizado',
 			cantidadSelecciones: 1,
-			monedasUtilizadas: 1,
-			monedasDevueltas: 0,
-			monedasGanadas: 1,
 			puntosObtenidos: 3,
 			...ticket,
 		},
@@ -196,10 +193,6 @@ export function summaryOf(overrides: Partial<MyBetsSummary> = {}): MyBetsSummary
 	return {
 		tickets: { total: 3, pendiente: 1, finalizado: 1, anulado: 1 },
 		selecciones: { total: 5, pendiente: 1, acertada: 2, no_acertada: 1, anulada: 1 },
-		monedasUtilizadas: 5,
-		monedasDevueltas: 1,
-		// C-09: the two hits, one of each type.
-		monedasGanadas: 3,
 		puntos: 4,
 		aciertos: 2,
 		...overrides,

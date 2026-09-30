@@ -30,12 +30,6 @@ export const ErrorCode = {
 	USER_ALREADY_VALIDATED: 'USER_ALREADY_VALIDATED',
 	NOT_A_PARTICIPANT: 'NOT_A_PARTICIPANT',
 	ADMIN_CANNOT_BET: 'ADMIN_CANNOT_BET',
-	// Coins (T-05).
-	INSUFFICIENT_BALANCE: 'INSUFFICIENT_BALANCE',
-	MOVEMENT_ALREADY_APPLIED: 'MOVEMENT_ALREADY_APPLIED',
-	SELECTION_NOT_DEBITED: 'SELECTION_NOT_DEBITED',
-	/** C-09: a prize or a refund would take a balance past `SALDO_MAXIMO` (SMALLINT UNSIGNED). Nothing is written. */
-	BALANCE_LIMIT_EXCEEDED: 'BALANCE_LIMIT_EXCEEDED',
 	// Sports catalog (T-06).
 	SPORT_NOT_FOUND: 'SPORT_NOT_FOUND',
 	COMPETITION_NOT_FOUND: 'COMPETITION_NOT_FOUND',
@@ -94,6 +88,8 @@ export const ErrorCode = {
 	// Selections (T-09), reported per selection in the ticket preview.
 	BETTING_CLOSED: 'BETTING_CLOSED',
 	DRAW_NOT_ALLOWED: 'DRAW_NOT_ALLOWED',
+	/** C-13 (BR-017, BR-018): the participant already has a bet of that type on that match, or the ticket repeats one. */
+	BET_LIMIT_REACHED: 'BET_LIMIT_REACHED',
 	// Tickets (T-10).
 	TICKET_REJECTED: 'TICKET_REJECTED',
 	TICKET_NOT_FOUND: 'TICKET_NOT_FOUND',

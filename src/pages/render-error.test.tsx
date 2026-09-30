@@ -85,7 +85,7 @@ describe('a page that breaks while rendering (T-23)', () => {
 				...session,
 				'GET /api/public/deportes': () => ok([broken.deporte]),
 				'GET /api/apuestas/partidos': () => ok(bettingPage([broken])),
-				'POST /api/apuestas/vista-previa': ({ body }) => ok(evaluationFor((body as { selecciones: unknown[] }).selecciones, 10)),
+				'POST /api/apuestas/vista-previa': ({ body }) => ok(evaluationFor((body as { selecciones: unknown[] }).selecciones)),
 			}),
 		);
 		renderReal('/apuestas');

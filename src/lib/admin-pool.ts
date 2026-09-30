@@ -40,7 +40,7 @@ const ACTION_PATHS: Record<ParticipantAction, string> = {
 	validar: 'validar',
 };
 
-/** BR-006: confirm the payment, revert it (only while pending) or validate (+10 coins, once). */
+/** BR-006: confirm the payment, revert it (only while pending) or validate (once; no coins since C-13). */
 export const participantAction = (id: number, action: ParticipantAction) =>
 	api.post<{ participante: AdminParticipant }>(`/admin/participantes/${id}/${ACTION_PATHS[action]}`);
 
@@ -138,7 +138,12 @@ export const AUDIT_FILTERS: FilterSpec = {
 export const listAudit = (filters: FilterValues, signal?: AbortSignal) =>
 	api.get<ApiPage<AuditRecord>>('/admin/auditoria', { signal, query: apiQuery(filters) });
 
-/** Visible names of the fields the audit detail carries. */
+/**
+ * Visible names of the fields the audit detail carries. The coin ones
+ * (`monedas*`, `premios`, `seleccionesSinDevolucion`...) are only in
+ * records written before C-13 (D-042): the log is never rewritten, so they
+ * keep their names.
+ */
 const FIELD_NAMES: Record<string, string> = {
 	nombre: 'Nombre',
 	slug: 'Slug',

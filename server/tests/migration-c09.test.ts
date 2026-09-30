@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import mysql, { type Connection, type RowDataPacket } from 'mysql2/promise';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { loadEnv } from '../src/config/env.js';
-import { MOVIMIENTOS } from '../src/lib/coins.js';
 import { DB_INIT_DIR } from './helpers/db.js';
 import { statements } from './helpers/sql-file.js';
 import { resolveTestDatabase } from './helpers/test-database.js';
@@ -89,9 +88,11 @@ describe('migration C-09 on a database with data (D-038)', () => {
 			[4, 'premio_resultado_general'],
 			[5, 'premio_marcador_exacto'],
 		]);
-		// The whole catalog equals the suite's, created from db/init/, and every code has its amount in lib/coins.ts.
+		// The whole catalog equals the suite's, created from db/init/ (unused by the app since C-13, but still there).
 		expect(after).toEqual(await types(resolveTestDatabase()));
-		expect(after.map((t) => t.codigo).sort()).toEqual(Object.keys(MOVIMIENTOS).sort());
+		expect(after.map((t) => t.codigo).sort()).toEqual(
+			['devolucion_cancelacion', 'premio_marcador_exacto', 'premio_resultado_general', 'seleccion_confirmada', 'validacion'],
+		);
 		expect(await others()).toEqual(rest);
 		await noProcedure();
 	});

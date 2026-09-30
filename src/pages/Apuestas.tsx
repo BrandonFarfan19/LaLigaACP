@@ -16,7 +16,7 @@ import TicketPanel from '../components/TicketPanel';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useSession } from '../hooks/useSession';
 import { ApiError, CLIENT_ERROR, rateLimitKind, waitText } from '../lib/api';
-import { getSessionState, refreshSession } from '../lib/auth';
+import { getSessionState } from '../lib/auth';
 import {
 	BETTING_STATES,
 	bettingSearch,
@@ -149,7 +149,7 @@ function confirmFailure(error: unknown, signature: string): ConfirmFailure {
 		case 'TICKET_REJECTED':
 			return {
 				...base,
-				message: 'El ticket no se confirmó y no se descontó nada: corrige las selecciones marcadas o tu saldo.',
+				message: 'El ticket no se confirmó: corrige las selecciones marcadas.',
 				evaluation: (error.details as TicketEvaluation | undefined) ?? null,
 			};
 		case 'IDEMPOTENCY_KEY_REUSED':
@@ -213,8 +213,9 @@ async function readBody(request: Request): Promise<ActionBody> {
 
 /**
  * The ticket's preview and confirmation (BR-023, BR-024), sent as JSON by the
- * page's fetchers. A confirmed ticket empties the draft, refreshes the coin
- * counter and opens its receipt.
+ * page's fetchers. A confirmed ticket empties the draft and opens its
+ * receipt. Nothing of the session changes with it since C-13 (no coins), so
+ * the session isn't read again.
  */
 export async function action({ request }: ActionFunctionArgs): Promise<PreviewResult | ConfirmFailure | Response> {
 	const body = await readBody(request);
@@ -231,7 +232,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<PreviewRe
 	const problem: { code: string; confirm: string; preview: string } | null = !Array.isArray(body.selecciones)
 		? {
 				code: 'INVALID_SELECTIONS',
-				confirm: 'No se pudo leer el ticket, así que no se confirmó nada ni se descontaron monedas.',
+				confirm: 'No se pudo leer el ticket, así que no se confirmó nada.',
 				preview: 'No se pudo leer el ticket.',
 			}
 		: raw.length === 0
@@ -243,7 +244,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<PreviewRe
 			: invalid.length > 0
 				? {
 						code: 'INVALID_SELECTIONS',
-						confirm: `${invalidText}, así que no se confirmó nada ni se descontaron monedas. Quita las marcadas y vuelve a confirmar.`,
+						confirm: `${invalidText}, así que no se confirmó nada. Quita las marcadas y vuelve a confirmar.`,
 						preview: `${invalidText}: quita las marcadas para ver el resumen.`,
 					}
 				: null;
@@ -292,8 +293,6 @@ export async function action({ request }: ActionFunctionArgs): Promise<PreviewRe
 		const ticket = await confirmTicket(selecciones, key);
 		const user = getSessionState().user;
 		if (user) clearDraft(user.id);
-		// The coin counter shows the new balance right away.
-		await refreshSession().catch(() => undefined);
 		return redirect(`/apuestas/tickets/${ticket.id}`);
 	} catch (error) {
 		return confirmFailure(error, signature);
@@ -323,10 +322,10 @@ export default function Apuestas() {
 	useDocumentTitle('Apuestas · La Liga ACP');
 	const { user } = useSession();
 	if (!user || user.rol !== 'apostador') return null;
-	return <BettingScreen key={user.id} userId={user.id} validated={user.estadoValidacion === 'validado'} balance={user.saldoMonedas} />;
+	return <BettingScreen key={user.id} userId={user.id} validated={user.estadoValidacion === 'validado'} />;
 }
 
-function BettingScreen({ userId, validated, balance }: { userId: number; validated: boolean; balance: number }) {
+function BettingScreen({ userId, validated }: { userId: number; validated: boolean }) {
 	const data = useLoaderData<typeof loader>();
 	const { filters, problems, loadError } = data;
 	const revalidator = useRevalidator();
@@ -509,7 +508,10 @@ function BettingScreen({ userId, validated, balance }: { userId: number; validat
 				<h1 className={styles.title} id="bets-title">
 					Apuestas
 				</h1>
-				<p className={styles.lead}>Cada selección cuesta 1 moneda. Las apuestas de cada partido cierran antes de su inicio, a la hora que indica su «Cierre».</p>
+				<p className={styles.lead}>
+					Apuesta gratis: cada acierto suma puntos al ranking. Por partido puedes hacer una apuesta de resultado general y una de marcador exacto. Las
+					apuestas cierran antes del inicio, a la hora que indica su «Cierre».
+				</p>
 			</header>
 
 			{dropNotice && (
@@ -593,7 +595,6 @@ function BettingScreen({ userId, validated, balance }: { userId: number; validat
 						previewing={previewing}
 						previewError={previewData?.error ?? null}
 						invalidItems={invalidItems}
-						balance={balance}
 						confirming={confirming}
 						confirmError={confirmError}
 						announcement={announcement}

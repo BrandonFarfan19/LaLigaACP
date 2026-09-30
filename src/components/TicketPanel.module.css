@@ -190,10 +190,6 @@
 	line-height: 1.6;
 }
 
-.totals dd[data-negative] {
-	color: var(--color-danger);
-}
-
 .alert {
 	margin: var(--px);
 	padding: var(--space-2) var(--space-3);

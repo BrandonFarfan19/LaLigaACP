@@ -2,6 +2,8 @@
 
 ## 1. Objetivo del sistema
 
+Precisión (C-13, D-042): la polla se mide solo con puntos. Las monedas virtuales que describía este documento se quitaron: un participante validado apuesta a los partidos que quiera, sin saldo. Las reglas de monedas se conservan marcadas como derogadas.
+
 El sistema permitirá gestionar una polla deportiva en la que usuarios registrados y validados podrán utilizar monedas virtuales para realizar apuestas sobre diferentes eventos deportivos.
 
 El sistema tendrá además una sección pública informativa donde cualquier visitante podrá consultar información relacionada con deportes, partidos, fixtures y tablas de posiciones.
@@ -70,7 +72,7 @@ El usuario podrá:
 * Realizar más de una apuesta sobre un mismo partido.
 * Consultar sus apuestas realizadas.
 * Consultar el detalle de cada apuesta.
-* Consultar su saldo de monedas.
+* Consultar su saldo de monedas. *(Derogado por C-13: no hay monedas.)*
 * Consultar el ranking de participantes.
 * Consultar los resultados de partidos.
 * Consultar los puntos obtenidos.
@@ -98,7 +100,7 @@ El correo electrónico es el dato con el que se entra; no hay un nombre de usuar
 
 Precisión (D-011, corrección de T-18): el nombre a mostrar se ve en el ranking, así que sigue las mismas reglas que los nombres de deportes, equipos y jugadores: de 1 a 100 caracteres, con al menos una letra o un número, en una sola línea y sin caracteres de control ni invisibles. Un nombre formado solo por emojis o signos se rechaza.
 
-Toda cuenta creada por registro nace con rol Usuario, estado `PENDIENTE`, pago pendiente y 0 monedas. Nadie puede registrarse como Administrador: un administrador solo se crea o promueve desde el servidor, y no participa en la polla (BR-001).
+Toda cuenta creada por registro nace con rol Usuario, estado `PENDIENTE`, pago pendiente y 0 monedas (desde C-13 no hay monedas). Nadie puede registrarse como Administrador: un administrador solo se crea o promueve desde el servidor, y no participa en la polla (BR-001).
 
 ---
 
@@ -143,7 +145,7 @@ La validación representa la confirmación de que el usuario cumplió con las co
 Cuando el administrador valide al usuario:
 
 1. Su estado cambiará a `VALIDADO`.
-2. El sistema le asignará 10 monedas.
+2. El sistema le asignará 10 monedas. *(Derogado por C-13, D-042: validar ya no asigna monedas; solo habilita para apostar.)*
 3. El usuario quedará habilitado para realizar apuestas.
 
 Precisiones (T-04):
@@ -165,7 +167,7 @@ La tabla deberá mostrar como mínimo:
 * Fecha de inscripción.
 * Estado de pago.
 * Estado de validación.
-* Saldo de monedas.
+* Saldo de monedas. *(Derogado por C-13: la tabla de inscritos no muestra saldo.)*
 * Puntos acumulados.
 
 El administrador deberá poder validar al usuario desde esta interfaz.
@@ -178,6 +180,8 @@ La tabla muestra solo usuarios (participantes); los administradores no figuran. 
 
 ## BR-008 – Asignación inicial
 
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. Validar a un participante ya no le asigna monedas: solo lo habilita para apostar (BR-006). El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
+
 Cada participante recibirá:
 
 `10 monedas`
@@ -189,6 +193,8 @@ La asignación inicial deberá realizarse una sola vez.
 ---
 
 ## BR-009 – Saldo
+
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. No hay saldo que mantener. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
 
 El sistema deberá mantener actualizado el saldo de cada usuario.
 
@@ -203,6 +209,8 @@ Precisiones (T-05):
 ---
 
 ## BR-010 – Visualización del saldo
+
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. El navbar ya no muestra un contador de monedas. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
 
 El saldo deberá mostrarse permanentemente al usuario autenticado dentro del navbar.
 
@@ -362,6 +370,15 @@ Precisión (T-09): los goles de cada equipo son números enteros de 0 a 999. El 
 
 ## BR-017 – Múltiples apuestas por partido
 
+**Reescrita por C-13 (D-042):** un participante puede tener, por partido, **como máximo una apuesta de resultado general y una de marcador exacto**. Sin costo por apuesta, apostar a los tres resultados de un partido aseguraría puntos; por eso el usuario eligió este límite.
+
+* El límite cuenta las apuestas que el participante ya tiene en ese partido, en cualquier ticket, **excepto las anuladas** (una apuesta anulada por la cancelación del partido no cuenta), y las del mismo ticket que está armando.
+* Una apuesta que lo pasa se rechaza con su motivo, por selección, en la vista previa y al confirmar (código `BET_LIMIT_REACHED`); la confirmación entonces no crea el ticket (BR-053). Si se repite dentro del mismo ticket, el motivo indica cuál selección anterior ya ocupa ese tipo.
+* La regla se valida en el backend y se aplica también a dos confirmaciones simultáneas del mismo participante: solo una entra.
+* Las apuestas repetidas que ya existían antes de C-13 se dejan como están.
+
+El texto original, que admitía varias apuestas del mismo tipo, se conserva abajo.
+
 Un usuario podrá realizar varias apuestas sobre un mismo partido.
 
 Las apuestas podrán incluso representar resultados diferentes.
@@ -380,7 +397,7 @@ el usuario podrá apostar:
 
 Estas serán consideradas tres apuestas independientes.
 
-Precisión (T-09): también se puede repetir exactamente la misma apuesta (por ejemplo, dos veces "Equipo A gana" en el mismo ticket). Ninguna regla lo prohíbe, y cada repetición es otra selección que cuesta su moneda. La vista previa del ticket la marca como repetida para que el usuario lo confirme.
+Precisión (T-09, derogada por C-13): también se puede repetir exactamente la misma apuesta (por ejemplo, dos veces "Equipo A gana" en el mismo ticket). Ninguna regla lo prohíbe, y cada repetición es otra selección que cuesta su moneda. La vista previa del ticket la marca como repetida para que el usuario lo confirme.
 
 ---
 
@@ -394,6 +411,8 @@ Ejemplo:
 * Marcador exacto 2-1.
 
 Cada selección será registrada como una apuesta independiente.
+
+Precisión (C-13, D-042): una de cada tipo como máximo (BR-017). En el ejemplo, el participante puede tener "Equipo A gana" y "Marcador exacto 2-1" en ese partido, en el mismo ticket o en tickets distintos, pero no una segunda apuesta de resultado general ni un segundo marcador exacto.
 
 ---
 
@@ -425,6 +444,8 @@ Precisión (T-09): un ticket tiene como mínimo 1 selección y como máximo 50.
 
 ## BR-020 – Costo por selección
 
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. Apostar no cuesta nada. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
+
 Cada selección tendrá un costo de:
 
 `1 moneda`
@@ -451,6 +472,8 @@ Aunque corresponden al mismo partido:
 
 ## BR-021 – Validación de saldo
 
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. No se valida saldo: un participante validado apuesta aunque tenga 0 monedas. El límite que la reemplaza es el de BR-017 y BR-018: una apuesta de cada tipo por partido. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
+
 Antes de confirmar:
 
 `saldo_usuario >= costo_ticket`
@@ -460,6 +483,8 @@ Si el saldo es insuficiente, el sistema deberá impedir la confirmación.
 ---
 
 ## BR-022 – Descuento de monedas
+
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. Confirmar un ticket no descuenta nada. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
 
 Las monedas solo deberán descontarse cuando el usuario confirme la apuesta.
 
@@ -495,8 +520,8 @@ Antes de confirmar un ticket, el sistema deberá mostrar:
 * Costo de cada selección.
 * Cantidad total de selecciones.
 * Costo total.
-* Saldo actual.
-* Saldo posterior.
+* Saldo actual. *(Derogado por C-13.)*
+* Saldo posterior. *(Derogado por C-13.)*
 
 Precisión (T-09): el resumen indica, por cada selección, si es válida y por qué no (partido inexistente, apuestas cerradas, partido que ya no está programado o empate no permitido). Si alguna selección no es válida o el saldo no alcanza, el ticket no se puede confirmar. El resumen es una vista previa: no descuenta monedas ni guarda nada, y la confirmación (BR-024) vuelve a validar todo.
 
@@ -531,7 +556,7 @@ El ticket deberá contener:
 * Partidos.
 * Pronósticos.
 * Tipos de apuesta.
-* Monedas utilizadas.
+* Monedas utilizadas. *(Derogado por C-13: no se muestran monedas.)*
 * Estado.
 * Puntos obtenidos.
 
@@ -563,7 +588,7 @@ Deberá mostrar como mínimo:
 * Tipo de apuesta.
 * Pronóstico.
 * Resultado real.
-* Monedas utilizadas.
+* Monedas utilizadas. *(Derogado por C-13: no se muestran monedas.)*
 * Estado.
 * Puntos obtenidos.
 
@@ -822,6 +847,8 @@ y ambas son correctas, ambas apuestas podrán generar sus puntos respectivos.
 
 ## BR-039 – Independencia entre monedas y puntos
 
+**Precisión (C-13, D-042):** desde C-13 la polla se mide **solo con puntos**. No hay monedas: los puntos siguen sin convertirse en nada, y ya no existe un premio en monedas por acierto (BR-057, derogada). Lo que sigue describe la relación que existía mientras hubo monedas.
+
 Las monedas y los puntos representan conceptos diferentes:
 
 `Monedas = capacidad para apostar`
@@ -843,6 +870,8 @@ Precisión (T-14): el cálculo ocurre en la misma operación que la confirmació
 ---
 
 ## BR-057 – Premio en monedas por acierto
+
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. Un acierto da sus puntos (BR-034 a BR-038) y nada más. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
 
 Además de sus puntos (BR-034 a BR-038), cada selección acertada paga monedas (C-09, D-038):
 
@@ -898,7 +927,7 @@ Precisiones (T-15):
 * Como máximo se muestran 50 filas (corrección de T-15). Con la polla recién abierta todos empatan en 0 y estarían todos en el puesto 1; en ese caso se muestran las primeras 50, en el orden de presentación de BR-043, y se informa cuántos empatados del top quedaron sin mostrar. La fila propia se muestra aparte si no entró en la lista.
 * De cada participante se muestra solo su nombre a mostrar, nunca su correo, su saldo ni su estado.
 * Si el usuario que consulta es participante, también ve su propia fila (posición, puntos y aciertos), esté o no en el top.
-* El administrador ve además el ranking completo, paginado, y las estadísticas de la polla: participantes inscritos y validados, tickets y selecciones por estado, monedas utilizadas, devueltas y disponibles, puntos y aciertos. Estas cifras cuentan solo usuarios, nunca administradores.
+* El administrador ve además el ranking completo, paginado, y las estadísticas de la polla: participantes inscritos y validados, tickets y selecciones por estado, puntos y aciertos (desde C-13, sin cifras de monedas). Estas cifras cuentan solo usuarios, nunca administradores.
 
 Precisiones (T-20):
 
@@ -945,6 +974,8 @@ Precisión (T-15): como se calcula en cada consulta, refleja un resultado confir
 
 ## BR-045 – Partido cancelado
 
+Precisión (C-13, D-042): cancelar sigue anulando todas las apuestas pendientes del partido (sin puntos), pero **no devuelve monedas** (BR-046 y BR-055, derogadas en esa parte): el resumen previo informa cuántas apuestas, participantes y tickets se anulan, sin cifras de monedas.
+
 Cuando un partido sea declarado `CANCELADO`, todas las apuestas relacionadas deberán quedar anuladas.
 
 Precisiones (T-16):
@@ -960,6 +991,8 @@ Precisiones (T-16):
 ---
 
 ## BR-046 – Devolución de monedas
+
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. Cancelar un partido sigue anulando sus apuestas pendientes (BR-045), pero no devuelve nada, porque nada se cobró. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
 
 El sistema deberá devolver automáticamente las monedas utilizadas en las apuestas correspondientes al partido cancelado.
 
@@ -982,6 +1015,8 @@ Precisión (T-17, D-003): las "monedas devueltas" que muestran el comprobante, e
 ---
 
 ## BR-047 – Tickets con múltiples partidos
+
+Precisión (C-13, D-042): sigue valiendo que solo se anulan las selecciones del partido cancelado; la parte que habla de devolver monedas quedó derogada.
 
 Si un ticket contiene apuestas de diferentes partidos y solo uno es cancelado, se devolverán únicamente las monedas correspondientes a las selecciones asociadas con el partido cancelado.
 
@@ -1073,6 +1108,8 @@ La interfaz deberá diferenciar:
 
 ## BR-053 – Transacción atómica
 
+Precisión (C-13, D-042): ya no hay descuento de monedas; la transacción crea el ticket y todas sus selecciones, o nada.
+
 La creación del ticket y el descuento de monedas deberán formar parte de una única transacción.
 
 Nunca deberá producirse:
@@ -1104,6 +1141,8 @@ Precisión (T-10):
 ---
 
 ## BR-055 – Devolución atómica
+
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. La cancelación sigue siendo una sola operación que se aplica completa o no se aplica (el partido cancelado y sus apuestas anuladas), pero no devuelve monedas ni cambia saldos. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
 
 Cuando corresponda devolver monedas debido a una cancelación:
 
@@ -1179,6 +1218,8 @@ Esta identidad podrá aplicarse a:
 
 ## NFR-004 – Indicador de monedas
 
+**Derogada por C-13 (D-042).** Desde C-13 la polla se mide solo con puntos y no hay monedas: esta regla ya no se aplica. La interfaz no muestra monedas en ningún lugar. El texto original se conserva abajo para que la numeración y el historial sigan teniendo sentido. Las tablas y columnas de monedas (`usuario.saldo_monedas`, `tipo_movimiento`, `movimiento_moneda`) siguen en la base con los datos anteriores, sin uso.
+
 El navbar del usuario autenticado deberá mostrar permanentemente:
 
 * Icono pixel art de moneda.
@@ -1253,9 +1294,7 @@ Administrador valida usuario
         ↓
 Estado VALIDADO
         ↓
-Sistema asigna 10 monedas
-        ↓
-Usuario puede apostar
+Usuario puede apostar (C-13: sin monedas)
 ```
 
 ---
@@ -1273,11 +1312,7 @@ Selecciona apuestas
         ↓
 Puede seleccionar uno o varios partidos
         ↓
-Puede realizar varias apuestas sobre el mismo partido
-        ↓
-1 selección = 1 moneda
-        ↓
-Sistema calcula costo
+Por partido: una apuesta de resultado general y una de marcador exacto como máximo (BR-017, C-13)
         ↓
 Usuario revisa resumen
         ↓
@@ -1285,16 +1320,11 @@ Usuario confirma
         ↓
 Backend valida fecha límite
         ↓
-Backend valida saldo
+Backend valida el límite por tipo y partido
         ↓
 Crea ticket
         ↓
-Descuenta monedas
-        ↓
-Apuesta confirmada
-        ↓
-Cuando se confirma el resultado del partido:
-cada selección acertada paga su premio (BR-057)
+Apuesta confirmada (sin costo)
 ```
 
 ---
@@ -1322,15 +1352,10 @@ Asigna puntos
         ↓
 Actualiza apuestas
         ↓
-Paga monedas por cada acierto (BR-057):
-+1 resultado general, +2 marcador exacto
-        ↓
-Actualiza saldos y registra los movimientos
-        ↓
 Actualiza ranking
 ```
 
-Todo lo que sigue a "Administrador confirma" ocurre en esa misma operación, sin otro paso del administrador (C-09): si algo falla, el resultado no queda confirmado.
+Todo lo que sigue a "Administrador confirma" ocurre en esa misma operación, sin otro paso del administrador: si algo falla, el resultado no queda confirmado. Desde C-13 (D-042) no se paga ningún premio en monedas (BR-057, derogada).
 
 ---
 
@@ -1343,14 +1368,10 @@ Sistema busca apuestas relacionadas
         ↓
 Marca selecciones como ANULADAS
         ↓
-Calcula monedas utilizadas
-        ↓
-Devuelve monedas
-        ↓
-Actualiza saldo
-        ↓
-Registra devolución
+Marca el partido como CANCELADO
 ```
+
+Precisión (C-13, D-042): no se devuelven monedas ni cambia ningún saldo; las apuestas anuladas quedan sin puntos.
 
 ---
 
@@ -1362,13 +1383,15 @@ Registra devolución
 | Empate            | Acertar empate                 |                       +1 |
 | Marcador exacto   | Acertar goles de ambos equipos |                       +3 |
 | Incorrecta        | No acertar                     |                        0 |
-| Partido cancelado | Apuesta anulada                | 0 + devolución de moneda |
+| Partido cancelado | Apuesta anulada                |                        0 |
 
-Cada selección se procesa independientemente. Además de sus puntos, un acierto paga monedas (BR-057, tabla 28): los puntos no se convierten en monedas (BR-039).
+Cada selección se procesa independientemente. Desde C-13 (D-042) la polla es solo por puntos: un acierto no paga monedas y una apuesta anulada no devuelve nada.
 
 ---
 
 # 28. Tabla consolidada de monedas
+
+**Derogada por C-13 (D-042).** Ningún evento mueve monedas: la tabla se conserva como registro de lo que existió. Los movimientos y saldos anteriores quedan en la base, sin mostrarse.
 
 | Evento                    |                      Movimiento |
 | ------------------------- | ------------------------------: |

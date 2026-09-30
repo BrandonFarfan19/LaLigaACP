@@ -15,7 +15,6 @@ export interface PublicUser {
 	rol: RolCodigo;
 	estadoValidacion: EstadoUsuarioCodigo;
 	estadoPago: EstadoPagoCodigo;
-	saldoMonedas: number;
 	creadoEn: Date;
 }
 
@@ -26,14 +25,13 @@ export interface UserRow extends RowDataPacket {
 	rol: RolCodigo;
 	estado_usuario: EstadoUsuarioCodigo;
 	estado_pago: EstadoPagoCodigo;
-	saldo_monedas: number;
 	creado_en: Date;
 }
 
 type Db = Pool | PoolConnection;
 
 /** Columns and joins shared by every query that returns a `PublicUser`. Alias `u` is the `usuario` row. */
-export const USER_COLUMNS = `u.id, u.nombre, u.email, u.saldo_monedas, u.creado_en,
+export const USER_COLUMNS = `u.id, u.nombre, u.email, u.creado_en,
 	r.codigo AS rol, eu.codigo AS estado_usuario, ep.codigo AS estado_pago`;
 export const USER_JOINS = `JOIN rol r ON r.id = u.rol_id
 	JOIN estado_usuario eu ON eu.id = u.estado_usuario_id
@@ -47,7 +45,6 @@ export function toPublicUser(row: UserRow): PublicUser {
 		rol: row.rol,
 		estadoValidacion: row.estado_usuario,
 		estadoPago: row.estado_pago,
-		saldoMonedas: row.saldo_monedas,
 		creadoEn: row.creado_en,
 	};
 }
@@ -81,15 +78,15 @@ export interface NewUser {
 }
 
 /**
- * Inserts a user in `pendiente` / pago `pendiente` with 0 coins (BR-003,
- * BR-008: the 10 coins come with validation). Catalog ids are resolved by
+ * Inserts a user in `pendiente` / pago `pendiente` (BR-003). `saldo_monedas`
+ * keeps its default 0: unused since C-13 (D-042). Catalog ids are resolved by
  * `codigo`, never hardcoded. A duplicate email surfaces as mysql2's
  * `ER_DUP_ENTRY` for the caller to translate.
  */
 export async function insertUser(db: Db, input: NewUser, now: Date): Promise<number> {
 	const [result] = await db.query<ResultSetHeader>(
-		`INSERT INTO usuario (rol_id, estado_usuario_id, estado_pago_id, nombre, email, password_hash, saldo_monedas, creado_en)
-		SELECT r.id, eu.id, ep.id, ?, ?, ?, 0, ?
+		`INSERT INTO usuario (rol_id, estado_usuario_id, estado_pago_id, nombre, email, password_hash, creado_en)
+		SELECT r.id, eu.id, ep.id, ?, ?, ?, ?
 		FROM rol r
 		JOIN estado_usuario eu ON eu.codigo = 'pendiente'
 		JOIN estado_pago ep ON ep.codigo = 'pendiente'

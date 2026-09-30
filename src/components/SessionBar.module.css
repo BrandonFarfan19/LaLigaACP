@@ -23,7 +23,7 @@
 	display: inline-flex;
 	align-items: center;
 	min-height: 44px;
-	/* Narrow on phones: four items must fit next to the coin counter. */
+	/* Narrow on phones: four items must fit on one row at 320px. */
 	padding-inline: var(--space-1);
 	border: 0;
 	background: none;
@@ -40,7 +40,7 @@
 
 .link:hover,
 .link:focus-visible {
-	color: var(--color-coin-light);
+	color: var(--color-accent-alt-light);
 }
 
 .link:disabled {
@@ -139,30 +139,12 @@
 .primary:hover,
 .primary:focus-visible {
 	color: var(--color-bg);
-	background: var(--color-coin-light);
+	background: var(--color-accent-alt-light);
 }
 
-/* The coin counter (BR-010): sprite + amount, one 44px-tall target. */
-.coins {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
-	min-height: 44px;
-	padding-inline: var(--space-1);
-	text-decoration: none;
-	color: var(--color-accent-alt);
-}
-
-.amount {
-	font-family: var(--font-display);
-	font-size: var(--text-md);
-	font-weight: 400;
-	line-height: 1;
-	text-shadow: var(--px) var(--px) 0 var(--color-shadow);
-}
-
-/* Pending validation (BR-005): a small tag on the counter; the account page explains it. */
+/* Pending validation (BR-005): a small tag on "Mi cuenta"; the account page explains it. */
 .badge {
+	margin-left: var(--space-1);
 	padding: var(--space-1) var(--space-1);
 	font-family: var(--font-display);
 	font-size: var(--text-xs);
@@ -170,11 +152,6 @@
 	text-transform: uppercase;
 	color: var(--color-bg);
 	background: var(--color-accent-alt);
-}
-
-.coins:hover .amount,
-.coins:focus-visible .amount {
-	color: var(--color-coin-light);
 }
 
 /* A failed sign-out, under the bar. */
@@ -199,9 +176,5 @@
 	.link {
 		font-size: var(--text-sm);
 		padding-inline: var(--space-3);
-	}
-
-	.amount {
-		font-size: var(--text-lg);
 	}
 }

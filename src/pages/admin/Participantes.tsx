@@ -89,7 +89,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<ActionOut
 			case 'revertir_pago':
 				return `El pago de ${p.nombre} volvió a pendiente.`;
 			case 'validar':
-				return `${p.nombre} quedó validado y recibió sus monedas: su saldo es ${p.saldoMonedas}.`;
+				return `${p.nombre} quedó validado: ya puede apostar.`;
 		}
 	});
 }
@@ -179,7 +179,6 @@ export default function Participantes() {
 				</span>
 			),
 		},
-		{ header: 'Saldo', cell: (p) => `${p.saldoMonedas} ${p.saldoMonedas === 1 ? 'moneda' : 'monedas'}` },
 		{ header: 'Puntos', cell: (p) => p.puntos },
 		{
 			header: 'Acciones',
@@ -202,8 +201,7 @@ export default function Participantes() {
 					Inscritos
 				</h1>
 				<p className={shared.lead}>
-					Primero confirma el pago y después valida: al validar, el inscrito recibe sus 10 monedas una sola vez. La validación no se
-					deshace. Si alguien olvidó su contraseña, puedes escribirle una nueva: se cierran sus sesiones y tú se la comunicas. Los roles no
+					Primero confirma el pago y después valida: al validar, el inscrito puede apostar. La validación no se deshace. Si alguien olvidó su contraseña, puedes escribirle una nueva: se cierran sus sesiones y tú se la comunicas. Los roles no
 					se cambian desde aquí.
 				</p>
 			</header>
@@ -283,7 +281,7 @@ function ParticipantActions({ participant: p, writer, resetting, onReset }: RowA
 			{!validated && paid && (
 				<>
 					<ConfirmStep trigger="Validar" tone="plain" title={`¿Validar a ${p.nombre}?`} confirmLabel="Sí, validar" busy={busy} onConfirm={() => run('validar')}>
-						Recibirá 10 monedas y podrá apostar. La validación no se deshace.
+						Podrá apostar. La validación no se deshace.
 					</ConfirmStep>
 					<ConfirmStep trigger="Revertir pago" title={`¿Revertir el pago de ${p.nombre}?`} confirmLabel="Sí, revertir" busy={busy} onConfirm={() => run('revertir_pago')}>
 						El pago vuelve a pendiente y no podrás validarlo hasta confirmarlo otra vez.

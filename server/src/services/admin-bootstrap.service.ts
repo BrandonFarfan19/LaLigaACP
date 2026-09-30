@@ -46,23 +46,20 @@ export class AdminInputError extends Error {
 /**
  * Only an account that never took part in the pool can become an admin
  * (admins don't take part, BR-001): still `pendiente`, payment still
- * `pendiente`, 0 coins, no coin movements and no tickets. Anything else
- * would leave an admin with coins, a paid entry or live bets riding on the
- * results they load. Checked in the same UPDATE that promotes, so nothing
- * can slip in between.
+ * `pendiente` and no tickets. Anything else would leave an admin with a paid
+ * entry or live bets riding on the results they load. Checked in the same
+ * UPDATE that promotes, so nothing can slip in between. Since C-13 there are
+ * no coins: a `pendiente` account never had any (they came with validation).
  */
 const PROMOTABLE = `rol_id = (SELECT id FROM rol WHERE codigo = 'apostador')
 	AND estado_usuario_id = (SELECT id FROM estado_usuario WHERE codigo = 'pendiente')
 	AND estado_pago_id = (SELECT id FROM estado_pago WHERE codigo = 'pendiente')
-	AND saldo_monedas = 0
-	AND NOT EXISTS (SELECT 1 FROM movimiento_moneda m WHERE m.usuario_id = usuario.id)
 	AND NOT EXISTS (SELECT 1 FROM ticket t WHERE t.usuario_id = usuario.id)`;
 
 /** Why an existing account can't be promoted, in words for the operator. */
 async function promotionBlockers(pool: Pool, userId: number): Promise<string[]> {
 	const [[row]] = await pool.query<RowDataPacket[]>(
-		`SELECT eu.codigo AS estado, ep.codigo AS pago, u.saldo_monedas AS saldo,
-			(SELECT COUNT(*) FROM movimiento_moneda m WHERE m.usuario_id = u.id) AS movimientos,
+		`SELECT eu.codigo AS estado, ep.codigo AS pago,
 			(SELECT COUNT(*) FROM ticket t WHERE t.usuario_id = u.id) AS tickets
 		FROM usuario u
 		JOIN estado_usuario eu ON eu.id = u.estado_usuario_id
@@ -74,8 +71,6 @@ async function promotionBlockers(pool: Pool, userId: number): Promise<string[]> 
 	const blockers: string[] = [];
 	if (row.estado !== 'pendiente') blockers.push('está validada');
 	if (row.pago !== 'pendiente') blockers.push('tiene el pago confirmado');
-	if (Number(row.saldo) !== 0) blockers.push(`tiene ${row.saldo} monedas`);
-	if (Number(row.movimientos) > 0) blockers.push(`tiene ${plural(Number(row.movimientos), 'movimiento', 'movimientos')} de monedas`);
 	if (Number(row.tickets) > 0) blockers.push(`tiene ${plural(Number(row.tickets), 'ticket', 'tickets')} de apuestas`);
 	return blockers;
 }
@@ -129,7 +124,7 @@ export async function ensureAdmin(pool: Pool, rawInput: AdminInput): Promise<Adm
 				);
 			}
 			throw new AdminInputError(
-				`No se puede promover a ${existing.user.email}: ${blockers.join(', ')}. Los administradores no participan en la polla, así que solo se promueve una cuenta que nunca participó (pendiente, sin pago, sin monedas, sin movimientos ni tickets). Usa otro correo para el administrador.`,
+				`No se puede promover a ${existing.user.email}: ${blockers.join(', ')}. Los administradores no participan en la polla, así que solo se promueve una cuenta que nunca participó (pendiente, sin pago y sin tickets). Usa otro correo para el administrador.`,
 			);
 		}
 		return { action: 'promoted', user: (await findUserById(pool, existing.user.id))!, passwordIgnored };

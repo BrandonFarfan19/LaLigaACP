@@ -43,7 +43,7 @@ describe('participants: the admin resets a password (C-08, D-037)', () => {
 		const row = form.closest('tr')!;
 		expect(row.previousElementSibling?.textContent).toMatch(/Rosa/);
 		expect(within(row).getAllByRole('cell')).toHaveLength(1);
-		expect(within(row).getByRole('cell').getAttribute('colspan')).toBe('7');
+		expect(within(row).getByRole('cell').getAttribute('colspan')).toBe('6');
 		expect(field.type).toBe('password');
 		expect(field.autocomplete).toBe('new-password');
 		expect(field.maxLength).toBe(-1);
@@ -169,7 +169,7 @@ describe('participants: the admin resets a password (C-08, D-037)', () => {
 
 	it('a validated participant has it too, and "Cancelar" closes the form and gives the focus back', async () => {
 		const { calls } = mockFetch(
-			adminRoutes({ 'GET /api/admin/participantes': () => ok(pageOf([participant({ estadoPago: 'confirmado', estadoValidacion: 'validado', saldoMonedas: 10 })])) }),
+			adminRoutes({ 'GET /api/admin/participantes': () => ok(pageOf([participant({ estadoPago: 'confirmado', estadoValidacion: 'validado' })])) }),
 		);
 		renderApp('/admin/participantes');
 		const user = userEvent.setup();

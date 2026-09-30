@@ -1,6 +1,6 @@
 # La Liga ACP — backend
 
-API REST en **Express + TypeScript** sobre el MySQL de `../compose.yaml`, construida tarea por tarea según [../docs/plan-polla.md](../docs/plan-polla.md). Hoy tiene la base (T-02), el registro, login y roles (T-03), la validación de participantes (T-04), el saldo y los movimientos de monedas (T-05), la administración del catálogo deportivo (T-06), la de partidos (T-07), la API pública informativa (T-08), las selecciones, los tickets y el historial de apuestas (T-09 a T-11), los resultados (T-12), los goles y la multimedia (T-13), la liquidación de apuestas con sus puntos (T-14), el ranking de la polla con sus estadísticas (T-15), la cancelación de partidos con sus devoluciones (T-16), la auditoría de las acciones del admin (T-17) y la consulta de apuestas del panel (T-21). Es la API completa de la polla: el front la consume entera (cuentas y apuestas desde T-18 a T-21, y las pantallas públicas desde T-22).
+API REST en **Express + TypeScript** sobre el MySQL de `../compose.yaml`, construida tarea por tarea según [../docs/plan-polla.md](../docs/plan-polla.md). Hoy tiene la base (T-02), el registro, login y roles (T-03), la validación de participantes (T-04), el saldo y los movimientos de monedas (T-05, quitados en C-13), la administración del catálogo deportivo (T-06), la de partidos (T-07), la API pública informativa (T-08), las selecciones, los tickets y el historial de apuestas (T-09 a T-11), los resultados (T-12), los goles y la multimedia (T-13), la liquidación de apuestas con sus puntos (T-14), el ranking de la polla con sus estadísticas (T-15), la cancelación de partidos con sus devoluciones (T-16), la auditoría de las acciones del admin (T-17) y la consulta de apuestas del panel (T-21). Es la API completa de la polla: el front la consume entera (cuentas y apuestas desde T-18 a T-21, y las pantallas públicas desde T-22).
 
 ## Por qué un `package.json` propio, no workspaces de npm
 
@@ -18,7 +18,7 @@ src/
   routes/      # solo arma URLs + verbos, delega en un controlador
   controllers/ # HTTP: lee la request, llama al service, arma la respuesta con lib/response
   services/    # lógica de negocio + acceso a datos (usa el pool directamente)
-  cli/         # comandos que se corren en el servidor (create-admin.ts, coins-check.ts)
+  cli/         # comandos que se corren en el servidor (create-admin.ts, seed-dev.ts)
   types/       # extensión de tipos de Express (req.auth)
   app.ts       # createApp({ pool, env }): arma la app sin escuchar (para tests)
   index.ts     # el único archivo que crea el pool real y llama app.listen()
@@ -51,10 +51,8 @@ Códigos de error del sobre (`lib/error-codes.ts`):
 | `USER_NOT_FOUND` | 404 | Acción de admin sobre un usuario que no existe |
 | `PAYMENT_ALREADY_CONFIRMED` | 409 | Confirmar un pago ya confirmado |
 | `PAYMENT_NOT_CONFIRMED` | 409 | Validar sin pago confirmado, o revertir un pago que no está confirmado |
-| `USER_ALREADY_VALIDATED` | 409 | Validar a alguien ya validado (o que ya recibió sus monedas), o revertir el pago de un validado |
-| `NOT_A_PARTICIPANT` | 404 / 403 | 404: acción de participantes sobre una cuenta de administrador (incluida la propia). 403: un admin pide `/monedas/*`, o el servicio de monedas recibe una cuenta admin |
-| `INSUFFICIENT_BALANCE` | 409 | Un débito dejaría el saldo negativo; `details: { saldo, requerido }` |
-| `MOVEMENT_ALREADY_APPLIED` | 409 | Ese movimiento de esa selección (o esa validación) ya se había aplicado, incluida una devolución repetida; `details.selecciones` cuando es una devolución |
+| `USER_ALREADY_VALIDATED` | 409 | Validar a alguien ya validado, o revertir el pago de un validado |
+| `NOT_A_PARTICIPANT` | 404 / 403 | 404: acción de participantes sobre una cuenta de administrador (incluida la propia). 403: un admin pide su historial de apuestas (`requireParticipant`) |
 | `SELECTION_NOT_DEBITED` | 409 | Se intentó devolver una selección que nunca se descontó; `details.selecciones` |
 | `SPORT_NOT_FOUND`, `COMPETITION_NOT_FOUND`, `TEAM_NOT_FOUND`, `PLAYER_NOT_FOUND`, `ENROLLMENT_NOT_FOUND` | 404 | El registro no existe, ya sea el `:id` de la URL o un id del body |
 | `SLUG_TAKEN` | 409 | Slug repetido (global en deportes, por deporte en competiciones) |
@@ -96,7 +94,7 @@ Códigos de error del sobre (`lib/error-codes.ts`):
 | `MATCH_HAS_RESULT` | 409 | Borrar un partido con un resultado cargado |
 | `BETTING_CLOSED` | — | Solo por selección, en la vista previa del ticket: el partido está programado pero ya pasó su cierre (BR-014). Trae `cierre` (UTC) en un campo aparte; el mensaje no incluye la fecha |
 | `DRAW_NOT_ALLOWED` | — / 409 | Por selección: empate (o marcador exacto empatado) en un deporte sin empate (BR-015). 409 al confirmar un resultado empatado en ese deporte (T-12) |
-| `TICKET_REJECTED` | 409 | Confirmar un ticket con alguna selección inválida o sin saldo. `details` trae la evaluación completa, con la misma forma que la vista previa. No se escribe nada |
+| `TICKET_REJECTED` | 409 | Confirmar un ticket con alguna selección inválida (incluido `BET_LIMIT_REACHED`, C-13). `details` trae la evaluación completa, con la misma forma que la vista previa. No se escribe nada |
 | `TICKET_NOT_FOUND` | 404 | Ticket inexistente o de otra persona (la misma respuesta en los dos casos) |
 | `IDEMPOTENCY_KEY_INVALID` | 400 | Falta el header `Idempotency-Key` al confirmar, o no es un UUID |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | La misma `Idempotency-Key` ya creó un ticket con otras selecciones; `details.ticketId` |
@@ -134,12 +132,12 @@ El `pool` (y cualquier otra dependencia) se pasa como parámetro desde `app.ts` 
 | `POST /auth/logout` | sesión + CSRF | 200 `{ data: null }`, borra la sesión y la cookie |
 | `GET /admin/sesion` | sesión + rol `admin` | 200. Solo confirma la protección. |
 
-`user` es `{ id, nombre, email, rol, estadoValidacion, estadoPago, saldoMonedas, creadoEn }`. Nunca incluye el hash.
+`user` es `{ id, nombre, email, rol, estadoValidacion, estadoPago, creadoEn }` (sin `saldoMonedas` desde C-13). Nunca incluye el hash.
 
 **Decisiones**
 
 - **Se entra con el correo** (BR-003/BR-004, EsquemaBD D17). No hay nombre de usuario: el correo ya es único y el admin lo necesita para contactar al inscrito. Se guarda recortado y en minúsculas. `nombre` solo se muestra.
-- **Registro:** siempre crea `apostador`, `pendiente`, pago `pendiente` y 0 monedas; las 10 llegan al validar (T-04). Cualquier campo extra del body (`rol`, `saldoMonedas`...) se ignora. **Contraseña de 6 a 20 caracteres y nada más** (BR-003, C-01): no se exigen mayúsculas, números ni símbolos, y los espacios, los acentos y los emoji se pueden usar. Se cuentan **caracteres** (puntos de código, no unidades UTF-16): un emoji simple cuenta uno, pero uno compuesto —una familia unida con ZWJ, una bandera— cuenta tantos como lo forman, igual que una letra con una tilde combinante aparte. Los dos mensajes son "La contraseña es muy corta…" y "La contraseña es muy larga…". `admin:create` usa exactamente la misma regla (`newPasswordSchema`). El nombre sigue las reglas de los nombres del catálogo (D-011, `displayName`): de 1 a 100 caracteres, al menos una letra o un número y sin caracteres de control ni invisibles; lo mismo vale para `ADMIN_NOMBRE`. Correo repetido: 409 `EMAIL_TAKEN` (revelar que existe es inevitable al registrarse; el login no lo revela).
+- **Registro:** siempre crea `apostador`, `pendiente` y pago `pendiente` (sin monedas desde C-13). Cualquier campo extra del body (`rol`, `saldoMonedas`...) se ignora. **Contraseña de 6 a 20 caracteres y nada más** (BR-003, C-01): no se exigen mayúsculas, números ni símbolos, y los espacios, los acentos y los emoji se pueden usar. Se cuentan **caracteres** (puntos de código, no unidades UTF-16): un emoji simple cuenta uno, pero uno compuesto —una familia unida con ZWJ, una bandera— cuenta tantos como lo forman, igual que una letra con una tilde combinante aparte. Los dos mensajes son "La contraseña es muy corta…" y "La contraseña es muy larga…". `admin:create` usa exactamente la misma regla (`newPasswordSchema`). El nombre sigue las reglas de los nombres del catálogo (D-011, `displayName`): de 1 a 100 caracteres, al menos una letra o un número y sin caracteres de control ni invisibles; lo mismo vale para `ADMIN_NOMBRE`. Correo repetido: 409 `EMAIL_TAKEN` (revelar que existe es inevitable al registrarse; el login no lo revela).
 - **Contraseñas con argon2id** (`lib/password.ts`), la primera opción de OWASP, con su perfil mínimo recomendado: 19 MiB, 2 iteraciones, 1 hilo (~25 ms por hash). Es resistente a GPU por el uso de memoria, a diferencia de bcrypt, que además corta la contraseña en 72 bytes. Los parámetros viajan dentro del hash, así que subirlos más adelante no rompe los hashes viejos.
 - **Login sin fugas:** correo inexistente y contraseña incorrecta dan exactamente el mismo 401 `INVALID_CREDENTIALS`. Con un correo inexistente igual se verifica un hash de relleno, para que ambos casos tarden lo mismo.
 - **El login no aplica la regla de 6 a 20** (D-024, C-01): una cuenta creada antes del cambio puede tener una contraseña más larga y tiene que poder entrar, y rechazar por longitud daría una pista sobre lo guardado. Solo hay un tope técnico alto, `PASSWORD_VERIFY_MAX_LENGTH` (128 en `lib/password.ts`), para no gastar CPU con entradas enormes: por encima de él no se verifica contra el hash guardado, pero igual se verifica el de relleno y la respuesta es el **mismo** 401 `INVALID_CREDENTIALS`, con el mismo mensaje y el mismo tiempo. Lo que puede llegar ya está acotado por el límite de 100 kb del cuerpo.
@@ -181,12 +179,12 @@ ADMIN_EMAIL=ana@liga.test ADMIN_NOMBRE=Ana npm run server:admin:create
 $env:ADMIN_EMAIL='ana@liga.test'; $env:ADMIN_NOMBRE='Ana'; npm run server:admin:create
 ```
 
-Lo mismo vale para los otros dos comandos: en producción son `node dist/cli/coins-check.js` y `node dist/cli/seed-dev.js` (este último, de todos modos, se niega a correr fuera de desarrollo). Todo lo que sigue —reglas, auditoría, contraseña sin eco, fuentes sin terminal— es igual en los dos casos: solo cambia cómo se invoca.
+Lo mismo vale para el otro comando: en producción es `node dist/cli/seed-dev.js` (que de todos modos se niega a correr fuera de desarrollo; `coins-check` se quitó en C-13). Todo lo que sigue —reglas, auditoría, contraseña sin eco, fuentes sin terminal— es igual en los dos casos: solo cambia cómo se invoca.
 
 - Correo y nombre sí pueden ir en la línea de comandos: no son secretos.
 - **Queda en la auditoría** (D-005, corrección de T-17): crear un administrador deja un registro `creacion_administrador` y promoverlo, uno `promocion_administrador`. Se escriben en la misma transacción que el cambio, con la propia cuenta como autor y como registro afectado (el comando no tiene un admin detrás), y con el detalle `{ origen: "comando admin:create", operacion }`. Nunca guardan la contraseña. Si la cuenta ya era admin no cambia nada y no registra; si el registro falla, la cuenta no se crea ni se promueve.
 - Si el correo ya tiene cuenta, basta `ADMIN_EMAIL`: la promueve a `admin` sin pedir contraseña y sin tocar la que tiene. Si igual se le pasó una contraseña, avisa que la ignoró.
-- **Solo se promueve una cuenta que nunca participó en la polla**: `pendiente`, pago `pendiente`, 0 monedas, sin movimientos y sin tickets. Si no cumple, el comando sale con 1, lista los motivos y no cambia nada. Los administradores no participan, y promover una cuenta con saldo, pago o apuestas dejaría a un admin con apuestas vivas sobre los resultados que carga. En ese caso hay que usar otro correo para el administrador. La comprobación va en el mismo `UPDATE` que promueve, así que nada se cuela entre medio.
+- **Solo se promueve una cuenta que nunca participó en la polla**: `pendiente`, pago `pendiente` y sin tickets (desde C-13 no se miran monedas: una cuenta pendiente nunca las tuvo). Si no cumple, el comando sale con 1, lista los motivos y no cambia nada. Los administradores no participan, y promover una cuenta con pago o apuestas dejaría a un admin con apuestas vivas sobre los resultados que carga. En ese caso hay que usar otro correo para el administrador. La comprobación va en el mismo `UPDATE` que promueve, así que nada se cuela entre medio.
 - Si el correo no existe, hacen falta el nombre y la contraseña, con las mismas reglas que el registro.
 - Correrlo dos veces no hace nada nuevo. Sale con 0 si todo fue bien, con 1 y un mensaje claro si no, y con 130 si se cancela con Ctrl+C.
 - **Dos corridas a la vez** (segunda corrección de T-17): la que pierde nunca muestra el texto de MySQL.
@@ -214,7 +212,7 @@ Lo mismo vale para los otros dos comandos: en producción son `node dist/cli/coi
   3. la bandera `--yes-dev-data`.
 - **Marcas** (D-016): la tabla `dato_demo (tabla, fila_id)`, que el comando crea con `CREATE TABLE IF NOT EXISTS` fuera de la transacción. No está en `db/init`: no es parte del esquema de la aplicación, y nada de la aplicación la lee ni la escribe. Registra cada deporte, competición, equipo, jugador, inscripción, partido, lado de partido y cuenta que crea, y (C-05) cada inscripción con estadísticas como `plantel_estadistica` con el id del plantel.
 
-- **Qué carga:** 3 deportes (Fútbol con empate, Vóley y Básquet sin empate), una competición por deporte, 8 equipos con 3 jugadores inscritos cada uno (desde C-05, Fútbol y Vóley con su perfil, y dos de los tres jugadores de cada equipo con estadísticas; el tercero queda «Sin estadísticas», igual que todo Básquet, que no tiene perfil), 14 partidos en todos los estados de apuesta (disponibles, cerrados, en curso, finalizados con marcador y cancelados, con fechas relativas al momento en que se corre) y 12 cuentas: un admin, diez apostadores validados con sus 10 monedas (movimiento `validacion` real) y uno pendiente. Desde T-20, además, 7 tickets de Ana, Carla, Dani, Eva y Fede sobre esos partidos (desde T-21, uno de Fede sobre un partido que empezó hace 2 horas y espera su resultado, para el recorrido del panel): se debitan con `debitSelections` como una confirmación, y todos se confirman antes del cierre de apuestas de cada uno de sus partidos (BR-014; corrección de T-20, una prueba lo exige). Después, los partidos finalizados se liquidan con el liquidador real (`settleMatchSelections`, T-14), y la carga comprueba que cada selección quedó en el estado previsto. Las del partido cancelado se anulan con el mismo UPDATE de la cancelación y se devuelven con `refundSelections`; no se llama a `cancelMatch` (T-16) porque abre su propia transacción y escribe auditoría como un admin, y la carga es una sola transacción que se aplica entera o nada. Ana y Carla empatan arriba del ranking (6 puntos y 2 aciertos). El comando muestra el saldo real de cada cuenta. Las credenciales están en el README de la raíz y solo sirven en desarrollo.
+- **Qué carga:** 3 deportes (Fútbol con empate, Vóley y Básquet sin empate), una competición por deporte, 8 equipos con 3 jugadores inscritos cada uno (desde C-05, Fútbol y Vóley con su perfil, y dos de los tres jugadores de cada equipo con estadísticas; el tercero queda «Sin estadísticas», igual que todo Básquet, que no tiene perfil), 14 partidos en todos los estados de apuesta (disponibles, cerrados, en curso, finalizados con marcador y cancelados, con fechas relativas al momento en que se corre) y 12 cuentas: un admin, diez apostadores validados y uno pendiente (sin monedas desde C-13). Desde T-20, además, 7 tickets de Ana, Carla, Dani, Eva y Fede sobre esos partidos (desde T-21, uno de Fede sobre un partido que empezó hace 2 horas y espera su resultado, para el recorrido del panel): sin débito (C-13), respetan el límite de una apuesta por tipo y partido, y todos se confirman antes del cierre de apuestas de cada uno de sus partidos (BR-014; corrección de T-20, una prueba lo exige). Después, los partidos finalizados se liquidan con el liquidador real (`settleMatchSelections`, T-14), y la carga comprueba que cada selección quedó en el estado previsto. Las del partido cancelado se anulan con el mismo UPDATE de la cancelación, sin devolución; no se llama a `cancelMatch` (T-16) porque abre su propia transacción y escribe auditoría como un admin, y la carga es una sola transacción que se aplica entera o nada. Ana y Carla empatan arriba del ranking (6 puntos y 2 aciertos). La carga no escribe ningún movimiento de monedas; la limpieza sigue borrando los que dejó una carga anterior a C-13. Las credenciales están en el README de la raíz y solo sirven en desarrollo.
 - **Nombres:** deportes con slug `demo-...`, jugadores con ` (demo)` al final y cuentas `@demo.liga.test`, solo para reconocerlos a la vista: la limpieza no los usa. Si ya existe una fila real con uno de esos slugs o correos, la carga se niega. Los escudos apuntan a `favicon.png` del sitio.
 - **Limpieza:** en una transacción, borra solo las filas marcadas, más lo que hicieron las cuentas de ejemplo: sus movimientos, selecciones, tickets, sesiones y registros de auditoría (D-015: la aplicación nunca borra auditoría; esta herramienta sí borra la de sus propias cuentas), y los goles y la multimedia de partidos de ejemplo que cargó el admin de ejemplo (según su registro `alta_gol` o `alta_multimedia`). Los archivos de imagen quedan en `UPLOADS_DIR`. Las estadísticas de las inscripciones de ejemplo se borran todas (C-05). Al final vacía `dato_demo`.
 - **Se niega sin borrar nada** si hay datos reales colgados: apuestas de otras cuentas sobre partidos de ejemplo (con sus correos), competiciones, equipos, partidos o inscripciones reales que usan filas de ejemplo, goles o multimedia que no cargó el admin de ejemplo, o cualquier registro de auditoría de otro administrador sobre una fila de ejemplo (un resultado cargado, una edición, una validación). El mensaje lista cada motivo con su cantidad.
@@ -231,7 +229,7 @@ Todo bajo `/admin/participantes`, que ya exige sesión y rol `admin`. Los `POST`
 | `GET /admin/participantes/conteos` | `{ inscritos, validados, pendientes, pagosConfirmados, pagosPendientes }` (BR-001), solo apostadores |
 | `POST /admin/participantes/:id/pago/confirmar` | Pago `pendiente` → `confirmado` |
 | `POST /admin/participantes/:id/pago/revertir` | Pago `confirmado` → `pendiente`, solo si el usuario sigue `pendiente` |
-| `POST /admin/participantes/:id/validar` | `pendiente` → `validado` + 10 monedas + movimiento `validacion` |
+| `POST /admin/participantes/:id/validar` | `pendiente` → `validado` (sin monedas desde C-13) |
 | `PUT /admin/participantes/:id/contrasena` | C-08 (D-037): `{ contrasena }` escrita por el admin. Cambia la contraseña y cierra **todas** las sesiones del participante. Responde `{ participante, sesionesCerradas }` |
 
 Cada fila (`items[]`, y `participante` en las respuestas de las acciones) tiene la misma forma que el usuario de `/auth/me`, más `puntos`.
@@ -252,13 +250,11 @@ Cada fila (`items[]`, y `participante` en las respuestas de las acciones) tiene 
 - **`puntos`** es `SUM(seleccion.puntos_obtenidos)` de todos los tickets del usuario, calculado en la consulta y nunca guardado (BR-039). Las selecciones sin liquidar cuentan 0. Hoy da 0 para todos, pero la consulta es la real y está probada con selecciones cargadas a mano.
 - **Solo apostadores** (decisión del usuario): los administradores no participan en la polla (BR-001), así que no figuran en la tabla ni en los conteos, y ya no hay filtro por rol. Las tres acciones solo operan sobre apostadores: el `UPDATE` exige ese rol, y sobre una cuenta admin responden **404 `NOT_A_PARTICIPANT`**. Es 404 y no 409 porque `/admin/participantes/:id` nombra a un participante, un admin no lo es, y ningún cambio de estado haría válida la acción.
 - **Primero el pago, después la validación** (§23). Validar sin pago confirmado da 409 `PAYMENT_NOT_CONFIRMED`. Repetir una acción ya hecha da 409 sin efectos.
-- **Revertir un pago** está permitido solo mientras el usuario sigue `pendiente`, para corregir un error antes de que tenga consecuencias. Nunca después de validar: la validación y sus 10 monedas se apoyan en ese pago (BR-006), y la validación no se deshace.
+- **Revertir un pago** está permitido solo mientras el usuario sigue `pendiente`, para corregir un error antes de que tenga consecuencias. Nunca después de validar: la validación se apoya en ese pago (BR-006), y la validación no se deshace.
 - **Ya no hay regla de "no actuar sobre uno mismo"**: quien actúa siempre es admin y el destino siempre tiene que ser apostador, así que ese caso queda cubierto por `NOT_A_PARTICIPANT`.
-- **Las 10 monedas se asignan una sola vez** (BR-008), con dos barreras:
-  1. En la aplicación, todo pasa en una transacción. Un `UPDATE` pasa a `validado` y suma `MONEDAS_POR_VALIDACION` (`lib/coins.ts`, el único lugar donde está el 10), pero solo si el usuario está `pendiente` con pago `confirmado`; si no cambió una fila, se responde 409. En la misma transacción se inserta el movimiento `validacion` de +10.
-  2. En la base, `movimiento_moneda` no admite un segundo movimiento sin selección del mismo tipo para el mismo usuario (EsquemaBD D19). Si alguien devolviera un usuario a `pendiente` a mano, el segundo +10 falla y se deshace toda la transacción, estado incluido.
+- **Validar no asigna monedas desde C-13** (BR-008 derogada): un `UPDATE` pasa a `validado` solo si el usuario está `pendiente` con pago `confirmado`; si no cambió una fila, se responde 409. No se escribe `movimiento_moneda` ni `saldo_monedas`; si un usuario que ya tenía su +10 de antes se validara otra vez tras volverlo a `pendiente` a mano, sus monedas viejas no se tocan.
 - **Concurrencia:** dos validaciones simultáneas del mismo usuario compiten por la misma fila. InnoDB hace esperar a la segunda, que después ya no encuentra un `pendiente` y responde 409. Hay una prueba con 8 peticiones en paralelo, en 3 rondas. Estas transacciones usan `READ COMMITTED` para que el motivo del 409 refleje lo que la otra acaba de confirmar; con `REPEATABLE READ` se leía una foto vieja y el motivo salía mal.
-- **Efecto inmediato:** la sesión relee al usuario en cada petición, así que su `/auth/me` muestra `validado` y 10 monedas en la petición siguiente, y `requireBettor` deja de rechazarlo.
+- **Efecto inmediato:** la sesión relee al usuario en cada petición, así que su `/auth/me` muestra `validado` en la petición siguiente, y `requireBettor` deja de rechazarlo.
 - **Restablecer la contraseña (C-08, D-037):** `resetParticipantPassword`, en el mismo servicio.
   - **Cuerpo estricto** `{ contrasena }` (`resetPasswordBodySchema`): la misma regla que el registro, `newPasswordSchema` (6 a 20 caracteres contados en puntos de código, C-01). Otra clave, un número o un campo faltante dan 400 `VALIDATION_ERROR` con el error en `contrasena`; el mensaje nunca repite lo escrito. Un query da 400.
   - **A quién:** cualquier apostador, `pendiente` o `validado`. Una cuenta admin (también la propia) da 404 `NOT_A_PARTICIPANT`, y un id que no existe, 404 `USER_NOT_FOUND`. Un apostador que lo intenta recibe 403, sin sesión 401 y sin `X-CSRF-Token` 403.
@@ -269,48 +265,14 @@ Cada fila (`items[]`, y `participante` en las respuestas de las acciones) tiene 
   - **Bases con datos:** el código de auditoría nuevo llega con `db/migraciones/C-08-restablecer-contrasena.sql` (README de la raíz, "Migraciones de una base con datos"); sin ella, la acción responde 500 y no cambia nada.
 - **Auditoría (T-17):** las tres acciones de pago y validación y el restablecimiento de la contraseña están en `services/participant-validation.service.ts` y aceptan `hooks.inTransaction(conn, outcome)`, que corre dentro de la transacción antes del commit. Si el hook falla, se deshace todo.
 
-## Monedas (T-05)
+## Monedas (T-05, quitadas en C-13)
 
-**Un solo punto mueve monedas: `services/coins.service.ts`.** Nada más en el código escribe `usuario.saldo_monedas` ni `movimiento_moneda`. Desde C-09 también paga los premios de los aciertos (`payPrizesBatch`, ver "Premios por acierto (C-09)").
+**Desde C-13 (D-042) no hay monedas: la polla es solo por puntos.** Se eliminaron `services/coins.service.ts`, `lib/coins.ts`, `services/coin-history.service.ts`, `services/coins-consistency.service.ts`, `controllers/coins.controller.ts`, `routes/coins.route.ts`, `cli/coins-check.ts` (y el comando `npm run coins:check`), `db/locks.ts` (`lockRowsById`, que solo servía para bloquear a quienes se pagaba o devolvía) y los códigos `INSUFFICIENT_BALANCE`, `MOVEMENT_ALREADY_APPLIED`, `SELECTION_NOT_DEBITED` y `BALANCE_LIMIT_EXCEEDED`.
 
-- **Tipos y montos** (`lib/coins.ts`, el único lugar con los números): `validacion` +10, `seleccion_confirmada` −1, `devolucion_cancelacion` +1, `premio_resultado_general` +1 y `premio_marcador_exacto` +2 (C-09). Todos menos `validacion` llevan su selección.
-- **Saldo máximo** (`SALDO_MAXIMO`, 65 535, `saldo_monedas` es SMALLINT UNSIGNED): un movimiento que lo superaría responde 409 `BALANCE_LIMIT_EXCEEDED` con `{ participantes, saldoMaximo }` y no escribe nada (C-09; antes era un 500).
-
-- `applyCoinMovements(conn, userId, movimientos)` corre **dentro de una transacción del llamador**, junto con lo demás que cambie esa operación (el ticket en T-10, las selecciones anuladas en T-16, el estado validado en T-04). **Esto se exige**: `conn` tiene que ser la `TransactionConnection` que entrega `withTransaction` (`db/transaction.ts`). Con una conexión común no compila, y en ejecución (por ejemplo, con un cast o con la conexión usada después de terminar la transacción) se rechaza antes de escribir nada. En un solo paso:
-  1. Bloquea solo la fila del usuario (`SELECT ... FOR UPDATE OF u`). Las operaciones concurrentes sobre ese usuario se esperan entre sí; las de otros usuarios no se bloquean.
-  2. Suma los movimientos y, si el saldo quedaría negativo, responde 409 `INSUFFICIENT_BALANCE` sin escribir nada (BR-009, BR-021).
-  3. **Las devoluciones solo devuelven monedas gastadas** (BR-046, BR-055). Cada selección a devolver tiene que tener su `seleccion_confirmada` de ese usuario y ninguna devolución todavía. Si no la tiene, responde 409 `SELECTION_NOT_DEBITED`; si ya se devolvió (antes o dos veces en el mismo lote), 409 `MOVEMENT_ALREADY_APPLIED`. En ambos casos se rechaza el lote entero sin efectos. Como la fila del usuario ya está bloqueada, ningún débito o devolución concurrente puede colarse entre la comprobación y la inserción.
-  4. Inserta un `movimiento_moneda` por movimiento y fija el saldo nuevo. El saldo es siempre la suma de los movimientos.
-- **El llamador elige el tipo, nunca el monto.** Montos y signos están en `lib/coins.ts`: `validacion` +10, `seleccion_confirmada` −1, `devolucion_cancelacion` +1. El tipo se busca solo entre esos tres códigos (`movementRule`, con `Object.hasOwn`): `toString`, `constructor`, `__proto__` o cualquier otro nombre es "tipo desconocido".
-- **D19 se verifica antes de tocar nada:**
-  - `validacion` nunca lleva `seleccionId`.
-  - Los débitos y las devoluciones siempre lo llevan.
-  - La selección tiene que ser de un ticket de ese usuario.
-  - Un error de este tipo es un bug del llamador (`CoinMovementError`, 500) y se deshace todo.
-- **Un movimiento ya aplicado** (misma selección y tipo, o una segunda validación) responde 409 `MOVEMENT_ALREADY_APPLIED` y deshace el lote completo.
-- **Una cuenta admin** responde 403 `NOT_A_PARTICIPANT`: los administradores no tienen monedas (BR-001).
-- **Atajos:**
-  - `grantValidationCoins(conn, userId)`: el +10 de T-04. `validateParticipant` ya lo usa, sin cambiar su comportamiento.
-  - `debitSelections(conn, userId, seleccionIds)`: T-10. Descuenta N selecciones en una operación atómica, con un solo bloqueo.
-  - `refundSelections(conn, userId, seleccionIds)`: las devoluciones de un usuario.
-  - `refundSelectionsBatch(conn, devolucionesPorUsuario)` (T-16): las devoluciones de muchos usuarios en pocas sentencias, con las mismas reglas: bloquea los usuarios por clave primaria (en orden de id), rechaza admins, comprueba dueño, débito y que no se hayan devuelto, inserta los movimientos en un INSERT de varias filas y fija los saldos con un UPDATE por lote. Con 300 usuarios y 2700 selecciones son unas 13 sentencias. `checkSelectionsOwned` y `checkRefundsWereDebited` ya trabajan con varios usuarios y los usa también `applyCoinMovements`.
-  - `applyCoinMovementsInTransaction(pool, ...)`: para una operación que solo mueve monedas.
-- **Concurrencia (probada):** 25 débitos de 1 moneda en paralelo sobre 10 monedas dejan pasar exactamente 10, y el saldo termina en 0 sin descuadre. Con lotes de 3 en paralelo, solo pasan los que alcanzan. Débitos y devoluciones mezclados nunca dejan el saldo negativo ni descuadrado.
-
-**Consultas del participante** (`requireAuth` + `requireParticipant`):
-
-| Ruta | Respuesta |
-|---|---|
-| `GET /monedas/saldo` | `{ saldoMonedas }`, la misma columna que `/auth/me`. No acepta query. |
-| `GET /monedas/movimientos` | Paginado (`page`, `pageSize`; nada más), del más reciente al más antiguo: `{ items: [{ id, tipo: { codigo, nombre }, cantidad, creadoEn, seleccion: { id, ticketId, partidoId } \| null }], page, pageSize, total, totalPages }`. |
-
-- Un participante `pendiente` también puede leerlas: saldo 0 e historial vacío.
-- **Un admin recibe 403 `NOT_A_PARTICIPANT`**, no una respuesta vacía. Los administradores no tienen monedas (BR-001), y un "0" haría que el front les mostrara el contador del navbar (BR-010).
-
-**Comprobación de consistencia** (solo lectura, nunca corrige). Compara el `saldo_monedas` de cada apostador con `SUM(movimiento_moneda.cantidad)`, y además lista a los admins que tengan saldo o movimientos, que no deberían tener ninguno.
-
-- `GET /admin/monedas/consistencia` → `{ ok, revisados, descuadres: [{ usuarioId, nombre, email, saldo, sumaMovimientos, diferencia }], adminsConMonedas: [...] }`. Siempre responde 200: es un informe.
-- `npm run coins:check` (o `npm run server:coins:check` desde la raíz; en Docker de desarrollo, `docker compose exec server npm run coins:check`; **en producción**, `docker compose -f compose.prod.yaml exec server node dist/cli/coins-check.js`). Sale con 0 si todo cuadra, 1 si encontró descuadres (y los lista) y 2 si no pudo correr.
+- `GET /monedas/saldo`, `GET /monedas/movimientos` y `GET /admin/monedas/consistencia` ya no existen (404).
+- **Nada escribe `usuario.saldo_monedas` ni `movimiento_moneda`**: ni la validación, ni el ticket, ni la cancelación, ni la confirmación del resultado. Una cuenta nueva toma el 0 por defecto de la columna. Las pruebas de tickets, cancelación, liquidación y la de estrés comprueban al final que no hay ningún movimiento y que ningún saldo cambió.
+- **El esquema no cambió**: la columna y las dos tablas quedan con los saldos y movimientos anteriores, sin leerse. Quitarlas sería una migración aparte (`docs/pendientes.md`).
+- Ninguna respuesta lleva campos de monedas: ni el usuario de la sesión (`saldoMonedas`), ni la vista previa (costo y saldo), ni el comprobante, "Mis apuestas", la consulta del admin o las estadísticas (monedas utilizadas, devueltas, ganadas o disponibles), ni la confirmación del resultado (`premios`) ni la cancelación (`monedasDevueltas`, `seleccionesSinDevolucion`).
 
 ## Catálogo deportivo (T-06)
 
@@ -700,7 +662,7 @@ Módulo Polla (`services/bets-settlement.service.ts`, `lib/points.ts`). Al confi
 **Qué toca**
 
 - Solo las selecciones `pendiente` de ese partido. Las `anulada` o ya liquidadas quedan igual, y también las del mismo ticket en otros partidos (su ticket sigue `pendiente` mientras les falte resultado).
-- **Nunca mueve monedas** (BR-039): no escribe `movimiento_moneda` ni `saldo_monedas`.
+- **Nunca mueve monedas** (BR-039; desde C-13 no hay): no escribe `movimiento_moneda` ni `saldo_monedas`, ni bloquea usuarios.
 - El comprobante, "Mis apuestas" y su resumen muestran los estados y los puntos en la petición siguiente, porque se calculan al leer (T-10, T-11). El ticket pasa a `finalizado` cuando no le quedan selecciones pendientes. El ranking es T-15.
 
 **Transacción y reintentos**
@@ -742,28 +704,9 @@ Con 5000 selecciones pendientes son 8 sentencias. En la máquina de prueba, esa 
 - 6 confirmaciones en paralelo (una gana y liquida una vez) junto con tickets de otros partidos, y dos partidos que comparten tickets confirmados a la vez, sin deadlocks.
 - Por HTTP: ticket de dos partidos, confirmación de uno (ticket `pendiente` con 6 puntos) y del otro (`finalizado`, 7 puntos), "Mis apuestas", el resumen y el saldo sin cambios.
 
-## Premios por acierto (C-09)
+## Premios por acierto (C-09, derogado por C-13)
 
-BR-057 y D-038: además de sus puntos, un acierto paga monedas. **Es automático**: ocurre al confirmar el resultado (`POST /admin/partidos/:id/resultado/confirmar`), en la misma transacción, sin ningún paso aparte del admin. La vista previa (`GET .../resultado`) no cambió (decisión del usuario).
-
-| Selección que pasa a `acertada` | Movimiento | Monedas |
-|---|---|---:|
-| `resultado_general` (ganador o empate) | `premio_resultado_general` | +1 |
-| `marcador_exacto` | `premio_marcador_exacto` | +2 |
-
-- **Quién cobra:** solo las selecciones que esta confirmación liquida como `acertada`, de tickets cuyo dueño es `apostador` hoy. Una anulada, una ya liquidada o una de una cuenta admin (cargada a mano) no cobra. **No es retroactivo**: un partido confirmado antes de C-09 no se vuelve a liquidar, así que nunca paga.
-- **Una sola vez:** la segunda liquidación no encuentra pendientes; un reintento por deadlock deshace el intento anterior entero; `uq_movimiento_seleccion_tipo` es la barrera en la base. `payPrizesBatch` comprueba además que cada selección esté `acertada` y que su tipo de apuesta sea el del premio.
-- **Orden de bloqueo (usuario → partido):** pagar bloquea usuarios, y la confirmación bloqueaba primero el partido. Ahora sigue el patrón de la cancelación (T-16):
-  1. `prepareSettlement` (el punto de extensión que Informativo declara en `results.service.ts`; Polla pone `lockPrizeWinners`) lee sin bloqueo quién acertaría con el marcador que se confirma y bloquea esos usuarios, por id;
-  2. se bloquea el partido (y competición y deporte), se comprueba el marcador;
-  3. el settler vuelve a leer los aciertos pendientes: si aparece un ganador que no se bloqueó, lanza `SettlementRestart` y la confirmación empieza de nuevo, hasta `MAX_INTENTOS_CONFIRMACION` (3); después, 409 `CONCURRENT_UPDATE` sin nada confirmado;
-  4. liquida (T-14) y paga con `payPrizesBatch`.
-  La transacción es `READ COMMITTED`, para que la relectura vea lo que confirmó antes del bloqueo del partido. Los usuarios se bloquean con `lockRowsById` (`db/locks.ts`, ver "Orden de bloqueo").
-- **Si el pago falla** (un premio ya pagado a mano, un saldo que pasaría el máximo), se deshace todo: el partido no queda finalizado, las selecciones siguen pendientes y no queda auditoría.
-- **La respuesta y la auditoría** llevan `premios: { selecciones, monedas, participantes }`: cuántos aciertos cobraron, cuántas monedas en total y a cuántos participantes. Nunca ids de usuario ni saldos.
-- **Lecturas:** `monedasGanadas` por selección y por ticket en el recibo, "Mis apuestas" (y `monedasGanadas` en su resumen) y la consulta del admin; en las estadísticas de la polla, el total. Todas suman los movimientos de premio reales (`prizeTypeFor` en `tickets.service.ts`: el premio que corresponde al tipo de apuesta de cada selección, como D-003 con las devueltas), nunca cuentan aciertos. `/monedas/movimientos` muestra los dos tipos nuevos. `/apuestas/participantes` (C-07) no muestra monedas.
-- **Bases con datos:** los dos tipos llegan con `db/migraciones/C-09-premios-por-acierto.sql` (ids 4 y 5 si están libres). Sin ella, la primera confirmación con aciertos responde 500 y no cambia nada.
-- **Datos de ejemplo:** el seed liquida sus partidos terminados con el settler real, así que genera premios (5).
+De C-09 a C-13, un acierto pagaba monedas al confirmar el resultado (+1 resultado general, +2 marcador exacto), bloqueando antes a los ganadores (`lockPrizeWinners`, `SettlementRestart`). **Desde C-13 (D-042) no se paga nada**: la liquidación solo asigna estados y puntos, no bloquea usuarios y la confirmación responde `{ partido, resultado }`, sin `premios` (tampoco en la auditoría). Los premios pagados en ese tiempo quedan en `movimiento_moneda`, sin mostrarse. La migración `db/migraciones/C-09-premios-por-acierto.sql` sigue en el repositorio (y su prueba), porque crea filas de un catálogo que el esquema todavía tiene.
 
 ## Ranking de la polla (T-15)
 
@@ -854,12 +797,12 @@ El panel elige competiciones, equipos y jugadores con un buscador (D-019) en lug
 
 ## Cancelación de partidos (T-16)
 
-Módulo Polla (`services/match-cancellation.service.ts`, `routes/match-cancellation.route.ts`). Cancelar un partido lo deja `cancelado` para siempre, anula sus apuestas pendientes y devuelve sus monedas, todo en una transacción (BR-045 a BR-047, BR-055). Abarca los dos módulos: el cambio de estado es de Informativo (`markCancelled` en `matches.service.ts`) y lo llama Polla. Polla puede importar Informativo; al revés, nunca.
+Módulo Polla (`services/match-cancellation.service.ts`, `routes/match-cancellation.route.ts`). Cancelar un partido lo deja `cancelado` para siempre y anula sus apuestas pendientes, todo en una transacción (BR-045, BR-047). **Desde C-13 no devuelve monedas** (BR-046 y la devolución de BR-055, derogadas). Abarca los dos módulos: el cambio de estado es de Informativo (`markCancelled` en `matches.service.ts`) y lo llama Polla. Polla puede importar Informativo; al revés, nunca.
 
 | Ruta (bajo `/admin`) | Qué hace |
 |---|---|
-| `GET /partidos/:id/cancelacion` | Vista previa, sin efectos ni bloqueos: `{ partido, selecciones, monedasDevueltas, seleccionesSinDevolucion: { total, sinDebito, cuentaAdministrador }, usuarios, tickets, ticketsAnulados, puedeCancelar, problemas, advertencia }`. |
-| `POST /partidos/:id/cancelacion/confirmar` | `{ confirmar: true }` (otro cuerpo da 400): cancela. Devuelve `{ partido, selecciones, monedasDevueltas, seleccionesSinDevolucion: { total, sinDebito, cuentaAdministrador }, usuarios, tickets, ticketsAnulados }`. |
+| `GET /partidos/:id/cancelacion` | Vista previa, sin efectos ni bloqueos: `{ partido, selecciones, usuarios, tickets, ticketsAnulados, puedeCancelar, problemas, advertencia }`. |
+| `POST /partidos/:id/cancelacion/confirmar` | `{ confirmar: true }` (otro cuerpo da 400): cancela. Devuelve `{ partido, selecciones, usuarios, tickets, ticketsAnulados }`. |
 
 Sesión de admin, CSRF en el POST y sin query string. `POST /partidos/:id/estado` sigue sin existir (404).
 
@@ -869,60 +812,46 @@ Sesión de admin, CSRF en el POST y sin query string. `POST /partidos/:id/estado
   - `finalizado`: 409 `MATCH_ALREADY_FINISHED`.
   - Ya `cancelado`: 409 `MATCH_ALREADY_CANCELLED`.
   - La vista previa muestra el mismo motivo en `problemas`, con las cifras en 0.
-- **Definitiva**: `cancelado` bloquea el partido igual que `finalizado` (T-07, T-12, T-13): no se edita, no se reprograma, no recibe resultado, goles ni multimedia nueva, y ningún ticket lo acepta. Así quedó en BR-012 y BR-045. El marcador, los goles y la multimedia que tuviera se conservan (el admin los sigue viendo) y nunca son públicos: la API pública muestra `estado: "cancelado"`, `resultado`, `goles` y `multimedia` en `null` (BR-049).
-- **Qué se anula**: solo las selecciones `pendiente` del partido, que pasan a `anulada` con `puntos_obtenidos` NULL. Una anulada no suma puntos ni cuenta como acierto (T-11, T-15).
-  - Un partido no finalizado no puede tener selecciones liquidadas. Si hubiera alguna (o una ya anulada) por datos cargados a mano, no se toca y no se devuelve nada por ella.
-  - Una pendiente **sin débito** (también solo posible a mano) se anula sin devolución, porque nunca costó una moneda (`seleccionesSinDevolucion.sinDebito`). Llamar a `refundSelections` con ella habría rechazado la cancelación entera (409 `SELECTION_NOT_DEBITED`).
-  - Una pendiente de una cuenta que **hoy es admin** (solo posible a mano) se anula sin devolución (`seleccionesSinDevolucion.cuentaAdministrador`, decisión D-002 de `docs/decisiones.md`): un admin no tiene monedas (BR-001), y la cancelación no puede fallar por eso (antes daba 403 `NOT_A_PARTICIPANT` y no se anulaba nada). Esas cuentas tampoco se bloquean en el paso 2: su saldo no cambia.
-- **Borrar un partido cancelado** (D-001): se puede si no tiene apuestas, goles, resultado ni multimedia; si no, 409 `MATCH_HAS_BETS`, `MATCH_HAS_GOALS`, `MATCH_HAS_RESULT` o `MATCH_HAS_MEDIA` (`deleteMatch`, T-07). Una prueba cubre los cinco casos.
-- **Qué se devuelve** (BR-046): 1 moneda por cada selección anulada con débito de una cuenta `apostador`, a su dueño, con un movimiento `devolucion_cancelacion` que lleva su `seleccion_id` (D19), mediante `refundSelectionsBatch`. El saldo de cada usuario sube exactamente en sus selecciones anuladas.
+- **Definitiva**: `cancelado` bloquea el partido igual que `finalizado` (T-07, T-12, T-13): no se edita, no se reprograma, no recibe resultado, goles ni multimedia nueva, y ningún ticket lo acepta. El marcador, los goles y la multimedia que tuviera se conservan (el admin los sigue viendo) y nunca son públicos: la API pública muestra `estado: "cancelado"`, `resultado`, `goles` y `multimedia` en `null` (BR-049).
+- **Qué se anula**: todas las selecciones `pendiente` del partido, de cualquier cuenta, que pasan a `anulada` con `puntos_obtenidos` NULL. Una anulada no suma puntos, no cuenta como acierto (T-11, T-15) ni para el límite de una apuesta por tipo y partido (C-13). Si hubiera selecciones liquidadas o ya anuladas (solo posible con datos cargados a mano), no se tocan.
+- **Borrar un partido cancelado** (D-001): se puede si no tiene apuestas, goles, resultado ni multimedia; si no, 409 `MATCH_HAS_BETS`, `MATCH_HAS_GOALS`, `MATCH_HAS_RESULT` o `MATCH_HAS_MEDIA` (`deleteMatch`, T-07).
 - **BR-047**: las selecciones del mismo ticket en otros partidos no cambian. El estado del ticket sigue la regla de T-10: `anulado` si todas quedaron anuladas, y si no `pendiente` o `finalizado`. `ticketsAnulados` cuenta los que quedan anulados por completo.
-- **Sin confirmación de cifras**: a diferencia de T-12, el cuerpo no repite las cifras de la vista previa. Si el partido todavía acepta apuestas, pueden cambiar entre la vista previa y la confirmación, y rechazar la cancelación por eso obligaría a reintentar sin fin. La respuesta trae las cifras reales.
+- **Sin confirmación de cifras**: el cuerpo no repite las cifras de la vista previa. Si el partido todavía acepta apuestas, pueden cambiar entre la vista previa y la confirmación; la respuesta trae las cifras reales.
 
 **Transacción y orden de bloqueo**
 
-Una sola transacción de `runAdminAction` en `READ COMMITTED`. El orden global empieza por el usuario, y un ticket bloquea su usuario (X) y después el partido (S). Si la cancelación bloqueara el partido y después los usuarios, formaría un ciclo con un ticket en curso. Por eso:
+Una sola transacción de `runAdminAction` en `READ COMMITTED`:
 
-1. Lee, **sin bloqueo**, los usuarios `apostador` con selecciones pendientes en el partido (por `idx_seleccion_partido_estado`).
-2. Bloquea esos usuarios (`FOR UPDATE`, por clave primaria, en orden de id, en lotes de 1000).
-3. Bloquea el partido (`FOR UPDATE`) y comprueba su estado efectivo.
-4. Vuelve a leer las selecciones pendientes. En `READ COMMITTED` ve todos los tickets que se confirmaron antes de obtener el bloqueo del partido, y ninguno nuevo puede entrar mientras lo tiene.
-   - Si aparece un apostador que el paso 2 no bloqueó (apostó mientras la cancelación esperaba el partido), se deshace todo y la cancelación **empieza de nuevo**, ya con ese usuario (`cancellationStats.restarts`).
-   - Tras `MAX_INTENTOS_CANCELACION` (3) intentos, 409 `CONCURRENT_UPDATE`. Solo puede pasar si siguen entrando apuestas de usuarios nuevos, es decir, con un partido que todavía acepta apuestas.
-5. Anula por clave primaria, en lotes de 1000, exigiendo otra vez `pendiente`. Después devuelve (`refundSelectionsBatch`, que vuelve a bloquear los mismos usuarios, ya suyos), marca el partido `cancelado` y corre el gancho de auditoría.
+1. Bloquea el partido (`FOR UPDATE`) y comprueba su estado efectivo.
+2. Lee las selecciones pendientes (por `idx_seleccion_partido_estado`). En `READ COMMITTED` ve todos los tickets que se confirmaron antes de obtener el bloqueo, y ninguno nuevo puede entrar mientras lo tiene, porque un ticket pide el partido en `FOR SHARE`.
+3. Anula por clave primaria, en lotes de 1000, exigiendo otra vez `pendiente`; marca el partido `cancelado` y corre el gancho de auditoría.
 
-Con los demás:
+**Desde C-13 no bloquea ningún usuario** (hasta entonces bloqueaba primero, en orden usuario → partido, a los apostadores a los que devolvía monedas, y volvía a empezar si aparecía uno nuevo mientras esperaba el partido; `MAX_INTENTOS_CANCELACION` y `cancellationStats` se eliminaron). Con los demás:
 
-- **Tickets** (T-10): los dos van usuario → partido. Un ticket sobre el partido que espera la cancelación la encuentra cancelada y se rechaza. Un ticket del mismo usuario sobre otro partido espera al usuario y sigue.
-- **Confirmar el resultado** (T-12, T-14): los dos piden el partido en `FOR UPDATE`. Gana uno: si gana la cancelación, la confirmación responde 409 `MATCH_LOCKED`; si gana la confirmación, la cancelación responde 409 `MATCH_ALREADY_FINISHED`. Nunca se liquida y se devuelve la misma selección.
-- **Liquidación de otro partido que comparte tickets** (T-14): toma bloqueos compartidos sobre los tickets y exclusivos sobre sus propias selecciones. La cancelación puede tomar también bloqueos compartidos sobre los tickets (compatibles con los de la liquidación) y exclusivos solo sobre las selecciones de su partido. No chocan: la prueba de tickets compartidos lo ejercita sin deadlocks.
-- **T-07 y T-13**: bloquean solo el partido (y después plantel, equipo...), nunca usuarios.
-- **Reintento por deadlock**: `withTransaction` repite todo. El intento deshecho no dejó devoluciones, así que no se devuelve dos veces. Además, `UNIQUE(seleccion_id, tipo_movimiento_id)` lo impediría en la base.
-- **Cualquier error** (una devolución rechazada, la auditoría, el commit) deshace todo: el partido, las selecciones, los movimientos y los saldos.
+- **Tickets** (T-10): un ticket bloquea su usuario (X) y después el partido (S); la cancelación solo pide el partido, así que no hay ciclo. Un ticket sobre el partido que espera la cancelación la encuentra cancelada y se rechaza; uno que ya tenía el partido termina primero, y la cancelación anula también su selección, sin reintento.
+- **Confirmar el resultado** (T-12, T-14): los dos piden el partido en `FOR UPDATE`. Gana uno: si gana la cancelación, la confirmación responde 409 `MATCH_LOCKED`; si gana la confirmación, la cancelación responde 409 `MATCH_ALREADY_FINISHED`.
+- **Liquidación de otro partido que comparte tickets** (T-14): cada una toma exclusivos solo sobre las selecciones de su partido. No chocan.
+- **Reintento por deadlock**: `withTransaction` repite todo; el intento deshecho no dejó nada.
+- **Cualquier error** (la auditoría, el commit) deshace todo: el partido y las selecciones.
 
-**Pocas sentencias**: con 300 usuarios y 2700 selecciones pendientes, la cancelación completa hace 26 sentencias (más las 3 de la auditoría) y tarda unos 230 a 340 ms en la máquina de prueba.
+**Las cifras en una sentencia** (corrección de T-16): un CTE con las selecciones pendientes (ticket y usuario) y otro con las selecciones que siguen vivas **por ticket**, para `ticketsAnulados` sin una comprobación por selección.
 
-**Las cifras en una sentencia** (corrección de T-16): un CTE con las selecciones pendientes (usuario, si es apostador y si tiene débito) y otro con las selecciones que siguen vivas **por ticket**. Antes, `ticketsAnulados` usaba un `NOT EXISTS` por selección, que crece con el cuadrado de las selecciones por ticket. Con 10 000 selecciones pendientes, la vista previa bajó de 44 a 55 ms a 22 a 25 ms, tanto en 200 tickets de 50 como en 10 de 1000. Las devoluciones se agrupan por usuario con `push`, sin copiar el arreglo en cada selección.
+**Auditoría (T-17)**: `cancelar_partido` (catálogo: `cancelacion_partido`), por `runAdminAction`, con el estado anterior y las cifras de la cancelación en el detalle (`selecciones`, `usuarios`, `tickets`, `ticketsAnulados`). NFR-006 la exige.
 
-**Auditoría (T-17)**: `cancelar_partido` (catálogo: `cancelacion_partido`), por `runAdminAction`, con el estado anterior y las cifras de la cancelación en el detalle. NFR-006 la exige.
+**Pruebas** (`tests/cancellation.test.ts`):
 
-**Pruebas** (`tests/cancellation.test.ts`, 13):
-
-- Vista previa exacta y sin efectos. Cancelar con dos usuarios y tickets mixtos: devoluciones exactas por usuario y por selección, el otro partido intacto, comprobantes (`anulado` y `pendiente`), "Mis apuestas", su resumen, el saldo, el ranking y la API pública.
-- Un partido en curso con marcador, goles y multimedia; después, el partido queda bloqueado para todo.
+- Vista previa exacta y sin efectos; cancelar con dos usuarios y tickets mixtos: el otro partido intacto, comprobantes (`anulado` y `pendiente`), "Mis apuestas", su resumen, el ranking y la API pública, sin ninguna cifra de monedas.
+- Un partido cancelado no acepta una apuesta nueva; un partido en curso con marcador, goles y multimedia se cancela y queda bloqueado para todo.
 - Un partido sin apuestas, y uno con las apuestas ya cerradas.
-- `finalizado` y `cancelado` rechazados, sin cambios. Un ticket sobre el partido cancelado se rechaza.
-- Selecciones cargadas a mano: liquidadas y anuladas no cambian; una pendiente sin débito se anula sin devolución.
-- Un fallo a mitad (después de las devoluciones) y un fallo de la auditoría deshacen todo. El nombre de la acción de auditoría.
-- Un reintento por deadlock devuelve una sola vez.
-- 6 cancelaciones a la vez: una gana y las monedas vuelven una vez.
-- Cancelar y confirmar el mismo partido a la vez, 4 rondas: gana exactamente uno, con sus efectos y ningún otro.
-- Cancelar mientras se liquida otro partido que comparte los tickets y los mismos usuarios confirman tickets nuevos, 3 rondas: sin deadlocks.
-- Un usuario nuevo que apuesta mientras la cancelación espera el partido: empieza de nuevo y también le devuelve.
+- `finalizado` y `cancelado` rechazados, sin cambios.
+- Selecciones cargadas a mano: liquidadas y anuladas no cambian; todas las pendientes se anulan. Las de una cuenta que hoy es admin, también.
+- Un fallo a mitad (después de anular) y un fallo de la auditoría deshacen todo; un reintento por deadlock anula una sola vez.
+- 6 cancelaciones a la vez: una gana. Cancelar y confirmar el mismo partido a la vez: gana exactamente uno.
+- Cancelar mientras se liquida otro partido que comparte los tickets y los mismos usuarios confirman tickets nuevos: sin deadlocks.
+- Un ticket en vuelo mientras la cancelación espera el partido: su selección también se anula, sin reintento. La cancelación no bloquea ninguna fila de `usuario` (`performance_schema.data_locks`).
 - Volumen: 300 usuarios y 2700 selecciones, con la cantidad de sentencias.
 - 401, 403, CSRF, cuerpo y query estrictos y 404.
-- Después de cada prueba, `checkCoinConsistency` (lo mismo que `coins:check`) no encuentra descuadres.
-- `tests/concurrency-stress.test.ts` cancela, cada dos rondas, un partido con apuestas del usuario que está confirmando otro ticket, y sigue sin deadlocks.
+- Después de cada prueba, ningún movimiento de monedas y ningún saldo distinto de 0.
 
 ## Auditoría (T-17)
 
@@ -1085,9 +1014,9 @@ Formas comunes:
 
 ## Selecciones y cierre (T-09)
 
-Módulo Polla (`services/betting.service.ts`, `routes/betting.route.ts`, `schemas/betting.schema.ts`). Valida selecciones y muestra lo que el apostador necesita para armar su ticket. **No crea tickets ni descuenta monedas**: eso es T-10. Lee partidos y deportes de Informativo (reutiliza `MATCH_COLUMNS`, `MATCH_FROM` y `matchFrom` de `public.service.ts`). Ningún archivo de Informativo importa Polla; hay una prueba que lo revisa.
+Módulo Polla (`services/betting.service.ts`, `routes/betting.route.ts`, `schemas/betting.schema.ts`). Valida selecciones y muestra lo que el apostador necesita para armar su ticket. **No crea tickets**: eso es T-10. Lee partidos y deportes de Informativo (reutiliza `MATCH_COLUMNS`, `MATCH_FROM` y `matchFrom` de `public.service.ts`). Ningún archivo de Informativo importa Polla; hay una prueba que lo revisa.
 
-Sin sesión, las dos rutas dan 401. La vista previa usa `requireAuth, requireBettor`: un `pendiente` recibe 403 `USER_NOT_VALIDATED`, y un admin 403 `ADMIN_CANNOT_BET` aunque figure validado. El listado de partidos usa `requireParticipant` desde T-19: no apuesta ni gasta monedas, así que un `pendiente` ve los mismos partidos que podrá apostar (la pantalla le explica por qué todavía no puede), y un admin recibe 403 `NOT_A_PARTICIPANT`. Las respuestas son `no-store`.
+Sin sesión, las dos rutas dan 401. La vista previa usa `requireAuth, requireBettor`: un `pendiente` recibe 403 `USER_NOT_VALIDATED`, y un admin 403 `ADMIN_CANNOT_BET` aunque figure validado. El listado de partidos usa `requireParticipant` desde T-19: no apuesta, así que un `pendiente` ve los mismos partidos que podrá apostar (la pantalla le explica por qué todavía no puede), y un admin recibe 403 `NOT_A_PARTICIPANT`. Las respuestas son `no-store`.
 
 | Ruta | Respuesta |
 |---|---|
@@ -1124,28 +1053,34 @@ En un deporte sin empate, `resultadoGeneral` no trae `empate` y `admiteEmpate` e
 { "valido": false,
   "selecciones": [
     { "indice": 0, "partidoId": 12, "tipo": "resultado_general", "pronostico": "empate",
-      "golesLocal": null, "golesVisitante": null, "costo": 1, "valida": false,
+      "golesLocal": null, "golesVisitante": null, "valida": false,
       "errores": [{ "code": "DRAW_NOT_ALLOWED", "message": "..." }],
-      "repiteA": null, "partido": { "...": "igual que en /apuestas/partidos" } } ],
-  "cantidadSelecciones": 1, "costoPorSeleccion": 1, "costoTotal": 1,
-  "saldoActual": 0, "saldoPosterior": -1, "saldoSuficiente": false,
-  "errores": [{ "code": "INSUFFICIENT_BALANCE", "message": "..." }] }
+      "partido": { "...": "igual que en /apuestas/partidos" } },
+    { "indice": 1, "partidoId": 12, "tipo": "resultado_general", "pronostico": "local_gana",
+      "golesLocal": null, "golesVisitante": null, "valida": false,
+      "errores": [{ "code": "BET_LIMIT_REACHED", "message": "...", "repiteA": 0 }],
+      "partido": { "...": "igual" } } ],
+  "cantidadSelecciones": 2 }
 ```
 
 **Decisiones**
 
-- **Errores por selección**: los problemas que dependen de la base no son un 4xx, sino que van en `errores` de cada selección (todos a la vez), con `valida: false`. Así la UI marca cuál corregir sin perder el resto. Códigos: `MATCH_NOT_FOUND`, `BETTING_CLOSED`, `MATCH_NOT_PROGRAMMED` (en curso, finalizado o cancelado; `partido.apuesta.estado` dice cuál) y `DRAW_NOT_ALLOWED`. El saldo insuficiente es un error del ticket (`errores` de arriba, `INSUFFICIENT_BALANCE`). `valido` es `true` solo si todo está bien: es lo que T-10 exigirá para confirmar. La forma inválida sí es 400.
+- **Errores por selección**: los problemas que dependen de la base no son un 4xx, sino que van en `errores` de cada selección (todos a la vez), con `valida: false`. Así la UI marca cuál corregir sin perder el resto. Códigos: `MATCH_NOT_FOUND`, `BETTING_CLOSED`, `MATCH_NOT_PROGRAMMED` (en curso, finalizado o cancelado; `partido.apuesta.estado` dice cuál) , `DRAW_NOT_ALLOWED` y, desde C-13, `BET_LIMIT_REACHED`. Desde C-13 no hay costo, saldo ni errores del ticket entero. `valido` es `true` solo si todo está bien: es lo que T-10 exigirá para confirmar. La forma inválida sí es 400.
 - **Empate (BR-015)**: en un deporte sin empate se rechaza `pronostico: "empate"` y también un marcador exacto empatado (es el mismo pronóstico). No se ofrece en `pronosticosAdmitidos`.
-- **Repetir la misma selección**: se permite, y cada repetición cuesta su moneda. Ninguna BR lo prohíbe y BR-017 permite varias apuestas por partido. `repiteA` indica el `indice` de la primera selección idéntica, para que la UI pida confirmación.
+- **Una apuesta de cada tipo por partido (C-13, D-042, BR-017 y BR-018)**: un participante puede tener, por partido, una de `resultado_general` y una de `marcador_exacto`. Una selección que pasa ese límite lleva `BET_LIMIT_REACHED`:
+  - si el participante ya tiene una de ese tipo en ese partido, en cualquier ticket, **sin contar las anuladas** (`placedSelections`, una lectura sin bloqueo por `idx_seleccion_partido_estado` y la clave del ticket);
+  - o si otra selección anterior del mismo ticket ya ocupa ese tipo en ese partido: el error lleva `repiteA`, el `indice` de esa selección, y el mensaje la nombra. Solo la segunda lleva el error.
+  - Cuenta por tipo, no por pronóstico: "gana A" y "empate" en el mismo partido son dos de resultado general. El límite se aplica solo a partidos que existen.
+  - Las repeticiones cargadas antes de C-13 se dejan como están. Hasta C-13, repetir se permitía, cada repetición costaba su moneda y `repiteA` era un campo de la selección.
 - **Máximo de goles**: 999 por lado. Alcanza para básquet y queda lejos del `SMALLINT UNSIGNED` de la columna.
-- **Máximo de selecciones por ticket**: 50 (BR-019 precisado). Con 10 monedas iniciales alcanza de sobra, y acota el trabajo de una sola petición.
-- **Costo (BR-020)**: `costoTotal = cantidadSelecciones × COSTO_POR_SELECCION` (`lib/coins.ts`), también con selecciones inválidas: es el costo del ticket tal como se envió. `saldoPosterior = saldoActual - costoTotal`, y puede ser negativo si no alcanza (BR-021).
+- **Máximo de selecciones por ticket**: 50 (BR-019 precisado). Acota el trabajo de una sola petición.
+- **Sin costo (C-13)**: la respuesta es `{ valido, selecciones, cantidadSelecciones }`; BR-020 y BR-021 quedaron derogadas.
 - **Sin escritura**: la vista previa no escribe ni bloquea nada. Su resultado puede quedar viejo al instante; T-10 vuelve a validar.
 
-**Para T-10**: `evaluateTicketInTransaction(conn, usuarioId, selecciones)` hace las mismas comprobaciones dentro del `withTransaction` de la confirmación. Con una conexión que no es de una transacción, rechaza la promesa (igual que las funciones de monedas).
+**Para T-10**: `evaluateTicketInTransaction(conn, usuarioId, selecciones)` hace las mismas comprobaciones dentro del `withTransaction` de la confirmación. Con una conexión que no es de una transacción, rechaza la promesa.
 
 - Llamarla primero en la transacción. Sigue el orden de bloqueo de la aplicación (ver "Orden de bloqueo y concurrencia"): usuario `FOR UPDATE`, y después partidos, competiciones y deportes `FOR SHARE`, cada tabla con su propia sentencia por clave primaria.
-- El usuario va `FOR UPDATE` desde el principio porque el débito posterior (`debitSelections`) usa ese mismo bloqueo. Así no se pasa de un bloqueo compartido a uno exclusivo, que haría chocar dos tickets.
+- El usuario va `FOR UPDATE` desde el principio: serializa los tickets de un mismo usuario, así que el límite de C-13 se lee (con una lectura común, en `READ COMMITTED`) después de que se confirmaron todos sus tickets anteriores, y dos tickets simultáneos con la misma apuesta no pueden pasar los dos. Hasta C-13 también lo usaba el débito.
 - `updateMatch` y `changeMatchState` (`FOR UPDATE` del partido), `updateCompetition` y `updateSport` (`FOR UPDATE` de su fila) esperan hasta el commit. Dos tickets sobre el mismo partido no se bloquean entre sí.
 - Estado, fecha y `permite_empate` salen de lecturas con bloqueo, que siempre ven lo último confirmado. Una lectura común podría ver la foto vieja de la transacción y no ver un cambio que se confirmó mientras esperaba el bloqueo.
 - T-10 confirma solo si `valido` es `true`.
@@ -1167,12 +1102,11 @@ El cuerpo es el mismo de la vista previa (`{ selecciones: [...] }`, hasta 50). L
 
 1. Bloquea al usuario (`FOR UPDATE`). Dos confirmaciones del mismo usuario corren una después de la otra.
 2. Busca la clave (BR-054). Si ya existe con la misma huella, devuelve ese ticket sin evaluar ni escribir. Si existe con otra huella, responde 409 `IDEMPOTENCY_KEY_REUSED`.
-3. Evalúa con `evaluateTicketInTransaction` (T-09), con los partidos, competiciones y deportes bloqueados. Si `valido` es `false`, responde 409 `TICKET_REJECTED` con la evaluación completa en `details` (`selecciones[].errores`, `errores` del saldo, costo y saldos) y no escribe nada.
+3. Evalúa con `evaluateTicketInTransaction` (T-09), con los partidos, competiciones y deportes bloqueados. Si `valido` es `false`, responde 409 `TICKET_REJECTED` con la evaluación completa en `details` (`selecciones[].errores`) y no escribe nada.
 4. Inserta el ticket (`creado_en` en UTC, al segundo), y cada selección con estado `pendiente` y `puntos_obtenidos` en NULL, en el orden recibido.
-5. Debita con `debitSelections`: un movimiento `seleccion_confirmada` de −1 por selección, cada uno con su `seleccion_id` (D19). El saldo se vuelve a comprobar con el usuario bloqueado.
-6. Relee el ticket y lo devuelve.
+5. Relee el ticket y lo devuelve. Desde C-13 no debita nada (hasta entonces, un movimiento `seleccion_confirmada` de −1 por selección).
 
-Cualquier error deshace todo: nunca queda un ticket sin débito, ni un débito sin ticket.
+Cualquier error deshace todo: nunca queda un ticket a medias.
 
 **Idempotencia (BR-054, EsquemaBD D20)**
 
@@ -1189,17 +1123,17 @@ Cualquier error deshace todo: nunca queda un ticket sin débito, ni un débito s
 
 ```json
 { "id": 7, "usuario": { "id": 3, "nombre": "Ana" }, "creadoEn": "2026-09-16T18:00:00.000Z",
-  "estado": "pendiente", "cantidadSelecciones": 2, "monedasUtilizadas": 2, "monedasDevueltas": 0, "puntosObtenidos": 0,
+  "estado": "pendiente", "cantidadSelecciones": 2, "puntosObtenidos": 0,
   "selecciones": [
     { "id": 21, "partido": { "...": "como en /public/partidos" }, "tipo": "resultado_general",
       "pronostico": "local_gana", "golesLocal": null, "golesVisitante": null,
-      "estado": "pendiente", "costo": 1, "puntosObtenidos": null } ] }
+      "estado": "pendiente", "puntosObtenidos": null } ] }
 ```
 
 Todo se calcula al leer; el ticket no guarda ninguno de estos valores (D13, D14):
 
 - **`estado`** (`ticketState`, BR-025 precisado): `pendiente` si alguna selección está pendiente; si no, `anulado` si todas se anularon, y `finalizado` en otro caso.
-- **`monedasUtilizadas`**: selecciones × `COSTO_POR_SELECCION`. **`monedasDevueltas`**: la suma de los movimientos `devolucion_cancelacion` de sus selecciones (D-003 de `docs/decisiones.md`, T-17). Antes contaba las selecciones anuladas; una anulada sin débito, o de una cuenta admin (D-002), no devolvió nada.
+- **Sin monedas desde C-13**: el comprobante ya no lleva `monedasUtilizadas`, `monedasDevueltas`, `monedasGanadas` ni el `costo` de cada selección.
 - **`resultadoReal`** de cada selección (desde T-11): `{ golesLocal, golesVisitante, resultado }` solo con el partido finalizado y completo, si no `null`.
 - **`puntosObtenidos`**: la suma de los puntos ya liquidados.
 - El partido muestra el marcador con la regla pública (solo finalizado y completo).
@@ -1211,12 +1145,13 @@ Todo se calcula al leer; el ticket no guarda ninguno de estos valores (D13, D14)
 **Pruebas**
 
 - `tests/tickets.test.ts`:
-  - Tickets de una y de varias selecciones, de varios partidos, contradictorias y de los dos tipos, con un débito por selección.
-  - Rechazo total por cada causa, sin escribir nada. Saldo exacto, insuficiente y excedido. Cierre justo en el borde.
+  - Tickets de una y de varias selecciones, de varios partidos y de los dos tipos, sin débito. Un participante con 0 monedas apuesta; un saldo viejo no cambia.
+  - El límite de C-13: repetida en el ticket, en un ticket posterior, liberada por una anulada.
+  - Rechazo total por cada causa, sin escribir nada. Cierre justo en el borde.
   - Idempotencia: claves inválidas, repetición en cualquier combinación de mayúsculas, cuerpo distinto, clave libre tras un rechazo, claves por usuario, 12 pedidos en paralelo con la misma clave, y un reintento por deadlock real.
-  - 15 pedidos en paralelo con saldo para 10: pasan exactamente 10 y el saldo nunca queda negativo.
+  - 12 tickets en paralelo con la misma apuesta y claves distintas: entra exactamente uno; dos idénticos a la vez: uno; uno de cada tipo a la vez: los dos.
   - Comprobante: dueño, ajeno, admin, pendiente e inexistente. Acceso: 401, 403 y CSRF.
-  - Al final, `checkCoinConsistency` (lo mismo que `npm run coins:check`) no encuentra descuadres.
+  - Al final, ningún movimiento de monedas y ningún saldo cambiado.
 - `tests/concurrency-stress.test.ts` ahora confirma tickets reales por HTTP: la misma clave tres veces en paralelo por ronda (un solo ticket), más un ticket rechazado y una evaluación, contra las acciones del admin.
 
 ## Apuestas de todos (C-07)
@@ -1238,12 +1173,12 @@ Módulo Polla (`services/bet-history.service.ts`). Muestra el historial propio (
 
 | Ruta | Respuesta |
 |---|---|
-| `GET /apuestas/mis-apuestas` | Paginado. Una fila por selección (`MyBet`): los campos de la selección del comprobante más `ticket: { id, creadoEn, estado, cantidadSelecciones, monedasUtilizadas, monedasDevueltas, puntosObtenidos }`. Filtros: `estado` (de la selección), `estadoTicket`, `ticketId`, `partidoId`, `deporteId`, `competicionId`, `desde` y `hasta` (sobre la fecha del ticket). |
-| `GET /apuestas/mis-apuestas/resumen` | `{ tickets: { total, pendiente, finalizado, anulado }, selecciones: { total, pendiente, acertada, no_acertada, anulada }, monedasUtilizadas, monedasDevueltas, puntos, aciertos }`. Sin query. |
+| `GET /apuestas/mis-apuestas` | Paginado. Una fila por selección (`MyBet`): los campos de la selección del comprobante más `ticket: { id, creadoEn, estado, cantidadSelecciones, puntosObtenidos }`. Filtros: `estado` (de la selección), `estadoTicket`, `ticketId`, `partidoId`, `deporteId`, `competicionId`, `desde` y `hasta` (sobre la fecha del ticket). |
+| `GET /apuestas/mis-apuestas/resumen` | `{ tickets: { total, pendiente, finalizado, anulado }, selecciones: { total, pendiente, acertada, no_acertada, anulada }, puntos, aciertos }`. Sin query. |
 
 **Decisiones**
 
-- **Acceso**: `requireParticipant`, como `/monedas`. Un `pendiente` recibe la lista vacía y el resumen en cero, sin error, porque la pantalla puede mostrarse igual. Un admin recibe 403 `NOT_A_PARTICIPANT`: no participa (BR-001), y un 403 claro evita que el frontend le muestre una sección de apuestas vacía. Todas las consultas filtran por `ticket.usuario_id` del usuario de la sesión, y la query no acepta `usuarioId`.
+- **Acceso**: `requireParticipant`. Un `pendiente` recibe la lista vacía y el resumen en cero, sin error, porque la pantalla puede mostrarse igual. Un admin recibe 403 `NOT_A_PARTICIPANT`: no participa (BR-001), y un 403 claro evita que el frontend le muestre una sección de apuestas vacía. Todas las consultas filtran por `ticket.usuario_id` del usuario de la sesión, y la query no acepta `usuarioId`.
 - **Una fila por selección, no un ticket con sus selecciones.**
   - BR-026 enumera columnas de una apuesta: partido, tipo, pronóstico, resultado real, estado y puntos.
   - Los filtros también son por selección (estado, partido, deporte): con tickets agrupados, habría que decidir si un ticket con una sola selección que coincide muestra las demás.
@@ -1253,7 +1188,7 @@ Módulo Polla (`services/bet-history.service.ts`). Muestra el historial propio (
 - **Resultado real** (`resultadoReal: { golesLocal, golesVisitante, resultado }`): solo con el partido `finalizado` y los dos goles cargados, la misma regla que BR-049 (`realResult`). `resultado` es el resultado general de BR-029 (`resultOfScore`). En cualquier otro caso es `null`, y el partido tampoco muestra goles.
 - **Estado del ticket**: la regla de `ticketStateFromCounts` (`lib/betting.ts`). El filtro `estadoTicket` y el resumen usan su versión SQL, `ticketStateCondition`, y una prueba compara las dos para todas las combinaciones.
 - **Aciertos y puntos** (BR-042 precisado): aciertos son las selecciones en estado `acertada` de cualquier tipo, y puntos, la suma de `puntos_obtenidos`. T-15 debe usar las mismas definiciones.
-- **Monedas**: utilizadas = selecciones × 1; devueltas = la suma de las devoluciones registradas (D-003), con un `LEFT JOIN` a `movimiento_moneda` por `uq_movimiento_seleccion_tipo` (a lo sumo una por selección, así que no duplica filas). Lo mismo en el comprobante, el resumen y las estadísticas del admin.
+- **Sin monedas desde C-13**: ni utilizadas, ni devueltas, ni ganadas; las consultas ya no leen `movimiento_moneda`.
 - **Privacidad**: nunca aparecen la clave de idempotencia, la huella, el email, el saldo ni datos de otro usuario. Una prueba revisa todas las claves de la respuesta.
 
 **Rendimiento** (medido con 20 usuarios, 1000 tickets y 3000 selecciones cada uno):
@@ -1283,7 +1218,7 @@ Módulo Polla (`services/bet-history.service.ts`). Muestra el historial propio (
 
 **Problema que se corrigió.** La evaluación del ticket bloqueaba con una sola consulta con JOIN (`... WHERE p.id IN (?) ORDER BY p.id FOR SHARE OF p, d`). Esa consulta no tiene un plan fijo: según las estadísticas, MySQL entraba por `estado_partido` y tomaba next-key locks sobre el índice `fk_partido_estado` (todos los partidos de ese estado, más el supremum). El `UPDATE partido SET estado_partido_id` de `changeMatchState` necesita modificar ese índice, y se formaba un ciclo: el tester vio 6 deadlocks en 8 rondas. `ORDER BY p.id` no fija el orden en que se toman los bloqueos.
 
-**Varios usuarios a la vez (corrección de C-09): `lockRowsById`** (`db/locks.ts`). `WHERE id IN (2, 3) ... FOR UPDATE` sobre una tabla chica (`usuario` en pruebas y en desarrollo) se planifica como un recorrido completo de la clave primaria (`type: index`) y bloquea filas que la lista no nombra. Así una confirmación que pagaba a dos apostadores tuvo la fila del admin y se trabó con una edición del admin cuya auditoría necesitaba esa fila (3 a 5 deadlocks por corrida del estrés). `lockRowsById` hace una lectura puntual por fila (`WHERE id = ?`, siempre `const`), en un `UNION ALL` de hasta 500 y en orden ascendente. La usan la liquidación, la cancelación y los lotes de monedas.
+**Varios usuarios a la vez (corrección de C-09; `lockRowsById` se quitó en C-13 al quedar sin usos).** `WHERE id IN (2, 3) ... FOR UPDATE` sobre una tabla chica (`usuario` en pruebas y en desarrollo) se planifica como un recorrido completo de la clave primaria (`type: index`) y bloquea filas que la lista no nombra. Así una confirmación que pagaba a dos apostadores tuvo la fila del admin y se trabó con una edición del admin cuya auditoría necesitaba esa fila (3 a 5 deadlocks por corrida del estrés). `lockRowsById` hace una lectura puntual por fila (`WHERE id = ?`, siempre `const`), en un `UNION ALL` de hasta 500 y en orden ascendente. La usaban la liquidación, la cancelación y los lotes de monedas; desde C-13 ninguna bloquea usuarios. Si otra operación necesita bloquear varias filas de una tabla chica, conviene volver a esa lectura puntual.
 
 **Reglas para toda transacción que bloquee:**
 
@@ -1301,7 +1236,6 @@ Cómo lo cumple cada escritura:
 |---|---|
 | Confirmar un ticket (T-10) | usuario X → (búsqueda de la clave) → partidos S → competiciones S → deportes S (`lockAndReadMatches`) → inserta el ticket y las selecciones (la FK a `partido` usa el bloqueo que ya tiene) → débito, con el usuario ya bloqueado |
 | Evaluar un ticket (T-09) | usuario X → partidos S → competiciones S → deportes S (`lockAndReadMatches`) |
-| Monedas (T-05) | usuario X (`applyCoinMovements`, sentencia simple; el rol se lee después) |
 | Participantes (T-04) | usuario X (UPDATE condicional por id) |
 | `updateMatch`, `deleteMatch` (T-07) | partido X → (si cambian los equipos) equipos S → competición S (`checkTeams`) |
 | `createMatch` | equipos S → competición S |
@@ -1309,7 +1243,7 @@ Cómo lo cumple cada escritura:
 | Goles (T-13) | partido X → plantel S (por clave primaria) → escribe `gol` |
 | Multimedia (T-13) | partido X → escribe `multimedia_partido` o `gol` (los archivos, fuera de la transacción) |
 | `confirmResult` (T-12) | partido X → competición S → deporte S → liquidador (T-14): lee sin bloqueo los ids pendientes del partido y los actualiza por clave primaria (seleccion X, solo esas filas) |
-| `cancelMatch` (T-16, `READ COMMITTED`) | (lectura sin bloqueo de los apostadores afectados) → apostadores X, en orden de id → partido X → (relectura; si apareció un usuario nuevo, empieza de nuevo) → seleccion X por clave primaria → devoluciones (los mismos usuarios, ya bloqueados) → partido `cancelado` |
+| `cancelMatch` (T-16, `READ COMMITTED`) | partido X → (lectura de las pendientes) → seleccion X por clave primaria → partido `cancelado`. Desde C-13 no bloquea usuarios ni vuelve a empezar |
 | Auditoría (T-17), al final de cualquiera de estas | lecturas sin bloqueo → `INSERT` en `auditoria` (por las FK, S sobre el admin en `usuario` y sobre `accion_auditoria`; nadie toma X sobre esas filas) |
 | Plantel (T-06) | plantel X, o equipo S al crear |
 | `updateTeam`, `updateCompetition`, `updateSport`, jugador (T-06) | su propia fila X |
@@ -1330,7 +1264,7 @@ Las claves foráneas también toman bloqueos compartidos sobre la fila padre al 
   - Otra prueba evalúa un ticket con un `partidoId` inexistente: no debe quedar ningún bloqueo de hueco (tampoco sobre el supremum de `partido.PRIMARY`), y otra transacción puede crear un partido mientras tanto.
 - `tests/concurrency-stress.test.ts` (unos 15 s): 25 rondas sobre unos 50 partidos.
   - En cada ronda corren en paralelo 3 tickets (uno apuesta de verdad como hará T-10, otro es rechazado y otro solo evalúa) y las acciones del admin: postergar, adelantar, editar partidos con las apuestas cerradas (desde T-13 no hay cambios de estado manuales), cambiar `permite_empate` y cargar y confirmar un resultado. Los tickets incluyen los partidos que el admin toca en esa ronda.
-  - Exige cero deadlocks (ni siquiera uno absorbido por el reintento), ningún 500, ningún `CONCURRENT_UPDATE` y saldos coherentes. Con root, revisa además que el último deadlock de `SHOW ENGINE INNODB STATUS` no sea de la base de pruebas.
+  - Exige cero deadlocks (ni siquiera uno absorbido por el reintento), ningún 500, ningún `CONCURRENT_UPDATE`, ningún movimiento de monedas y los saldos intactos (C-13). Con root, revisa además que el último deadlock de `SHOW ENGINE INNODB STATUS` no sea de la base de pruebas.
   - Con el plan del tester forzado en la consulta vieja, esta prueba detectó entre 10 y 19 deadlocks por corrida (todos resueltos por el reintento, sin 500).
   - Para correrla sola varias veces: `npx vitest run tests/concurrency-stress.test.ts`.
 
@@ -1395,7 +1329,7 @@ El servicio `server` corre como `node` (uid 1000), no como root (corrección de 
 
 - Docker copia ese dueño al volumen `uploads-data` cuando lo monta vacío. Se verificó con el volumen existente (vacío): quedó de `node`, y una subida real se guardó con uid 1000.
 - Si el volumen ya tuviera archivos de root (por ejemplo, subidas hechas antes de este cambio), el backend no podría escribir y las subidas darían 500. Se corrige una vez con `docker compose run --rm --user root server chown -R node:node /data/uploads`.
-- `docker compose exec server ...` (por ejemplo `admin:create` o `coins:check`) también corre como `node`, y no necesita más.
+- `docker compose exec server ...` (por ejemplo `admin:create` o `seed:dev`) también corre como `node`, y no necesita más.
 
 ### Sobre la recarga en caliente dentro de Docker
 

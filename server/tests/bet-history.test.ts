@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Express } from 'express';
-import type { Pool, RowDataPacket } from 'mysql2/promise';
+import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ESTADOS_TICKET, ticketStateCondition, ticketStateFromCounts } from '../src/lib/betting.js';
-import { applyCoinMovementsInTransaction } from '../src/services/coins.service.js';
 import { createTestApp } from './helpers/app.js';
 import { signedInUser } from './helpers/auth.js';
 import { type AdminApi, adminApi, created, insertMatch, teamBody } from './helpers/catalog.js';
@@ -18,10 +17,10 @@ type Session = Awaited<ReturnType<typeof signedInUser>>;
 /** Every key the history may return. Anything else (email, saldo, clave, huella...) fails the privacy test. */
 const ALLOWED_KEYS = new Set([
 	'data', 'items', 'page', 'pageSize', 'total', 'totalPages',
-	'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'monedasUtilizadas', 'monedasDevueltas', 'monedasGanadas', 'puntosObtenidos',
+	'ticket', 'id', 'creadoEn', 'estado', 'cantidadSelecciones', 'puntosObtenidos',
 	'partido', 'competicion', 'deporte', 'nombre', 'slug', 'permiteEmpate', 'jornada', 'fechaHora', 'sede',
 	'local', 'visita', 'equipo', 'goles', 'competicionId', 'nombreCorto', 'escudo', 'colorAcento',
-	'resultadoReal', 'golesLocal', 'golesVisitante', 'resultado', 'tipo', 'pronostico', 'costo',
+	'resultadoReal', 'golesLocal', 'golesVisitante', 'resultado', 'tipo', 'pronostico',
 ]);
 
 function keysOf(value: unknown, into = new Set<string>()): Set<string> {
@@ -81,12 +80,9 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 	const general = (partidoId: number, pronostico: string) => ({ partidoId, tipo: 'resultado_general', pronostico });
 	const exact = (partidoId: number, golesLocal: number, golesVisitante: number) => ({ partidoId, tipo: 'marcador_exacto', golesLocal, golesVisitante });
 
-	/** What T-14 and T-16 do, by hand. Voiding also refunds the coin, as a cancellation does (D-003: refunds come from the movements). */
+	/** What T-14 and T-16 do, by hand (no refund since C-13). */
 	const setSelection = async (id: number, estado: string, puntos: number | null) => {
 		await pool.query('UPDATE seleccion SET estado_seleccion_id = (SELECT id FROM estado_seleccion WHERE codigo = ?), puntos_obtenidos = ? WHERE id = ?', [estado, puntos, id]);
-		if (estado !== 'anulada') return;
-		const [[owner]] = await pool.query<RowDataPacket[]>('SELECT t.usuario_id FROM seleccion s JOIN ticket t ON t.id = s.ticket_id WHERE s.id = ?', [id]);
-		await applyCoinMovementsInTransaction(pool, Number(owner!.usuario_id), [{ tipo: 'devolucion_cancelacion', seleccionId: id }]);
 	};
 	const setMatch = (id: number, estado: string) =>
 		pool.query('UPDATE partido SET estado_partido_id = (SELECT id FROM estado_partido WHERE codigo = ?) WHERE id = ?', [estado, id]);
@@ -125,8 +121,19 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 		const { m1, m2, m3, m4 } = s.match as Record<string, number>;
 		const t1 = await confirm(ana, [general(m1!, 'local_gana'), exact(m1!, 2, 1)]);
 		const t2 = await confirm(ana, [general(m2!, 'empate'), general(m3!, 'local_gana'), general(m4!, 'local_gana')]);
-		const t3 = await confirm(ana, [general(m2!, 'visitante_gana')]);
-		const t4 = await confirm(ana, [general(m1!, 'empate')]);
+		const t3 = await confirm(ana, [exact(m2!, 0, 1)]);
+		// A second general result on m1: loaded by hand, as a repeat placed before C-13 (the app refuses it now, BR-017).
+		const [legacy] = await pool.query<ResultSetHeader>(
+			'INSERT INTO ticket (usuario_id, creado_en, clave_idempotencia, huella_solicitud) VALUES (?, UTC_TIMESTAMP(), UUID(), SHA2(UUID(), 256))',
+			[ana.user.id],
+		);
+		const [legacySel] = await pool.query<ResultSetHeader>(
+			`INSERT INTO seleccion (ticket_id, partido_id, tipo_apuesta_id, pronostico_resultado_id, estado_seleccion_id)
+			SELECT ?, ?, ta.id, rg.id, es.id FROM tipo_apuesta ta, resultado_general rg, estado_seleccion es
+			WHERE ta.codigo = 'resultado_general' AND rg.codigo = 'empate' AND es.codigo = 'pendiente'`,
+			[legacy.insertId, m1],
+		);
+		const t4 = { id: legacy.insertId, selecciones: [{ id: legacySel.insertId }] };
 		s.betoTicket = (await confirm(beto, [general(m1!, 'visitante_gana')])).id;
 		s.ticket = { t1: t1.id, t2: t2.id, t3: t3.id, t4: t4.id };
 		const [s1, s2] = t1.selecciones.map((x) => x.id);
@@ -163,7 +170,7 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 			expect((await request(app).get('/apuestas/mis-apuestas/resumen')).status).toBe(401);
 		});
 
-		it('an admin: 403 NOT_A_PARTICIPANT, like /monedas', async () => {
+		it('an admin: 403 NOT_A_PARTICIPANT', async () => {
 			for (const res of [await history('', api.admin as Session), await summary(api.admin as Session)]) {
 				expect(res.status).toBe(403);
 				expect(res.body.error.code).toBe('NOT_A_PARTICIPANT');
@@ -180,9 +187,6 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 			expect(sum.body.data).toEqual({
 				tickets: { total: 0, pendiente: 0, finalizado: 0, anulado: 0 },
 				selecciones: { total: 0, pendiente: 0, acertada: 0, no_acertada: 0, anulada: 0 },
-				monedasUtilizadas: 0,
-				monedasDevueltas: 0,
-				monedasGanadas: 0,
 				puntos: 0,
 				aciertos: 0,
 			});
@@ -211,10 +215,6 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 					creadoEn: '2026-01-01T10:00:00.000Z',
 					estado: 'finalizado',
 					cantidadSelecciones: 2,
-					monedasUtilizadas: 2,
-					monedasDevueltas: 0,
-					// Settled by hand, as before C-09: right, but no prize movement, so nothing won (D-038).
-					monedasGanadas: 0,
 					puntosObtenidos: 6,
 				},
 				partido: expect.objectContaining({
@@ -231,9 +231,7 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 				golesLocal: 2,
 				golesVisitante: 1,
 				estado: 'acertada',
-				costo: 1,
 				puntosObtenidos: 3,
-				monedasGanadas: 0,
 			});
 			expect(bySel.get(s.sel.s7)).toMatchObject({
 				tipo: 'resultado_general',
@@ -248,7 +246,7 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 				puntosObtenidos: null,
 				resultadoReal: null,
 				partido: { estado: 'cancelado' },
-				ticket: { id: s.ticket.t3, estado: 'anulado', monedasUtilizadas: 1, monedasDevueltas: 1 },
+				ticket: { id: s.ticket.t3, estado: 'anulado', cantidadSelecciones: 1 },
 			});
 			for (const key of ['s3', 's4', 's5']) {
 				expect(bySel.get(s.sel[key])!.ticket).toEqual({
@@ -256,9 +254,6 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 					creadoEn: '2026-02-01T10:00:00.000Z',
 					estado: 'pendiente',
 					cantidadSelecciones: 3,
-					monedasUtilizadas: 3,
-					monedasDevueltas: 1,
-					monedasGanadas: 0,
 					puntosObtenidos: 0,
 				});
 			}
@@ -347,9 +342,6 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 			expect(res.body.data).toEqual({
 				tickets: { total: 4, pendiente: 1, finalizado: 2, anulado: 1 },
 				selecciones: { total: 7, pendiente: 2, acertada: 2, no_acertada: 1, anulada: 2 },
-				monedasUtilizadas: 7,
-				monedasDevueltas: 2,
-				monedasGanadas: 0,
 				puntos: 6,
 				aciertos: 2,
 			});
@@ -363,7 +355,6 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 			expect((await summary(beto)).body.data).toMatchObject({
 				tickets: { total: 1, pendiente: 1 },
 				selecciones: { total: 1, pendiente: 1 },
-				monedasUtilizadas: 1,
 				puntos: 0,
 			});
 		});
@@ -429,9 +420,6 @@ describe('my bets (T-11: BR-026, BR-027, BR-025, BR-029)', () => {
 				expect(sel.total).toBe(sel.pendiente + sel.acertada + sel.no_acertada + sel.anulada);
 				expect(d.tickets.total).toBe(d.tickets.pendiente + d.tickets.finalizado + d.tickets.anulado);
 				expect(d.aciertos).toBe(sel.acertada);
-				expect(d.monedasUtilizadas).toBe(sel.total);
-				// D-003: this writer voids by hand and never refunds, so nothing came back.
-				expect(d.monedasDevueltas).toBe(0);
 
 				const page = list.body.data;
 				if (page.total <= 100) expect(page.items.length).toBe(page.total);

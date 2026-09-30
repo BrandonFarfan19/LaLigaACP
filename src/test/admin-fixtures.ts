@@ -38,11 +38,6 @@ export const stats: PoolStats = {
 	participantes: { inscritos: 3, validados: 1, pendientes: 2 },
 	tickets: { total: 4, pendiente: 2, finalizado: 1, anulado: 1 },
 	selecciones: { total: 7, pendiente: 3, acertada: 2, no_acertada: 1, anulada: 1 },
-	monedasUtilizadas: 7,
-	monedasDevueltas: 1,
-	// C-09: one right general result (1) and one right exact score (2).
-	monedasGanadas: 3,
-	monedasDisponibles: 4,
 	puntos: 6,
 	aciertos: 2,
 };
@@ -54,7 +49,6 @@ export const participant = (overrides: Partial<AdminParticipant> = {}): AdminPar
 	email: 'rosa@liga.test',
 	estadoValidacion: 'pendiente',
 	estadoPago: 'pendiente',
-	saldoMonedas: 0,
 	puntos: 0,
 	...overrides,
 });
@@ -133,8 +127,6 @@ export const resultPreview = (overrides: Partial<ResultPreview> = {}): ResultPre
 export const confirmedResult = (partido: AdminMatch, golesLocal: number, golesVisitante: number) => ({
 	partido,
 	resultado: { golesLocal, golesVisitante, resultado: golesLocal > golesVisitante ? 'local_gana' : golesLocal === golesVisitante ? 'empate' : 'visitante_gana' },
-	// C-09: what the confirmation paid, as the backend answers it.
-	premios: { selecciones: 2, monedas: 3, participantes: 2 },
 });
 
 export const goal = (overrides: Partial<AdminGoal> = {}): AdminGoal => ({
@@ -155,8 +147,6 @@ export const noMedia: MatchMedia = { imagenes: [], videos: [] };
 /** The figures both the preview and the confirmation carry (`CancellationFigures`). */
 export const cancellationFigures = (overrides: Partial<CancellationPreview> = {}) => ({
 	selecciones: 4,
-	monedasDevueltas: 3,
-	seleccionesSinDevolucion: { total: 1, sinDebito: 0, cuentaAdministrador: 1 },
 	usuarios: 2,
 	tickets: 3,
 	ticketsAnulados: 1,
@@ -168,7 +158,7 @@ export const cancellation = (overrides: Partial<CancellationPreview> = {}): Canc
 	...cancellationFigures(),
 	puedeCancelar: true,
 	problemas: [],
-	advertencia: 'Cancelar el partido es definitivo: sus apuestas pendientes quedan anuladas, se devuelve 1 moneda por cada una y el partido ya no se puede reprogramar ni reactivar.',
+	advertencia: 'Cancelar el partido es definitivo: sus apuestas pendientes quedan anuladas, sin puntos, y el partido ya no se puede reprogramar ni reactivar.',
 	...overrides,
 });
 

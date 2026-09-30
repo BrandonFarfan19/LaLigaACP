@@ -1,7 +1,6 @@
 import { useRef } from 'react';
 import { Link, type LoaderFunctionArgs, useLoaderData } from 'react-router';
 import { type Column, DataTable, FilterForm, type FilterField, FilterProblems, LoadNotice, Pager } from '../../components/admin/AdminUi';
-import CoinAmount from '../../components/CoinAmount';
 import StateTag from '../../components/StateTag';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useArrivalFocus, useKept } from '../../hooks/useKept';
@@ -101,14 +100,6 @@ export default function ApuestasAdmin() {
 		},
 		{ header: 'Estado', cell: (b) => <StateTag state={b.estado} kind="seleccion" /> },
 		{ header: 'Puntos', cell: (b) => b.puntosObtenidos ?? (b.estado === 'anulada' ? 'Sin puntos' : 'Por definir') },
-		{ header: 'Ganó', cell: (b) => (b.monedasGanadas > 0 ? <CoinAmount amount={b.monedasGanadas} signed /> : '—') },
-		{
-			header: 'Monedas del ticket',
-			cell: (b) =>
-				`${b.ticket.monedasUtilizadas} ${b.ticket.monedasUtilizadas === 1 ? 'usada' : 'usadas'}${
-					b.ticket.monedasDevueltas > 0 ? `, ${b.ticket.monedasDevueltas} ${b.ticket.monedasDevueltas === 1 ? 'devuelta' : 'devueltas'}` : ''
-				}${b.ticket.monedasGanadas > 0 ? `, ${b.ticket.monedasGanadas} ${b.ticket.monedasGanadas === 1 ? 'ganada' : 'ganadas'}` : ''}`,
-		},
 	];
 
 	return (
