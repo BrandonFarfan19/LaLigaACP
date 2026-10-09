@@ -362,7 +362,7 @@ Se usa dos veces: como pronóstico de una `seleccion` de tipo `resultado_general
 
 - `CHECK`: exactamente una de las dos formas de pronóstico tiene valor (igual patrón que la vieja `ck_mercado_objetivo`, sin depender de otra tabla).
 - **Backend:** que la forma usada corresponda al `tipo_apuesta` (por `codigo`), que el partido esté `programado` y dentro del plazo (BR-014, `fecha_hora − 1h` desde C-12; eran 24 h) y, desde C-13, que el participante no tenga ya una selección de ese tipo en ese partido (BR-017). Hasta C-13 también que el costo de 1 moneda (D11) no superara el saldo (BR-021, derogada).
-- `CHECK (puntos_obtenidos IN (0, 1, 3))`: son los únicos valores que produce la tabla de puntuación (BR-035 a BR-038).
+- `CHECK (puntos_obtenidos IN (0, 1, 3, 5))`: los valores de la tabla de puntuación (BR-035 a BR-038). Desde C-15 (D-044) acertar el resultado general da 3, también el empate, y el marcador exacto da 5; ya nada escribe un 1, que el `CHECK` sigue admitiendo. Las bases con datos lo reciben con `db/migraciones/C-15-puntos.sql`, que además recalcula las selecciones ya liquidadas.
 - Índice `idx_seleccion_ticket_estado (ticket_id, estado_seleccion_id, puntos_obtenidos)` (T-11): calcula el estado, las monedas y los puntos de cada ticket leyendo solo el índice. También es el índice de la FK a `ticket`, que antes tenía uno propio. Con 1000 tickets y 3000 selecciones de un usuario, la página de "Mis apuestas" pasó de unos 28 ms a 16 ms, y el resumen de 21 ms a 12 ms.
 - Índice `idx_seleccion_partido_estado (partido_id, estado_seleccion_id)` (T-14): las selecciones pendientes de un partido, que se liquidan al confirmar su resultado y que cuenta su vista previa. También es el índice de la FK a `partido`, que antes tenía uno propio (`fk_seleccion_partido`). Con 5000 selecciones pendientes en un partido, la liquidación hace 8 sentencias.
 - **Backend (T-14):** al confirmar el resultado, cada selección `pendiente` del partido pasa a `acertada` (con 3 o 1 puntos) o `no_acertada` (con 0), según la tabla de "Reglas del backend". Las `anulada` y las ya liquidadas no cambian, y ningún punto genera un movimiento de monedas (BR-039). **De C-09 a C-13 (BR-057, derogada por C-13)**, en esa misma transacción, cada selección que pasa a `acertada` de un ticket de apostador recibe su premio: un `movimiento_moneda` `premio_resultado_general` (+1) o `premio_marcador_exacto` (+2) con su `seleccion_id`. El premio sale del acierto, no de los puntos.
@@ -440,8 +440,8 @@ El backend mapea cada acción de la aplicación a su código en un solo lugar (`
 | Tipo de apuesta | Condición | Puntos |
 |---|---|---|
 | `resultado_general` | Acierta el ganador | +3 |
-| `resultado_general` | Acierta el empate | +1 |
-| `marcador_exacto` | Acierta ambos goles | +3 |
+| `resultado_general` | Acierta el empate | +3 |
+| `marcador_exacto` | Acierta ambos goles | +5 |
 | Cualquiera | No acierta | 0 |
 
 **Liquidar un partido.** Se dispara cuando el admin confirma el resultado y el partido pasa a `finalizado` (D10):

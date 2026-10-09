@@ -400,7 +400,7 @@ CREATE TABLE seleccion (
     OR
     (pronostico_resultado_id IS NULL AND pronostico_goles_local IS NOT NULL AND pronostico_goles_visitante IS NOT NULL)
   ),
-  CONSTRAINT ck_seleccion_puntos CHECK (puntos_obtenidos IS NULL OR puntos_obtenidos IN (0, 1, 3))
+  CONSTRAINT ck_seleccion_puntos CHECK (puntos_obtenidos IS NULL OR puntos_obtenidos IN (0, 1, 3, 5))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Tabla 28 de business-rules.md: solo los eventos que mueven monedas.

@@ -86,8 +86,8 @@ Desde C-13 (D-042) no hay monedas: estas reglas quedan derogadas y se conservan 
 |---|---|---|---|
 | **BR-034** Procesamiento | `settleMatchBets` dentro de la confirmación: cada selección pendiente del partido, una por una | `settlement.test.ts` | Cumplida |
 | **BR-035** Ganador (+3) | `lib/points.ts` (`PUNTOS_GANADOR`) y `settleSelection` | `settlement.test.ts` (regla en TS y en SQL comparadas) | Cumplida |
-| **BR-036** Empate (+1) | `PUNTOS_EMPATE` | `settlement.test.ts` | Cumplida |
-| **BR-037** Marcador exacto (+3) | `PUNTOS_MARCADOR_EXACTO` | `settlement.test.ts` | Cumplida |
+| **BR-036** Empate (+3, D-044) | `PUNTOS_EMPATE` | `settlement.test.ts` | Cumplida |
+| **BR-037** Marcador exacto (+5, D-044) | `PUNTOS_MARCADOR_EXACTO` | `settlement.test.ts` | Cumplida |
 | **BR-038** Evaluación independiente | Una fila por selección, evaluadas por separado (también repetidas y contradictorias) | `settlement.test.ts` | Cumplida |
 | **BR-039** Monedas y puntos separados | Desde C-13 la polla es solo por puntos: la liquidación asigna puntos y nada más (`settleMatchSelections` no bloquea usuarios ni escribe movimientos) | `settlement.test.ts` (la confirmación no mueve monedas ni las menciona) | Cumplida (precisión C-13) |
 | **BR-040** Cálculo automático | Ocurre en la misma transacción que la confirmación (sin premios desde C-13); si algo falla, no queda confirmada | `settlement.test.ts`, `results.test.ts` | Cumplida |

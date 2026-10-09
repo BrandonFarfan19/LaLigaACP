@@ -5,17 +5,17 @@ import type { OfficialResult, ResultadoGeneralCodigo } from './match-result.js';
  * Pool points (table 27 of business-rules.md, BR-035 to BR-038). The only
  * place these numbers live. Since C-13 (D-042) the pool is measured with
  * points only: there are no coins (BR-039).
- * `seleccion.puntos_obtenidos` only admits these values (`ck_seleccion_puntos`).
+ * `seleccion.puntos_obtenidos` admits these values (`ck_seleccion_puntos`), plus the 1 a right draw earned before C-15.
  */
 
 /** BR-035: the right winner (`resultado_general`, local or visitante). */
 export const PUNTOS_GANADOR = 3;
 
-/** BR-036: the right draw (`resultado_general` = `empate`). */
-export const PUNTOS_EMPATE = 1;
+/** BR-036: the right draw (`resultado_general` = `empate`), worth the same as the right winner. */
+export const PUNTOS_EMPATE = 3;
 
 /** BR-037: both sides of the score right (`marcador_exacto`). */
-export const PUNTOS_MARCADOR_EXACTO = 3;
+export const PUNTOS_MARCADOR_EXACTO = 5;
 
 /** Table 27: any wrong selection. */
 export const PUNTOS_FALLO = 0;

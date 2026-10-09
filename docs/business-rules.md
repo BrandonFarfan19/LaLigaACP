@@ -795,7 +795,7 @@ Si el usuario apostó correctamente por el equipo ganador:
 
 Si el usuario apostó correctamente por empate:
 
-`+1 punto`
+`+3 puntos`, igual que el ganador (C-15, D-044; antes era +1)
 
 ---
 
@@ -808,7 +808,7 @@ Si el usuario acertó exactamente:
 
 Obtendrá:
 
-`+3 puntos`
+`+5 puntos` (C-15, D-044; antes era +3)
 
 ---
 
@@ -935,7 +935,7 @@ Precisiones (T-20):
 * La fila propia se distingue con una marca escrita (no solo con color). Si no está en la lista, se muestra aparte, al final.
 * El ranking se vuelve a calcular al entrar a la pantalla o al pedir que se actualice. La pantalla avisa si se actualizó o si falló; si falla, sigue mostrando el ranking anterior.
 
-Precisión (T-11): una **apuesta acertada** es una selección en estado Acertada, de cualquier tipo. Cuenta igual un ganador (+3), un empate (+1) o un marcador exacto (+3). Las anuladas y las no acertadas no cuentan. Los **puntos totales** son la suma de los puntos de las selecciones liquidadas. El resumen de "Mis apuestas" usa estas mismas definiciones.
+Precisión (T-11): una **apuesta acertada** es una selección en estado Acertada, de cualquier tipo. Cuenta igual un ganador (+3), un empate (+3) o un marcador exacto (+5). Las anuladas y las no acertadas no cuentan. Los **puntos totales** son la suma de los puntos de las selecciones liquidadas. El resumen de "Mis apuestas" usa estas mismas definiciones.
 
 ---
 
@@ -1396,8 +1396,8 @@ Precisión (C-13, D-042): no se devuelven monedas ni cambia ningún saldo; las a
 | Tipo de apuesta   | Condición                      |                   Puntos |
 | ----------------- | ------------------------------ | -----------------------: |
 | Ganador           | Acertar equipo ganador         |                       +3 |
-| Empate            | Acertar empate                 |                       +1 |
-| Marcador exacto   | Acertar goles de ambos equipos |                       +3 |
+| Empate            | Acertar empate                 |                       +3 |
+| Marcador exacto   | Acertar goles de ambos equipos |                       +5 |
 | Incorrecta        | No acertar                     |                        0 |
 | Partido cancelado | Apuesta anulada                |                        0 |
 

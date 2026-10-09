@@ -560,8 +560,8 @@ interface TicketSeed {
  * T-20: tickets in every state, so "Mis apuestas" and the ranking have
  * something to show. Indexes point at `MATCHES`: 0 (2-1) and 1 (1-1) are
  * finished football, 3 is cancelled, 5 and 6 are open, 8 is finished volleyball
- * (3-1). Settled picks follow the points table (3 for a winner or an exact
- * score, 1 for a draw); Ana and Carla tie at the top with 6 points and 2 hits.
+ * (3-1). Settled picks follow the points table (3 for a winner or a draw, 5 for an exact
+ * score); Ana and Carla tie at the top with 8 points and 2 hits.
  */
 const TICKETS: TicketSeed[] = [
 	{
